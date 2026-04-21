@@ -231,15 +231,17 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
                 double vx = vel_dist(rng_init), vy = vel_dist(rng_init), vz = vel_dist(rng_init);
                 ParticleType t = quark_types[rng_init() % 3];
                 float cr, cg, cb; ParticlePool::defaultColor(t, cr, cg, cb);
-                st.particles.add(px, py, pz, vx, vy, vz, phys::m_p / 3.0, t, cr, cg, cb,
-                                 (t == ParticleType::QUARK_U) ? 2.0f/3.0f : -1.0f/3.0f);
+                size_t added = st.particles.add(px, py, pz, vx, vy, vz, phys::m_p / 3.0, t, cr, cg, cb,
+                                                (t == ParticleType::QUARK_U) ? 2.0f/3.0f : -1.0f/3.0f);
+                st.particles.luminosity[added] = 2.2f;
             }
             // Glúons mediadores
             for (int i = 0; i < N / 5; ++i) {
                 double px = pos_dist(rng_init), py = pos_dist(rng_init), pz = pos_dist(rng_init);
-                st.particles.add(px, py, pz,
-                                 vel_dist(rng_init), vel_dist(rng_init), vel_dist(rng_init),
-                                 phys::m_p * 0.01, ParticleType::GLUON, 1.0f, 0.8f, 0.2f, 0.0f);
+                size_t added = st.particles.add(px, py, pz,
+                                                vel_dist(rng_init), vel_dist(rng_init), vel_dist(rng_init),
+                                                phys::m_p * 0.01, ParticleType::GLUON, 1.0f, 0.8f, 0.2f, 0.0f);
+                st.particles.luminosity[added] = 2.8f;
             }
             break;
         }
@@ -255,9 +257,10 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
                 bool is_proton = (rng_init() % 8 != 0);
                 ParticleType t = is_proton ? ParticleType::PROTON : ParticleType::NEUTRON;
                 float cr, cg, cb; ParticlePool::defaultColor(t, cr, cg, cb);
-                st.particles.add(pos_dist(rng_init), pos_dist(rng_init), pos_dist(rng_init),
-                                 vel_dist(rng_init), vel_dist(rng_init), vel_dist(rng_init),
-                                 phys::m_p, t, cr, cg, cb);
+                size_t added = st.particles.add(pos_dist(rng_init), pos_dist(rng_init), pos_dist(rng_init),
+                                                vel_dist(rng_init), vel_dist(rng_init), vel_dist(rng_init),
+                                                phys::m_p, t, cr, cg, cb);
+                st.particles.luminosity[added] = is_proton ? 1.7f : 1.5f;
             }
             break;
         }
@@ -375,6 +378,10 @@ void RegimeManager::tick(CosmicClock& clock, Universe& universe) {
             std::printf("[REGIME] Transition %d→%d complete.\n",
                         transition_from_, transition_to_);
         }
+        universe.active_particles = static_cast<int>(
+            std::count_if(universe.particles.flags.begin(),
+                          universe.particles.flags.end(),
+                          [](uint32_t f){ return f & PF_ACTIVE; }));
         return;
     }
 
@@ -419,6 +426,11 @@ void RegimeManager::beginTransition(int from, int to, Universe& universe,
     InitialState st = buildInitialState(to);
     inheritStateAcrossTransition(from, to, universe, st);
     applyInitialState(to, st, universe);
+    std::printf("[REGIME] Entering regime %d with active_particles=%d\n",
+                to,
+                static_cast<int>(std::count_if(universe.particles.flags.begin(),
+                                               universe.particles.flags.end(),
+                                               [](uint32_t f){ return f & PF_ACTIVE; })));
 
     // Entrar no novo regime
     if (regimes_[to]) regimes_[to]->onEnter(universe);
@@ -448,7 +460,11 @@ void RegimeManager::jumpToRegime(int index, CosmicClock& clock, Universe& univer
 
     if (regimes_[idx]) regimes_[idx]->onEnter(universe);
 
-    std::printf("[REGIME] Jumped to regime %d.\n", idx);
+    std::printf("[REGIME] Jumped to regime %d with active_particles=%d.\n",
+                idx,
+                static_cast<int>(std::count_if(universe.particles.flags.begin(),
+                                               universe.particles.flags.end(),
+                                               [](uint32_t f){ return f & PF_ACTIVE; })));
 }
 
 // ── Renderização ───────────────────────────────────────────────────────────────────
@@ -456,12 +472,10 @@ void RegimeManager::jumpToRegime(int index, CosmicClock& clock, Universe& univer
 void RegimeManager::render(Renderer& renderer, const Universe& universe) {
     if (!regimes_[active_index_]) return;
 
-    if (in_transition_ && regimes_[transition_from_]) {
-        renderer.setRenderOpacity(1.0f - transition_t_);
-        renderRegime(transition_from_, renderer, transition_from_universe_);
-        renderer.setRenderOpacity(transition_t_);
-        renderRegime(transition_to_, renderer, universe);
+    if (in_transition_) {
+        renderer.setRenderOpacity(1.0f);
         renderer.setRegimeBlend(transition_from_, transition_to_, transition_t_);
+        renderRegime(active_index_, renderer, universe);
     } else {
         renderer.setRenderOpacity(1.0f);
         renderer.setRegimeBlend(active_index_, active_index_, 0.0f);

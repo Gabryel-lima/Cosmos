@@ -12,6 +12,13 @@
 #include <numeric>
 #include <random>
 
+namespace {
+float stellarGlowFromMass(double m_ratio) {
+    double clamped_mass = std::clamp(m_ratio, 0.1, 40.0);
+    return static_cast<float>(1.2 + std::log10(1.0 + std::pow(clamped_mass, 2.2)) * 1.8);
+}
+}
+
 void RegimeStructure::onEnter(Universe& state) {
     prev_scale_factor_ = state.scale_factor;
     halos_.clear();
@@ -144,14 +151,14 @@ void RegimeStructure::updateStellarEvolution(Universe& universe, double cosmic_d
                     p.color_r[i] = 1.0f - t_norm * 0.8f;
                     p.color_g[i] = 0.8f - t_norm * 0.3f;
                     p.color_b[i] = 0.5f + t_norm * 0.5f;
-                    p.luminosity[i] = static_cast<float>(std::pow(m_ratio, 3.5));
+                    p.luminosity[i] = stellarGlowFromMass(m_ratio);
                 }
                 break;
             case StarState::MAIN_SEQUENCE:
                 if (age > t_ms) {
                     state = (m_ratio > 8.0) ? StarState::BLUE_GIANT : StarState::RED_GIANT;
                     p.color_r[i] = 1.0f; p.color_g[i] = 0.3f; p.color_b[i] = 0.1f;
-                    p.luminosity[i] *= 100.0f;
+                    p.luminosity[i] = std::min(p.luminosity[i] * 2.5f, 8.0f);
                 }
                 break;
             case StarState::RED_GIANT:

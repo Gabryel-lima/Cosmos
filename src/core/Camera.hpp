@@ -47,6 +47,11 @@ public:
     void processKeyboard(const InputState& in, float dt);
     void trackParticle(uint32_t particle_id);
     void releaseTracking();
+    void enableAutoFrame();
+    void disableAutoFrame();
+    bool isAutoFrameEnabled() const { return auto_frame_enabled_; }
+    void updateAutoFrame(int regime_index, const glm::dvec3& scene_center,
+                         double scene_radius, float dt);
 
     // ── Atualizar posição da partícula rastreada ─────────────────────────────────
     void updateTracking(glm::dvec3 target_world_pos);
@@ -75,6 +80,7 @@ private:
 
     glm::dvec3 look_at_target_ = { 0.0, 0.0, 0.0 };
     bool       orbiting_ = false; // true quando rastreando uma partícula
+    bool       auto_frame_enabled_ = true;
 
     void rebuildForwardFromAngles();
 };

@@ -26,5 +26,5 @@ private:
 
     static constexpr int   PHI_N  = 256;  // lado da grade
     static constexpr float M2     = 1.0f; // parâmetro de massa² da inflação (slow-roll)
-    static constexpr float EFOLDS_3D = 30.0f;
+    static constexpr float EFOLDS_3D = 12.0f;
 };

@@ -98,9 +98,9 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
         particles.x[i] += particles.vx[i] * visual_dt;
         particles.y[i] += particles.vy[i] * visual_dt;
         particles.z[i] += particles.vz[i] * visual_dt;
-        particles.vx[i] *= 0.995;
-        particles.vy[i] *= 0.995;
-        particles.vz[i] *= 0.995;
+        particles.vx[i] *= 0.998;
+        particles.vy[i] *= 0.998;
+        particles.vz[i] *= 0.998;
     }
 
     // Verifica recombinação via equação de Saha

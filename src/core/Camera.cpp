@@ -5,6 +5,9 @@
 #include <cmath>
 
 void Camera::processMouseDelta(float dx, float dy) {
+    if (std::abs(dx) > 0.0f || std::abs(dy) > 0.0f) {
+        disableAutoFrame();
+    }
     constexpr float SENSITIVITY = 0.15f;
     yaw_   += dx * SENSITIVITY;
     pitch_ -= dy * SENSITIVITY;
@@ -13,6 +16,9 @@ void Camera::processMouseDelta(float dx, float dy) {
 }
 
 void Camera::processScroll(float delta) {
+    if (delta != 0.0f) {
+        disableAutoFrame();
+    }
     // Zoom logarítmico: cada clique multiplica/divide zoom_distance
     constexpr double ZOOM_FACTOR = 0.85;
     if (delta > 0.0f)
@@ -27,17 +33,23 @@ void Camera::processScroll(float delta) {
 void Camera::processKeyboard(const InputState& in, float dt) {
     float speed = move_speed_ * dt;
     glm::vec3 right = glm::normalize(glm::cross(forward, up));
+    bool manual_motion = false;
 
     glm::dvec3 delta(0.0);
-    if (in.w) delta += glm::dvec3(forward)  * static_cast<double>(speed);
-    if (in.s) delta -= glm::dvec3(forward)  * static_cast<double>(speed);
-    if (in.a) delta -= glm::dvec3(right)    * static_cast<double>(speed);
-    if (in.d) delta += glm::dvec3(right)    * static_cast<double>(speed);
+    if (in.w) { delta += glm::dvec3(forward)  * static_cast<double>(speed); manual_motion = true; }
+    if (in.s) { delta -= glm::dvec3(forward)  * static_cast<double>(speed); manual_motion = true; }
+    if (in.a) { delta -= glm::dvec3(right)    * static_cast<double>(speed); manual_motion = true; }
+    if (in.d) { delta += glm::dvec3(right)    * static_cast<double>(speed); manual_motion = true; }
     if (in.q) { // girar à esquerda
         up = glm::mat3(glm::rotate(glm::mat4(1.0f),  glm::radians(45.0f * dt), forward)) * up;
+        manual_motion = true;
     }
     if (in.e) { // girar à direita
         up = glm::mat3(glm::rotate(glm::mat4(1.0f), glm::radians(-45.0f * dt), forward)) * up;
+        manual_motion = true;
+    }
+    if (manual_motion) {
+        disableAutoFrame();
     }
     position += delta;
 
@@ -53,11 +65,55 @@ void Camera::processKeyboard(const InputState& in, float dt) {
 void Camera::trackParticle(uint32_t particle_id) {
     tracked_id = particle_id;
     orbiting_  = true;
+    disableAutoFrame();
 }
 
 void Camera::releaseTracking() {
     tracked_id = std::numeric_limits<uint32_t>::max();
     orbiting_  = false;
+}
+
+void Camera::enableAutoFrame() {
+    auto_frame_enabled_ = true;
+}
+
+void Camera::disableAutoFrame() {
+    auto_frame_enabled_ = false;
+}
+
+void Camera::updateAutoFrame(int regime_index, const glm::dvec3& scene_center,
+                             double scene_radius, float dt) {
+    if (!auto_frame_enabled_ || orbiting_) return;
+
+    Camera::State base = getRegimeDefaultState(regime_index);
+    double radius = std::max(scene_radius, 1e-6);
+    double framing_multiplier = 3.0;
+    switch (regime_index) {
+        case 0: framing_multiplier = 1.4; break;
+        case 1: framing_multiplier = 3.2; break;
+        case 2: framing_multiplier = 3.2; break;
+        case 3: framing_multiplier = 2.6; break;
+        case 4: framing_multiplier = 2.8; break;
+        default: break;
+    }
+
+    double desired_distance = std::max(base.zoom_distance, radius * framing_multiplier);
+    float smooth_t = 1.0f - std::exp(-std::max(dt, 0.0f) * 3.5f);
+    zoom_distance += (desired_distance - zoom_distance) * static_cast<double>(smooth_t);
+    zoom_distance = std::max(zoom_distance, base.zoom_distance);
+    ortho_mode = base.ortho_mode;
+    ortho_size = static_cast<float>(std::max(zoom_distance, radius * 1.2));
+
+    glm::dvec3 desired_forward = glm::normalize(glm::dvec3(base.forward));
+    if (!std::isfinite(desired_forward.x) || !std::isfinite(desired_forward.y) || !std::isfinite(desired_forward.z) ||
+        glm::length(desired_forward) < 1e-9) {
+        desired_forward = {0.0, 0.0, -1.0};
+    }
+    forward = glm::normalize(glm::mix(forward, glm::vec3(desired_forward), smooth_t));
+    look_at_target_ = glm::mix(look_at_target_, scene_center, static_cast<double>(smooth_t));
+    position = look_at_target_ - glm::dvec3(forward) * zoom_distance;
+    move_speed_ = static_cast<float>(zoom_distance) * 0.3f;
+    updateMode();
 }
 
 void Camera::updateTracking(glm::dvec3 target_world_pos) {
@@ -97,6 +153,8 @@ void Camera::applyState(const State& s) {
     forward       = s.forward;
     zoom_distance = s.zoom_distance;
     ortho_mode    = s.ortho_mode;
+    look_at_target_ = position + glm::dvec3(forward) * zoom_distance;
+    auto_frame_enabled_ = true;
     updateMode();
     // Recalcular yaw/pitch a partir de forward
     pitch_ = glm::degrees(std::asin(std::clamp(forward.y, -1.0f, 1.0f)));

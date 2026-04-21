@@ -25,6 +25,53 @@
 #include <stdexcept>
 #include <string>
 
+struct SceneFrame {
+    glm::dvec3 center = {0.0, 0.0, 0.0};
+    double radius = 0.0;
+};
+
+static SceneFrame estimateSceneFrame(const Universe& universe) {
+    const ParticlePool& pp = universe.particles;
+    SceneFrame frame;
+    glm::dvec3 accum(0.0);
+    size_t active_count = 0;
+
+    for (size_t i = 0; i < pp.x.size(); ++i) {
+        if (!(pp.flags[i] & PF_ACTIVE)) continue;
+        accum += glm::dvec3(pp.x[i], pp.y[i], pp.z[i]);
+        ++active_count;
+    }
+
+    if (active_count > 0) {
+        frame.center = accum / static_cast<double>(active_count);
+    }
+
+    for (size_t i = 0; i < pp.x.size(); ++i) {
+        if (!(pp.flags[i] & PF_ACTIVE)) continue;
+        glm::dvec3 delta(pp.x[i], pp.y[i], pp.z[i]);
+        delta -= frame.center;
+        double r = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+        frame.radius = std::max(frame.radius, r);
+    }
+
+    if (frame.radius <= 0.0 && universe.density_field.NX > 0) {
+        frame.radius = static_cast<double>(universe.density_field.NX) * 0.5;
+    }
+
+    if (frame.radius <= 0.0) {
+        switch (universe.regime_index) {
+            case 0: frame.radius = 1.0; break;
+            case 1:
+            case 2: frame.radius = 1.5; break;
+            case 3: frame.radius = 8.0; break;
+            case 4: frame.radius = 30.0; break;
+            default: frame.radius = 5.0; break;
+        }
+    }
+
+    return frame;
+}
+
 // ── Estado global (apenas na unidade de tradução principal) ──────────────────────────────
 
 static int g_width  = 1280;
@@ -123,6 +170,10 @@ static void on_key(GLFWwindow* /*w*/, int key, int /*sc*/, int action, int mods)
                          g_app->camera.applyState(g_app->camera.getRegimeDefaultState(3)); break;
         case GLFW_KEY_5: g_app->mgr.jumpToRegime(4, g_app->clock, g_app->universe);
                          g_app->camera.applyState(g_app->camera.getRegimeDefaultState(4)); break;
+
+        case GLFW_KEY_C:
+            g_app->camera.applyState(g_app->camera.getRegimeDefaultState(g_app->mgr.getCurrentRegimeIndex()));
+            break;
 
         case GLFW_KEY_T: {
             // Rastrear a estrela ou buraco negro mais próximo da câmera
@@ -367,6 +418,15 @@ int main(int argc, char** argv) {
                            app.clock.getScaleFactor(),
                            app.clock.getTemperatureKeV(),
                            app.universe);
+        }
+
+        if (app.camera.tracked_id == std::numeric_limits<uint32_t>::max() &&
+            app.camera.isAutoFrameEnabled()) {
+            SceneFrame scene_frame = estimateSceneFrame(app.universe);
+            app.camera.updateAutoFrame(app.mgr.getCurrentRegimeIndex(),
+                                       scene_frame.center,
+                                       scene_frame.radius,
+                                       real_dt);
         }
 
         // ── Renderização ─────────────────────────────────────────────────────────────

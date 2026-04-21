@@ -79,11 +79,33 @@ void RegimeInflation::stepScalarField(double cosmic_dt, double H, Universe& univ
         phid_new[idx(i,j)] = phid + phi_ddot * dt;
         phi_new[idx(i,j)]  = phi  + phid * dt + 0.5f * phi_ddot * dt * dt;
     }
+
+    // Keep the inflation field visually centered and within a usable dynamic
+    // range so it does not collapse into a mostly-blue or mostly-flat frame.
+    double mean_phi = 0.0;
+    for (float value : phi_new) {
+        mean_phi += value;
+    }
+    mean_phi /= static_cast<double>(phi_new.size());
+
+    double variance = 0.0;
+    for (float& value : phi_new) {
+        value -= static_cast<float>(mean_phi);
+        variance += static_cast<double>(value) * static_cast<double>(value);
+    }
+    variance /= static_cast<double>(phi_new.size());
+    float rms = static_cast<float>(std::sqrt(std::max(variance, 1e-8)));
+    float target_rms = 0.02f;
+    float renorm = std::clamp(target_rms / rms, 0.85f, 1.2f);
+    for (float& value : phi_new) {
+        value *= renorm;
+    }
+
     universe.phi_field     = phi_new;
     universe.phi_dot_field = phid_new;
 
     // Conta e-folds num passo visual normalizado ao intervalo do regime.
-    e_folds_ += progress_dt * 45.0;
+    e_folds_ += progress_dt * 55.0;
 }
 
 void RegimeInflation::extrudeFieldTo3D(Universe& universe) {
@@ -123,7 +145,7 @@ void RegimeInflation::update(double cosmic_dt, double scale_factor, double temp_
     if (in_phase_b_) {
         constexpr double regime_duration = CosmicClock::REGIME_START_TIMES[1] - CosmicClock::REGIME_START_TIMES[0];
         double progress_dt = (regime_duration > 0.0) ? cosmic_dt / regime_duration : 0.0;
-        extrude_t_ += static_cast<float>(progress_dt * 4.0);
+        extrude_t_ += static_cast<float>(progress_dt * 8.0);
         extrude_t_  = std::clamp(extrude_t_, 0.0f, 1.0f);
         universe.inflate_3d_t = extrude_t_;
 

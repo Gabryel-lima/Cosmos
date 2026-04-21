@@ -22,13 +22,13 @@ out float v_size;
 
 void main() {
     vec4 pdata = particle_pos[gl_InstanceID];
-    vec3 cam_space_pos = pdata.xyz;
+    vec3 world_rel_pos = pdata.xyz;
     float size = pdata.w;
 
-    // The CPU already uploads particle centres relative to the camera, and the
-    // view matrix is translation-free. Build the billboard directly in camera
-    // space so it stays inside the frustum instead of being rotated twice.
-    vec3 cam_space_vertex = cam_space_pos + vec3(a_corner * size, 0.0);
+    // Particle centres arrive in world space relative to the camera origin.
+    // Rotate them into camera space once, then build the billboard in camera axes.
+    vec3 cam_space_center = mat3(u_view) * world_rel_pos;
+    vec3 cam_space_vertex = cam_space_center + vec3(a_corner * size, 0.0);
 
     gl_Position = u_proj * vec4(cam_space_vertex, 1.0);
 

@@ -400,16 +400,23 @@ void Renderer::renderParticles(const Universe& universe) {
 
     double xmin = p.x[first_active], xmax = p.x[first_active];
     double ymin = p.y[first_active], ymax = p.y[first_active];
+    double zmin = p.z[first_active], zmax = p.z[first_active];
     for (size_t i = first_active + 1; i < n; ++i) {
         if (!(p.flags[i] & PF_ACTIVE)) continue;
         if (p.x[i] < xmin) xmin = p.x[i];
         if (p.x[i] > xmax) xmax = p.x[i];
         if (p.y[i] < ymin) ymin = p.y[i];
         if (p.y[i] > ymax) ymax = p.y[i];
+        if (p.z[i] < zmin) zmin = p.z[i];
+        if (p.z[i] > zmax) zmax = p.z[i];
     }
-    // Usar ~2% da extensão máxima como tamanho base do billboard
-    float spread = static_cast<float>(std::max({xmax - xmin, ymax - ymin, 1e-10}));
-    float base_sz = std::max(spread * 0.02f, 1e-6f);
+
+    // Use the cloud extent plus a minimum apparent size in screen space so
+    // particles remain visible while the camera moves across cosmic scales.
+    float spread = static_cast<float>(std::max({xmax - xmin, ymax - ymin, zmax - zmin, 1e-10}));
+    float extent_size = std::max(spread * 0.006f, 1e-6f);
+    float proj_scale = std::abs(proj_mat_[1][1]) > 1e-6f ? std::abs(proj_mat_[1][1]) : 1.0f;
+    float min_screen_radius_ndc = 5.0f / static_cast<float>(std::max(height_, 1));
 
     for (size_t i = 0; i < n; ++i) {
         if (!(p.flags[i] & PF_ACTIVE)) continue;
@@ -417,7 +424,8 @@ void Renderer::renderParticles(const Universe& universe) {
         float ry = static_cast<float>(p.y[i] - cam_world_pos_.y);
         float rz = static_cast<float>(p.z[i] - cam_world_pos_.z);
         float camera_dist = std::sqrt(rx * rx + ry * ry + rz * rz);
-        float particle_sz = std::max(base_sz, camera_dist * 0.0035f);
+        float screen_space_size = std::max(camera_dist, 1e-5f) * min_screen_radius_ndc / proj_scale;
+        float particle_sz = std::max(extent_size, screen_space_size);
         pos_data.push_back(rx); pos_data.push_back(ry);
         pos_data.push_back(rz); pos_data.push_back(particle_sz);
         col_data.push_back(p.color_r[i] * p.luminosity[i]);
