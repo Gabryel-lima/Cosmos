@@ -83,7 +83,7 @@ void RegimeOverlay::render(CosmicClock& clock, RegimeManager& mgr, Universe& uni
     ImGui::End();
 }
 
-void RegimeOverlay::drawTimeline(CosmicClock& clock, RegimeManager& /*mgr*/) {
+void RegimeOverlay::drawTimeline(CosmicClock& clock, RegimeManager& mgr) {
     float total_w = ImGui::GetContentRegionAvail().x;
 
     // Desenhar segmentos de regime
@@ -119,9 +119,18 @@ void RegimeOverlay::drawTimeline(CosmicClock& clock, RegimeManager& /*mgr*/) {
         dl->AddText({x+4, y0+2}, text_color, REGIME_NAMES[i]);
     }
 
+    // Durante o blend automático, mantenha o marcador travado no limiar do novo regime.
+    // Isso evita a impressão de que a transição começou "dentro" do segmento seguinte.
+    double marker_time = clock.getCosmicTime();
+    if (mgr.getTransitionProgress() > 0.0f && clock.getCurrentRegimeIndex() > 0) {
+        marker_time = CosmicClock::REGIME_START_TIMES[
+            static_cast<size_t>(clock.getCurrentRegimeIndex())
+        ];
+    }
+
     // Marcador do momento atual (posição do cursor de scrubbing)
     // escala logarítmica: 0=10^-43, 1=hoje
-    float marker_x = x0 + timelinePosition(clock.getCosmicTime(), total_w);
+    float marker_x = x0 + timelinePosition(marker_time, total_w);
     dl->AddLine({marker_x, y0}, {marker_x, y0+h+4}, IM_COL32(255,255,0,255), 2.0f);
     dl->AddTriangleFilled({marker_x, y0+h+4},
                           {marker_x-5, y0+h+12},
@@ -135,12 +144,12 @@ void RegimeOverlay::drawTimeControls(CosmicClock& clock, RegimeManager& mgr, Uni
 
     // Reproduzir/Pausar
     if (clock.isPaused()) {
-        if (ImGui::Button("▶ PLAY")) clock.play();
+        if (ImGui::Button("> PLAY")) clock.play();
     } else {
-        if (ImGui::Button("⏸ PAUSE")) clock.pause();
+        if (ImGui::Button("|| PAUSE")) clock.pause();
     }
     ImGui::SameLine();
-    if (ImGui::Button("⏮ STEP")) clock.stepSingleFrame();
+    if (ImGui::Button("|>> STEP")) clock.stepSingleFrame();
 
     // Predefinições de velocidade
     ImGui::SameLine();

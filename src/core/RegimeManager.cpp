@@ -368,11 +368,12 @@ void RegimeManager::applyInitialState(int regime_index, InitialState& state,
 
 void RegimeManager::tick(CosmicClock& clock, Universe& universe) {
     if (in_transition_) {
-        // Avançar temporizador de mistura (baseado em tempo real do delta de quadro)
+        // Avançar temporizador de transição (baseado em tempo real do delta de quadro)
         // Usamos um incremento simples — chamador passa dt real via checkAndTransition
         transition_elapsed_ += 1.0f / 60.0f;  // assume 60fps; suficientemente preciso
         transition_t_ = std::clamp(transition_elapsed_ / transition_dur_, 0.0f, 1.0f);
         if (transition_t_ >= 1.0f) {
+            clock.rebaseTimeScaleForRegime(transition_to_);
             in_transition_ = false;
             active_index_  = transition_to_;
             std::printf("[REGIME] Transition %d→%d complete.\n",
@@ -413,10 +414,6 @@ void RegimeManager::beginTransition(int from, int to, Universe& universe,
 {
     std::printf("[REGIME] Transitioning %d→%d at T=%.4e keV, t=%.4e s\n",
                 from, to, clock.getTemperatureKeV(), clock.getCosmicTime());
-
-    // Rebase the playback speed to the new epoch; otherwise the outgoing
-    // regime can leave the simulation nearly frozen right after the boundary.
-    clock.applyRegimeDefaultScale(to);
 
     // Sair do regime atual
     if (regimes_[from]) regimes_[from]->onExit();

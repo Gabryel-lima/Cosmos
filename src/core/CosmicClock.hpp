@@ -13,16 +13,13 @@ public:
     static constexpr double T_RECOMBINATION = 2.6e-4; // regime 3→4 (0.26 eV)
 
     // ── Escalas de tempo padrão por regime (cosmic_dt / real_dt) ─────────────────
-    // Ajustadas para que cada época seja completada em ~30 s reais.
-    // Regime 0: inflação de t=1e-43 a t=1e-32 s  → Δt≈1e-32, 30s → 3.3e-34 s/s
-    // Regime 1: PQG  de t=1e-32 a t=6e-5 s       → usa RD analítico; 2e-6 dá ~30 s
-    // Regimes 2-4: idem antes.
+    // Cada regime parte de um ritmo legível por padrão, sem pular de estágio logo ao iniciar.
     static constexpr std::array<double,5> DEFAULT_SCALE = {
-        3.33e-34,   // Regime 0: Inflação      (~10⁻³² s de intervalo / 30 s reais)
-        2.0e-6,     // Regime 1: PQG           (solução RD analítica; QGP em ~30 s)
-        40.0,       // Regime 2: NBB           (~1200 s / 30 s)
-        4.0e11,     // Regime 3: Plasma        (~1,2e13 s / 30 s)
-        1.33e16,    // Regime 4: Estrutura     (~4e17 s / 30 s)
+        1.0e-39,   // Regime 0: Inflação
+        1.0e-10,   // Regime 1: QGP
+        1.0,       // Regime 2: Nucleossíntese
+        1.0e8,     // Regime 3: Plasma
+        1.0e12,    // Regime 4: Estrutura
     };
 
     /// Multiplicadores de preset de velocidade relativos ao DEFAULT_SCALE.
@@ -51,6 +48,7 @@ public:
     double getTimeScale() const { return time_scale_; }
     void   applySpeedPreset(SpeedPreset preset);
     void   applyRegimeDefaultScale(int regime_index);
+    void   rebaseTimeScaleForRegime(int regime_index);
 
     // ── Navegação (busca) ─────────────────────────────────────────────────
     void jumpToCosmicTime(double t_seconds);
@@ -63,6 +61,7 @@ public:
 
     // ── Leituras ────────────────────────────────────────────────────────────
     double getCosmicTime()        const { return cosmic_time_; }
+    double getLastStepCosmicDt()  const { return last_step_cosmic_dt_; }
     double getScaleFactor()       const { return scale_factor_; }
     double getTemperatureKeV()    const { return temperature_keV_; }
     double getHubbleRate()        const;
@@ -86,8 +85,10 @@ private:
     double scale_factor_    = 1e-28;  // a(t) — very small at Planck time
     double temperature_keV_ = 1e28;   // T in keV
     double time_scale_      = DEFAULT_SCALE[0];
+    double speed_multiplier_ = 1.0;
     bool   paused_          = true;   // start paused until initialized
     int    regime_index_    = 0;
-
+    
     bool   single_frame_step_ = false; // for stepSingleFrame()
+    double last_step_cosmic_dt_ = 0.0; // last step cosmic dt
 };

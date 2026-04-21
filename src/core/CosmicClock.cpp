@@ -19,23 +19,14 @@ double targetTemperatureForRegime(int regime_index) {
     }
 }
 
-double regimeEndTime(int regime_index) {
-    if (regime_index < 0) return CosmicClock::REGIME_START_TIMES[0];
-    if (regime_index >= 4) {
-        return phys::t_today;
-    }
-    return CosmicClock::REGIME_START_TIMES[static_cast<size_t>(regime_index + 1)];
+double defaultScaleForRegime(int regime_index) {
+    return CosmicClock::DEFAULT_SCALE[static_cast<size_t>(std::clamp(regime_index, 0, 4))];
 }
 
-double defaultScaleForRegime(int regime_index, double current_time) {
-    constexpr double TARGET_REAL_SECONDS = 10.0;
-    double remaining = regimeEndTime(regime_index) - current_time;
-
-    if (remaining <= 0.0) {
-        return CosmicClock::DEFAULT_SCALE[static_cast<size_t>(std::clamp(regime_index, 0, 4))];
-    }
-
-    return std::max(remaining / TARGET_REAL_SECONDS, 1e-50);
+double nextRegimeStartTime(int regime_index) {
+    int idx = std::clamp(regime_index, 0, 4);
+    if (idx >= 4) return phys::t_today;
+    return CosmicClock::REGIME_START_TIMES[static_cast<size_t>(idx + 1)];
 }
 
 }
@@ -64,14 +55,23 @@ void CosmicClock::stepSingleFrame() {
 }
 
 void CosmicClock::step(double real_dt_seconds) {
+    last_step_cosmic_dt_ = 0.0;
     if (paused_ && !single_frame_step_) return;
 
-    double cosmic_dt = real_dt_seconds * time_scale_;
+    double requested_cosmic_dt = std::max(0.0, real_dt_seconds * time_scale_);
 
-    // Sub-passos adaptativos internos para manter o RK4 estável
-    // Em escalas de tempo extremas, não devemos ultrapassar um limite de regime
+    double next_boundary = nextRegimeStartTime(regime_index_);
+    double max_dt_until_transition = std::max(0.0, next_boundary - cosmic_time_);
+
+    double applied_cosmic_dt = requested_cosmic_dt;
+    if (regime_index_ < 4) {
+        applied_cosmic_dt = std::min(requested_cosmic_dt, max_dt_until_transition);
+    }
+
+    last_step_cosmic_dt_ = applied_cosmic_dt;
+
     constexpr int MAX_SUBSTEPS = 16;
-    double remaining = cosmic_dt;
+    double remaining = applied_cosmic_dt;
     for (int sub = 0; sub < MAX_SUBSTEPS && remaining > 0.0; ++sub) {
         double sub_dt = remaining / static_cast<double>(MAX_SUBSTEPS - sub);
         scale_factor_ = phys::integrate_scale_factor(scale_factor_, sub_dt);
@@ -84,7 +84,6 @@ void CosmicClock::step(double real_dt_seconds) {
     recomputeDerivedQuantities();
     updateRegimeIndex();
 
-    // Limitar ao tempo atual do universo
     if (cosmic_time_ > phys::t_today) {
         cosmic_time_ = phys::t_today;
         scale_factor_ = 1.0;
@@ -99,11 +98,15 @@ void CosmicClock::step(double real_dt_seconds) {
 
 void CosmicClock::setTimeScale(double scale) {
     time_scale_ = std::max(1e-50, scale);
+    double base = defaultScaleForRegime(regime_index_);
+    if (base > 0.0 && std::isfinite(base)) {
+        speed_multiplier_ = time_scale_ / base;
+    }
     std::printf("[TIME] Scale set to %.4e (regime %d)\n", time_scale_, regime_index_);
 }
 
 void CosmicClock::applySpeedPreset(SpeedPreset preset) {
-    double base = defaultScaleForRegime(regime_index_, cosmic_time_);
+    double base = defaultScaleForRegime(regime_index_);
     switch (preset) {
         case SpeedPreset::SLOW_MOTION:        setTimeScale(base * 0.01); break;
         case SpeedPreset::NORMAL:             setTimeScale(base);        break;
@@ -115,7 +118,16 @@ void CosmicClock::applySpeedPreset(SpeedPreset preset) {
 
 void CosmicClock::applyRegimeDefaultScale(int regime_index) {
     int idx = std::clamp(regime_index, 0, 4);
-    setTimeScale(defaultScaleForRegime(idx, cosmic_time_));
+    speed_multiplier_ = 1.0;
+    setTimeScale(defaultScaleForRegime(idx));
+}
+
+void CosmicClock::rebaseTimeScaleForRegime(int regime_index) {
+    int idx = std::clamp(regime_index, 0, 4);
+    double scale = defaultScaleForRegime(idx) * speed_multiplier_;
+    time_scale_ = std::max(1e-50, scale);
+    std::printf("[TIME] Rebased scale to %.4e (regime %d, multiplier %.4fx)\n",
+                time_scale_, idx, speed_multiplier_);
 }
 
 void CosmicClock::jumpToCosmicTime(double t_seconds) {

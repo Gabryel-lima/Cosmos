@@ -273,7 +273,7 @@ static bool initGLFW(AppState& app) {
     glfwWindowHint(GLFW_SAMPLES, 4);  // MSAA ×4 (suavização de bordas)
 
     GLFWmonitor* mon = g_fullscreen ? glfwGetPrimaryMonitor() : nullptr;
-    app.window = glfwCreateWindow(g_width, g_height, "Cosmic Simulation", mon, nullptr);
+    app.window = glfwCreateWindow(g_width, g_height, "Cosmos", mon, nullptr);
     if (!app.window) {
         std::fprintf(stderr, "[main] Failed to create GLFW window.\n");
         glfwTerminate();
@@ -402,23 +402,27 @@ int main(int argc, char** argv) {
         int previous_regime = app.mgr.getCurrentRegimeIndex();
         app.mgr.tick(app.clock, app.universe);
         int current_regime = app.mgr.getCurrentRegimeIndex();
+
         if (current_regime != previous_regime &&
             app.camera.tracked_id == std::numeric_limits<uint32_t>::max()) {
-            app.camera.applyState(app.camera.getRegimeDefaultState(current_regime));
+            // opcional: app.camera.applyState(...)
         }
 
-        // Atualizar física do regime atual
         IRegime* regime = app.mgr.getCurrentRegime();
         if (regime) {
-            // Calcular o dt cósmico a partir da escala de tempo (0 quando pausado)
-            double cosmic_dt = app.clock.isPaused()
-                ? 0.0
-                : static_cast<double>(real_dt) * app.clock.getTimeScale();
+            double cosmic_dt = app.clock.getLastStepCosmicDt();
+
+            if (current_regime != previous_regime) {
+                cosmic_dt = 0.0;
+            }
+
             regime->update(cosmic_dt,
                            app.clock.getScaleFactor(),
                            app.clock.getTemperatureKeV(),
                            app.universe);
         }
+
+        // Atualizar física do regime atual
 
         if (app.camera.tracked_id == std::numeric_limits<uint32_t>::max() &&
             app.camera.isAutoFrameEnabled()) {
