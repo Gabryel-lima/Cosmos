@@ -1,0 +1,54 @@
+# ── Build artefacts ────────────────────────────────────────────────────────
+build/
+
+# ── Downloaded / generated dependencies ───────────────────────────────────
+# These are fetched by `make setup`; exclude them from version control.
+libs/glad/
+libs/imgui/
+
+# ── Compiled object / archive files ───────────────────────────────────────
+*.o
+*.a
+*.so
+*.so.*
+*.dylib
+
+# ── CMake internals ────────────────────────────────────────────────────────
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+_deps/
+
+# compile_commands.json is useful for editors — keep it if you want
+# compile_commands.json
+
+# ── IDE / editor ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
+.clangd/
+.cache/
+
+# ── Vim / Emacs swap / backup files ───────────────────────────────────────
+*.swp
+*.swo
+*~
+\#*\#
+.\#*
+
+# ── macOS ──────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ── Windows ────────────────────────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── Logs / temporaries ─────────────────────────────────────────────────────
+*.log
+/tmp/
