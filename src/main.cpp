@@ -16,10 +16,12 @@
 #include "render/Renderer.hpp"
 #include "render/RegimeOverlay.hpp"
 #include "physics/Constants.hpp"
+#include "physics/ParticlePool.hpp"
 
 #include <cstdio>
 #include <cstring>
 #include <chrono>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -111,12 +113,50 @@ static void on_key(GLFWwindow* /*w*/, int key, int /*sc*/, int action, int mods)
             break;
         }
 
-        case GLFW_KEY_1: g_app->mgr.jumpToRegime(0, g_app->clock, g_app->universe); break;
-        case GLFW_KEY_2: g_app->mgr.jumpToRegime(1, g_app->clock, g_app->universe); break;
-        case GLFW_KEY_3: g_app->mgr.jumpToRegime(2, g_app->clock, g_app->universe); break;
-        case GLFW_KEY_4: g_app->mgr.jumpToRegime(3, g_app->clock, g_app->universe); break;
-        case GLFW_KEY_5: g_app->mgr.jumpToRegime(4, g_app->clock, g_app->universe); break;
-        default: break;
+        case GLFW_KEY_1: g_app->mgr.jumpToRegime(0, g_app->clock, g_app->universe);
+                         g_app->camera.applyState(g_app->camera.getRegimeDefaultState(0)); break;
+        case GLFW_KEY_2: g_app->mgr.jumpToRegime(1, g_app->clock, g_app->universe);
+                         g_app->camera.applyState(g_app->camera.getRegimeDefaultState(1)); break;
+        case GLFW_KEY_3: g_app->mgr.jumpToRegime(2, g_app->clock, g_app->universe);
+                         g_app->camera.applyState(g_app->camera.getRegimeDefaultState(2)); break;
+        case GLFW_KEY_4: g_app->mgr.jumpToRegime(3, g_app->clock, g_app->universe);
+                         g_app->camera.applyState(g_app->camera.getRegimeDefaultState(3)); break;
+        case GLFW_KEY_5: g_app->mgr.jumpToRegime(4, g_app->clock, g_app->universe);
+                         g_app->camera.applyState(g_app->camera.getRegimeDefaultState(4)); break;
+
+        case GLFW_KEY_T: {
+            // Rastrear a estrela ou buraco negro mais próximo da câmera
+            const ParticlePool& pp = g_app->universe.particles;
+            uint32_t best_id = std::numeric_limits<uint32_t>::max();
+            double best_r2 = 1e300;
+            auto cam_pos = g_app->camera.position;
+            for (size_t i = 0; i < pp.x.size(); ++i) {
+                if (!(pp.flags[i] & PF_ACTIVE)) continue;
+                bool trackable = (pp.type[i] == ParticleType::STAR   ||
+                                  pp.type[i] == ParticleType::BLACKHOLE ||
+                                  pp.type[i] == ParticleType::PROTON ||
+                                  pp.type[i] == ParticleType::NEUTRON ||
+                                  pp.type[i] == ParticleType::DEUTERIUM ||
+                                  pp.type[i] == ParticleType::HELIUM4 ||
+                                  pp.type[i] == ParticleType::ELECTRON ||
+                                  pp.type[i] == ParticleType::GAS ||
+                                  pp.type[i] == ParticleType::DARK_MATTER);
+                if (!trackable) continue;
+                double dx = pp.x[i] - cam_pos.x;
+                double dy = pp.y[i] - cam_pos.y;
+                double dz = pp.z[i] - cam_pos.z;
+                double r2 = dx*dx + dy*dy + dz*dz;
+                if (r2 < best_r2) { best_r2 = r2; best_id = static_cast<uint32_t>(i); }
+            }
+            if (best_id != std::numeric_limits<uint32_t>::max()) {
+                g_app->camera.trackParticle(best_id);
+                std::printf("[Camera] Tracking particle %u\n", best_id);
+            } else {
+                g_app->camera.releaseTracking();
+                std::printf("[Camera] No trackable particles found\n");
+            }
+            break;
+        }
         }
 
         // Ciclar modo da câmera via Tab
@@ -242,7 +282,7 @@ int main(int argc, char** argv) {
 
     // Inicializar simulação
     app.clock.initializeToDefaultState();
-    app.mgr.jumpToRegime(0, app.clock, app.universe);
+    app.mgr.jumpToRegime(app.clock.getCurrentRegimeIndex(), app.clock, app.universe);
 
     // Estado padrão da câmera para o Regime 0
     app.camera.applyState(app.camera.getRegimeDefaultState(0));
@@ -287,6 +327,17 @@ int main(int argc, char** argv) {
         in.e = glfwGetKey(app.window, GLFW_KEY_E) == GLFW_PRESS;
         app.camera.processKeyboard(in, real_dt);
 
+        // Atualizar câmera de rastreamento (manter câmera atrás da partícula seguida)
+        if (app.camera.tracked_id != std::numeric_limits<uint32_t>::max()) {
+            const ParticlePool& pp = app.universe.particles;
+            uint32_t tid = app.camera.tracked_id;
+            if (tid < pp.x.size() && (pp.flags[tid] & PF_ACTIVE)) {
+                app.camera.updateTracking({pp.x[tid], pp.y[tid], pp.z[tid]});
+            } else {
+                app.camera.releaseTracking();  // partícula desapareceu
+            }
+        }
+
         // Avançar simulação
         app.clock.step(static_cast<double>(real_dt));
 
@@ -297,7 +348,13 @@ int main(int argc, char** argv) {
         app.universe.regime_index    = app.clock.getCurrentRegimeIndex();
 
         // Tick de física do regime
+        int previous_regime = app.mgr.getCurrentRegimeIndex();
         app.mgr.tick(app.clock, app.universe);
+        int current_regime = app.mgr.getCurrentRegimeIndex();
+        if (current_regime != previous_regime &&
+            app.camera.tracked_id == std::numeric_limits<uint32_t>::max()) {
+            app.camera.applyState(app.camera.getRegimeDefaultState(current_regime));
+        }
 
         // Atualizar física do regime atual
         IRegime* regime = app.mgr.getCurrentRegime();
@@ -330,7 +387,7 @@ int main(int argc, char** argv) {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        app.overlay.render(app.clock, app.mgr, app.universe);
+        app.overlay.render(app.clock, app.mgr, app.universe, app.camera);
 
         ImGui::Render();
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -343,6 +400,7 @@ int main(int argc, char** argv) {
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
+    app.renderer.shutdown();
     glfwDestroyWindow(app.window);
     glfwTerminate();
     return 0;

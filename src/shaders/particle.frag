@@ -7,6 +7,8 @@ in float v_size;
 
 out vec4 frag_color;
 
+uniform float u_opacity;
+
 void main() {
     // Queda radial suave centralizada em (0.5, 0.5)
     vec2 center = v_uv - 0.5;
@@ -22,5 +24,5 @@ void main() {
     vec3 glow = v_color.rgb * alpha;
     vec3 bright = min(v_color.rgb * 3.0, vec3(3.0)) * core;
 
-    frag_color = vec4(glow + bright, alpha * v_color.a);
+    frag_color = vec4((glow + bright) * u_opacity, alpha * v_color.a * u_opacity);
 }

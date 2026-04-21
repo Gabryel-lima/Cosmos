@@ -15,7 +15,24 @@ double hubble_from_scale(double a) {
 }
 
 double integrate_scale_factor(double a_current, double dt) {
-    // RK4: da/dt = a * H(a)
+    if (a_current <= 0.0 || dt == 0.0) return a_current;
+
+    // In the radiation-dominated era (a << 1) the exact analytical solution is:
+    //   a(t)² = a₀² + 2·H₀·√Ω_r · dt
+    // This avoids RK4 blow-up at the extreme time steps of the early universe.
+    {
+        double a2 = a_current * a_current;
+        double a4 = a2 * a2;
+        double a3 = a2 * a_current;
+        double term_r = Omega_r / a4;
+        double term_m = Omega_m / a3;
+        if (term_r > 100.0 * (term_m + Omega_L)) {
+            double a_new_sq = a2 + 2.0 * H0 * std::sqrt(Omega_r) * dt;
+            if (a_new_sq > 0.0) return std::sqrt(a_new_sq);
+        }
+    }
+
+    // General case: RK4  da/dt = a · H(a)
     auto f = [](double a) -> double {
         return a * hubble_from_scale(a);
     };
@@ -50,7 +67,7 @@ double cosmic_time_from_scale(double a_target) {
     }
 
     const int N = 10000;
-    double log_a_min = -50.0;  // a ~ e^-50 ≈ universo extremamente primordial
+    double log_a_min = -100.0; // a ~ e^-100 covers Planck epoch (a ≈ 6e-32 at t=1e-43 s)
     double log_a_max = std::log(a_target);
     if (log_a_max <= log_a_min) return 0.0;
 

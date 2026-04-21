@@ -1,5 +1,6 @@
 // src/regimes/RegimeInflation.cpp — Regime 0: Inflação / Flutuações Quânticas
 #include "RegimeInflation.hpp"
+#include "../core/CosmicClock.hpp"
 #include "../core/Universe.hpp"
 #include "../render/Renderer.hpp"
 #include "../physics/Constants.hpp"
@@ -37,16 +38,22 @@ void RegimeInflation::initScalarField(Universe& universe) {
     // Usa H₀ como proxy (H real é muito maior durante a inflação, mas a razão importa)
     float sigma = 0.01f;  // amplitude adimensional
     std::normal_distribution<float> noise(0.0f, sigma);
+    std::normal_distribution<float> momentum_noise(0.0f, sigma * 0.35f);
 
     for (int j = 0; j < N; ++j)
     for (int i = 0; i < N; ++i) {
-        universe.phi_field[i + N*j] = noise(rng_inflation);
+        size_t index = static_cast<size_t>(i + N*j);
+        universe.phi_field[index] = noise(rng_inflation);
+        universe.phi_dot_field[index] = momentum_noise(rng_inflation);
     }
 }
 
 void RegimeInflation::stepScalarField(double cosmic_dt, double H, Universe& universe) {
     int N = PHI_N;
-    float dt = static_cast<float>(cosmic_dt);
+    constexpr double regime_duration = CosmicClock::REGIME_START_TIMES[1] - CosmicClock::REGIME_START_TIMES[0];
+    double progress_dt = (regime_duration > 0.0) ? cosmic_dt / regime_duration : 0.0;
+    float dt = cosmic_dt <= 0.0 ? 0.0f
+                                : std::clamp(static_cast<float>(progress_dt * 8.0), 0.001f, 0.04f);
     float Hf = static_cast<float>(H);
     float dx2 = (1.0f / static_cast<float>(N)) * (1.0f / static_cast<float>(N));
 
@@ -75,8 +82,8 @@ void RegimeInflation::stepScalarField(double cosmic_dt, double H, Universe& univ
     universe.phi_field     = phi_new;
     universe.phi_dot_field = phid_new;
 
-    // Conta e-folds: N_e += H * dt
-    e_folds_ += H * cosmic_dt;
+    // Conta e-folds num passo visual normalizado ao intervalo do regime.
+    e_folds_ += progress_dt * 45.0;
 }
 
 void RegimeInflation::extrudeFieldTo3D(Universe& universe) {
@@ -114,8 +121,9 @@ void RegimeInflation::update(double cosmic_dt, double scale_factor, double temp_
     }
 
     if (in_phase_b_) {
-        // Conduz extrusão por ~2 unidades de tempo cósmico
-        extrude_t_ += static_cast<float>(cosmic_dt * H * 0.05);
+        constexpr double regime_duration = CosmicClock::REGIME_START_TIMES[1] - CosmicClock::REGIME_START_TIMES[0];
+        double progress_dt = (regime_duration > 0.0) ? cosmic_dt / regime_duration : 0.0;
+        extrude_t_ += static_cast<float>(progress_dt * 4.0);
         extrude_t_  = std::clamp(extrude_t_, 0.0f, 1.0f);
         universe.inflate_3d_t = extrude_t_;
 

@@ -1,5 +1,6 @@
 // src/regimes/RegimeStructure.cpp — Regime 4: Formação de Estruturas
 #include "RegimeStructure.hpp"
+#include "../core/CosmicClock.hpp"
 #include "../core/Universe.hpp"
 #include "../render/Renderer.hpp"
 #include "../physics/Constants.hpp"
@@ -9,6 +10,7 @@
 #include <algorithm>
 #include <vector>
 #include <numeric>
+#include <random>
 
 void RegimeStructure::onEnter(Universe& state) {
     prev_scale_factor_ = state.scale_factor;
@@ -17,7 +19,7 @@ void RegimeStructure::onEnter(Universe& state) {
 
     // Aplica configurações padrão de N-body do perfil de qualidade
     nbody_.theta     = state.quality.barnes_hut_theta;
-    nbody_.softening = 1e-3f;
+    nbody_.softening = 0.25f;
 }
 
 void RegimeStructure::onExit() {
@@ -36,6 +38,13 @@ void RegimeStructure::leapfrogKick(Universe& universe, double dt) {
 
     for (size_t i = 0; i < n; ++i) {
         if (!(p.flags[i] & PF_ACTIVE)) continue;
+        double amag = std::sqrt(ax[i] * ax[i] + ay[i] * ay[i] + az[i] * az[i]);
+        if (amag > 0.15) {
+            double scale = 0.15 / amag;
+            ax[i] *= scale;
+            ay[i] *= scale;
+            az[i] *= scale;
+        }
         p.vx[i] += ax[i] * dt * 0.5;
         p.vy[i] += ay[i] * dt * 0.5;
         p.vz[i] += az[i] * dt * 0.5;
@@ -63,53 +72,43 @@ void RegimeStructure::applyCosmicExpansion(Universe& universe, double a_prev, do
     }
 }
 
-// ── Formação estelar: critério de Jeans ─────────────────────────────────────────────
+// ── Formação estelar: critério de densidade local ─────────────────────────────────────────────
 
-void RegimeStructure::checkStarFormation(Universe& universe, double temp_K) {
-    if (temp_K > 1000.0) return;  // quente demais
+void RegimeStructure::checkStarFormation(Universe& universe, double /*temp_K*/) {
     ParticlePool& p = universe.particles;
     size_t n = p.x.size();
 
-    constexpr double JEANS_THRESHOLD = 1e3;   // limiar de densidade arbitrário (unidades de sim)
-    constexpr double RHOSTAR_MIN     = 1.0;
+    // Raio de busca: ~2% do lado da caixa (≈1 Mpc em unidades de sim)
+    constexpr double R2_THRESH  = 1.0 * 1.0;   // sim units²
+    constexpr int    MIN_NEIGH  = 6;            // mínimo de vizinhos para colapso
 
     for (size_t i = 0; i < n; ++i) {
         if (!(p.flags[i] & PF_ACTIVE)) continue;
         if (p.type[i] != ParticleType::GAS && p.type[i] != ParticleType::DARK_MATTER) continue;
         if (p.flags[i] & PF_COLLAPSING) continue;
 
-        // Conta vizinhos dentro do raio de suavização (proxy para densidade local)
-        double local_density = 0.0;
-        double rho_thresh = 1e-4;
-        double r2_thresh  = 0.01 * 0.01;  // unidades de sim
         int neighbors = 0;
         for (size_t j = 0; j < n; ++j) {
             if (i == j || !(p.flags[j] & PF_ACTIVE)) continue;
             double dx = p.x[j]-p.x[i], dy = p.y[j]-p.y[i], dz = p.z[j]-p.z[i];
-            double r2 = dx*dx+dy*dy+dz*dz;
-            if (r2 < r2_thresh) {
-                local_density += p.mass[j];
-                ++neighbors;
+            if (dx*dx + dy*dy + dz*dz < R2_THRESH) {
+                if (++neighbors >= MIN_NEIGH) break;  // encontrou o suficiente
             }
         }
-        if (neighbors < 3) continue;
+        if (neighbors < MIN_NEIGH) continue;
 
-        // Verificação de massa de Jeans: M_cluster > M_Jeans
-        double cluster_mass = local_density;
-        double T = std::max(temp_K, 10.0);
-        double M_Jeans = std::pow(5.0 * phys::kB * T / (phys::G * phys::m_p), 1.5)
-                       * std::pow(3.0 / (4.0 * M_PI * RHOSTAR_MIN), 0.5);
-
-        if (cluster_mass * phys::m_p > M_Jeans) {
-            // Dispara formação estelar
-            p.flags[i] |= PF_STAR_FORMED;
-            p.type[i]   = ParticleType::STAR;
-            p.star_state[i] = StarState::PROTOSTAR;
-            p.star_age[i]   = 0.0;
-            // Cor: protoestrela amarelo-branca
-            p.color_r[i] = 1.0f; p.color_g[i] = 0.9f; p.color_b[i] = 0.7f;
-            p.luminosity[i] = 0.5f;
-        }
+        // Acima do limiar de densidade: criar protoestrela
+        p.flags[i] |= PF_STAR_FORMED;
+        p.type[i]   = ParticleType::STAR;
+        p.star_state[i] = StarState::PROTOSTAR;
+        p.star_age[i]   = 0.0;
+        // Massa estelar aleatória 0.1–40 M☉ (em kg, normalizada pela simulação)
+        static std::mt19937 rng_sf(777);
+        std::uniform_real_distribution<double> mass_dist(0.1, 40.0);
+        p.mass[i] = mass_dist(rng_sf) * 1.989e30;  // kg
+        // Protoestrela: amarelo-branco
+        p.color_r[i] = 1.0f; p.color_g[i] = 0.9f; p.color_b[i] = 0.7f;
+        p.luminosity[i] = 1.0f;
     }
 }
 
@@ -253,10 +252,16 @@ void RegimeStructure::update(double cosmic_dt, double scale_factor, double temp_
 {
     double a_new = scale_factor;
     double T_K   = phys::keV_to_K(temp_keV);
+    constexpr double regime_duration = phys::t_today - CosmicClock::REGIME_START_TIMES[4];
+    double progress_dt = (regime_duration > 0.0) ? cosmic_dt / regime_duration : 0.0;
+    double visual_dt = cosmic_dt <= 0.0 ? 0.0
+                                         : std::clamp(progress_dt * 48.0, 0.0005, 0.02);
+    double stellar_dt = cosmic_dt <= 0.0 ? 0.0
+                                          : progress_dt * (5.0e8 * phys::yr_to_s);
 
     // Integração Leapfrog KDK
-    leapfrogKick(universe, cosmic_dt);
-    leapfrogDrift(universe, cosmic_dt);
+    leapfrogKick(universe, visual_dt);
+    leapfrogDrift(universe, visual_dt);
 
     std::vector<double> ax, ay, az;
     nbody_.computeForces(universe.particles, ax, ay, az);
@@ -264,16 +269,26 @@ void RegimeStructure::update(double cosmic_dt, double scale_factor, double temp_
     ParticlePool& p = universe.particles;
     for (size_t i = 0; i < p.x.size(); ++i) {
         if (!(p.flags[i] & PF_ACTIVE)) continue;
-        p.vx[i] += ax[i] * cosmic_dt * 0.5;
-        p.vy[i] += ay[i] * cosmic_dt * 0.5;
-        p.vz[i] += az[i] * cosmic_dt * 0.5;
+        double amag = std::sqrt(ax[i] * ax[i] + ay[i] * ay[i] + az[i] * az[i]);
+        if (amag > 0.15) {
+            double scale = 0.15 / amag;
+            ax[i] *= scale;
+            ay[i] *= scale;
+            az[i] *= scale;
+        }
+        p.vx[i] += ax[i] * visual_dt * 0.5;
+        p.vy[i] += ay[i] * visual_dt * 0.5;
+        p.vz[i] += az[i] * visual_dt * 0.5;
     }
 
     applyCosmicExpansion(universe, prev_scale_factor_, a_new);
     prev_scale_factor_ = a_new;
 
-    checkStarFormation(universe, T_K);
-    updateStellarEvolution(universe, cosmic_dt);
+    // Formação estelar a cada 60 frames (O(N²) por isso limitado)
+    if (++star_check_frame_ % 20 == 0) {
+        checkStarFormation(universe, T_K);
+    }
+    updateStellarEvolution(universe, stellar_dt);
 
     // Executa FoF a cada 1e14 segundos (tempo cósmico)
     if (universe.cosmic_time - last_fof_time_ > 1e14) {

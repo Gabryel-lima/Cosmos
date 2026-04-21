@@ -27,6 +27,7 @@ private:
 
     NBodySolver nbody_;
     double prev_scale_factor_ = 0.0;
+    int    star_check_frame_  = 0;    // contador para limitar O(N²) de formação estelar
 
     // Dados de grupo FoF (halos de galáxias)
     struct Halo {

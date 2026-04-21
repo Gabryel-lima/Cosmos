@@ -105,7 +105,6 @@ if(COMPILER_SUPPORTS_AVX2 AND NOT NATIVE_OPT)
     # Fontes com hot-loops que se beneficiam de AVX (adicione conforme necessário)
     set(AVX_SOURCES
         src/physics/NBody_avx.cpp
-        src/physics/FluidGrid_avx.cpp
     )
 
     # Objeto separado: compilado com -mavx2 -mfma, sem contaminar o restante

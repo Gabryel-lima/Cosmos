@@ -22,18 +22,15 @@ out float v_size;
 
 void main() {
     vec4 pdata = particle_pos[gl_InstanceID];
-    vec3 cam_rel_pos = pdata.xyz;
+    vec3 cam_space_pos = pdata.xyz;
     float size = pdata.w;
 
-    // Billboard: usar vetores direita e cima no espaço da câmera
-    vec3 cam_right = vec3(u_view[0][0], u_view[1][0], u_view[2][0]);
-    vec3 cam_up    = vec3(u_view[0][1], u_view[1][1], u_view[2][1]);
+    // The CPU already uploads particle centres relative to the camera, and the
+    // view matrix is translation-free. Build the billboard directly in camera
+    // space so it stays inside the frustum instead of being rotated twice.
+    vec3 cam_space_vertex = cam_space_pos + vec3(a_corner * size, 0.0);
 
-    vec3 world_pos = cam_rel_pos
-                   + cam_right * (a_corner.x * size)
-                   + cam_up    * (a_corner.y * size);
-
-    gl_Position = u_proj * u_view * vec4(world_pos, 1.0);
+    gl_Position = u_proj * vec4(cam_space_vertex, 1.0);
 
     v_uv    = a_corner + 0.5;
     v_color = particle_col[gl_InstanceID];

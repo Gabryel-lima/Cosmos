@@ -15,6 +15,15 @@
 static std::string readFile(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {
+        std::string alternate = path;
+        if (alternate.rfind("../", 0) == 0) {
+            alternate.erase(0, 3);
+        } else {
+            alternate = std::string("../") + alternate;
+        }
+        f.open(alternate);
+    }
+    if (!f.is_open()) {
         std::fprintf(stderr, "[Renderer] Cannot open shader: %s\n", path.c_str());
         return "";
     }
@@ -85,6 +94,23 @@ Renderer::Renderer() = default;
 bool Renderer::init(int width, int height) {
     width_ = width; height_ = height;
 
+    // Alocar objetos GL agora que o contexto está ativo
+    glGenBuffers(1, &particle_pos_ssbo_.id);
+    glGenBuffers(1, &particle_col_ssbo_.id);
+    glGenBuffers(1, &particle_vbo_.id);
+    glGenBuffers(1, &quad_vbo_.id);
+    glGenVertexArrays(1, &particle_vao_.id);
+    glGenVertexArrays(1, &quad_vao_.id);
+    glGenFramebuffers(1, &hdr_fbo_.id);
+    glGenTextures(1, &hdr_color_tex_.id);
+    glGenTextures(1, &hdr_depth_tex_.id);
+    glGenFramebuffers(1, &bloom_fbo_[0].id);
+    glGenFramebuffers(1, &bloom_fbo_[1].id);
+    glGenTextures(1, &bloom_tex_[0].id);
+    glGenTextures(1, &bloom_tex_[1].id);
+    glGenTextures(1, &density_3d_tex_.id);
+    glGenTextures(1, &inflation_2d_tex_.id);
+
     // Carregar shaders
     reloadShaders();
 
@@ -104,20 +130,86 @@ bool Renderer::init(int width, int height) {
     return true;
 }
 
+void Renderer::shutdown() {
+    auto deleteBuffer = [](GlBuffer& buffer) {
+        if (buffer.id) {
+            glDeleteBuffers(1, &buffer.id);
+            buffer.id = 0;
+        }
+    };
+    auto deleteVertexArray = [](GlVAO& vao) {
+        if (vao.id) {
+            glDeleteVertexArrays(1, &vao.id);
+            vao.id = 0;
+        }
+    };
+    auto deleteFramebuffer = [](GlFBO& fbo) {
+        if (fbo.id) {
+            glDeleteFramebuffers(1, &fbo.id);
+            fbo.id = 0;
+        }
+    };
+    auto deleteTexture = [](GlTexture& texture) {
+        if (texture.id) {
+            glDeleteTextures(1, &texture.id);
+            texture.id = 0;
+        }
+    };
+    auto deleteProgram = [](GlShader& shader) {
+        if (shader.id) {
+            glDeleteProgram(shader.id);
+            shader.id = 0;
+        }
+    };
+
+    deleteBuffer(particle_pos_ssbo_);
+    deleteBuffer(particle_col_ssbo_);
+    deleteBuffer(particle_vbo_);
+    deleteBuffer(quad_vbo_);
+    deleteVertexArray(particle_vao_);
+    deleteVertexArray(quad_vao_);
+
+    deleteFramebuffer(hdr_fbo_);
+    deleteFramebuffer(bloom_fbo_[0]);
+    deleteFramebuffer(bloom_fbo_[1]);
+
+    deleteTexture(hdr_color_tex_);
+    deleteTexture(hdr_depth_tex_);
+    deleteTexture(bloom_tex_[0]);
+    deleteTexture(bloom_tex_[1]);
+    deleteTexture(density_3d_tex_);
+    deleteTexture(inflation_2d_tex_);
+
+    deleteProgram(particle_shader_);
+    deleteProgram(volume_shader_);
+    deleteProgram(inflation_shader_);
+    deleteProgram(tonemap_shader_);
+    deleteProgram(bloom_threshold_shader_);
+    deleteProgram(bloom_blur_shader_);
+
+    if (timer_query_[0] || timer_query_[1]) {
+        glDeleteQueries(2, timer_query_);
+        timer_query_[0] = 0;
+        timer_query_[1] = 0;
+    }
+}
+
 void Renderer::reloadShaders() {
     // Todos os caminhos de shader relativos ao diretório de trabalho (executar de build/)
     loadShaderProgram(particle_shader_,
         "../src/shaders/particle.vert", "../src/shaders/particle.frag");
     loadShaderProgram(volume_shader_,
         "../src/shaders/volume.vert",   "../src/shaders/volume.frag");
+    // inflation: quad pass + dedicated field shader (sem v_color/v_size)
     loadShaderProgram(inflation_shader_,
-        "../src/shaders/particle.vert", "../src/shaders/particle.frag");
+        "../src/shaders/quad.vert", "../src/shaders/inflation.frag");
+    // post-process passes: quad.vert evita o mismatch de interface v_ray_dir
     loadShaderProgram(tonemap_shader_,
-        "../src/shaders/particle.vert", "../src/shaders/tonemap.frag");
+        "../src/shaders/quad.vert", "../src/shaders/tonemap.frag");
     loadShaderProgram(bloom_threshold_shader_,
-        "../src/shaders/particle.vert", "../src/shaders/bloom_threshold.frag");
+        "../src/shaders/quad.vert", "../src/shaders/bloom_threshold.frag");
     loadShaderProgram(bloom_blur_shader_,
-        "../src/shaders/particle.vert", "../src/shaders/bloom_blur.frag");
+        "../src/shaders/quad.vert", "../src/shaders/bloom_blur.frag");
     std::printf("[Renderer] Shaders reloaded.\n");
 }
 
@@ -249,6 +341,10 @@ void Renderer::setRegimeBlend(int from_regime, int to_regime, float blend_t) {
     blend_t_    = blend_t;
 }
 
+void Renderer::setRenderOpacity(float opacity) {
+    render_opacity_ = std::clamp(opacity, 0.0f, 1.0f);
+}
+
 // ── Renderização do campo de inflação ───────────────────────────────────────────────
 
 void Renderer::renderInflationField(const Universe& universe) {
@@ -263,9 +359,11 @@ void Renderer::renderInflationField(const Universe& universe) {
 
     glUseProgram(inflation_shader_.id);
     glUniform1i(glGetUniformLocation(inflation_shader_.id, "u_field_tex"), 0);
-    glUniform1i(glGetUniformLocation(inflation_shader_.id, "u_mode"), 0); // modo 2D
+    glUniform1i(glGetUniformLocation(inflation_shader_.id, "u_mode"),
+                universe.inflate_3d_t > 0.01f ? 1 : 0);
     glUniform1f(glGetUniformLocation(inflation_shader_.id, "u_extrude_t"),
                 universe.inflate_3d_t);
+    glUniform1f(glGetUniformLocation(inflation_shader_.id, "u_opacity"), render_opacity_);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, inflation_2d_tex_.id);
@@ -273,7 +371,10 @@ void Renderer::renderInflationField(const Universe& universe) {
     // Quad de tela cheia
     glBindVertexArray(quad_vao_.id);
     glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
     glEnable(GL_DEPTH_TEST);
     glBindVertexArray(0);
 }
@@ -290,17 +391,35 @@ void Renderer::renderParticles(const Universe& universe) {
     std::vector<float> pos_data; pos_data.reserve(n * 4);
     std::vector<float> col_data; col_data.reserve(n * 4);
 
+    // Calcular extensão da nuvem de partículas para escalar o tamanho dos billboards
+    // de forma relativa à cena visível (funciona em todas as épocas cósmicas).
+    // Encontra a primeira partícula activa para inicializar min/max corretamente.
+    size_t first_active = n;
+    for (size_t i = 0; i < n; ++i) { if (p.flags[i] & PF_ACTIVE) { first_active = i; break; } }
+    if (first_active == n) return;  // nenhuma partícula activa
+
+    double xmin = p.x[first_active], xmax = p.x[first_active];
+    double ymin = p.y[first_active], ymax = p.y[first_active];
+    for (size_t i = first_active + 1; i < n; ++i) {
+        if (!(p.flags[i] & PF_ACTIVE)) continue;
+        if (p.x[i] < xmin) xmin = p.x[i];
+        if (p.x[i] > xmax) xmax = p.x[i];
+        if (p.y[i] < ymin) ymin = p.y[i];
+        if (p.y[i] > ymax) ymax = p.y[i];
+    }
+    // Usar ~2% da extensão máxima como tamanho base do billboard
+    float spread = static_cast<float>(std::max({xmax - xmin, ymax - ymin, 1e-10}));
+    float base_sz = std::max(spread * 0.02f, 1e-6f);
+
     for (size_t i = 0; i < n; ++i) {
         if (!(p.flags[i] & PF_ACTIVE)) continue;
-        // Posição relativa à câmera (evita cancelamento FP em zoom extremo)
         float rx = static_cast<float>(p.x[i] - cam_world_pos_.x);
         float ry = static_cast<float>(p.y[i] - cam_world_pos_.y);
         float rz = static_cast<float>(p.z[i] - cam_world_pos_.z);
-        // w = tamanho (escala logarítmica de massa)
-        float sz = std::max(0.001f, 0.01f + std::log10(
-            static_cast<float>(std::max(p.mass[i], 1e-30)) / 1e24f + 1.0f) * 0.005f);
+        float camera_dist = std::sqrt(rx * rx + ry * ry + rz * rz);
+        float particle_sz = std::max(base_sz, camera_dist * 0.0035f);
         pos_data.push_back(rx); pos_data.push_back(ry);
-        pos_data.push_back(rz); pos_data.push_back(sz);
+        pos_data.push_back(rz); pos_data.push_back(particle_sz);
         col_data.push_back(p.color_r[i] * p.luminosity[i]);
         col_data.push_back(p.color_g[i] * p.luminosity[i]);
         col_data.push_back(p.color_b[i] * p.luminosity[i]);
@@ -328,10 +447,17 @@ void Renderer::renderParticles(const Universe& universe) {
                        1, GL_FALSE, glm::value_ptr(view_mat_));
     glUniformMatrix4fv(glGetUniformLocation(particle_shader_.id, "u_proj"),
                        1, GL_FALSE, glm::value_ptr(proj_mat_));
+    glUniform1f(glGetUniformLocation(particle_shader_.id, "u_opacity"), render_opacity_);
 
     glBindVertexArray(particle_vao_.id);
+    // Desativar escrita de profundidade: partículas transparentes não devem ocluir
+    // umas às outras via depth buffer (apenas partículas atrás de geometria sólida seriam
+    // descartadas, mas aqui não há geometria sólida).
+    glDepthMask(GL_FALSE);
     glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(draw_count));
+    glDepthMask(GL_TRUE);
     glBindVertexArray(0);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
 // ── Volume field rendering (raymarched density) ───────────────────────────────
@@ -350,6 +476,9 @@ void Renderer::renderVolumeField(const Universe& universe) {
 
     glUseProgram(volume_shader_.id);
     glUniform1i(glGetUniformLocation(volume_shader_.id, "u_density_tex"), 0);
+    glUniform1f(glGetUniformLocation(volume_shader_.id, "u_density_scale"), 300.0f);
+    glUniform1f(glGetUniformLocation(volume_shader_.id, "u_opacity_scale"), 15.0f);
+    glUniform1f(glGetUniformLocation(volume_shader_.id, "u_opacity"), render_opacity_);
     glUniformMatrix4fv(glGetUniformLocation(volume_shader_.id, "u_inv_view_proj"),
                        1, GL_FALSE,
                        glm::value_ptr(glm::inverse(proj_mat_ * view_mat_)));
@@ -359,7 +488,10 @@ void Renderer::renderVolumeField(const Universe& universe) {
 
     glBindVertexArray(quad_vao_.id);
     glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
     glEnable(GL_DEPTH_TEST);
     glBindVertexArray(0);
 }
@@ -416,9 +548,13 @@ void Renderer::applyPostProcess() {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, hdr_color_tex_.id);
 
+    // Desativar blend aditivo para o pass de tonemap: queremos substituir o buffer,
+    // não somar ao background.
+    glDisable(GL_BLEND);
     glBindVertexArray(quad_vao_.id);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
+    glEnable(GL_BLEND);
 
     glEnable(GL_DEPTH_TEST);
 }

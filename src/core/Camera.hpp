@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <cstdint>
+#include <limits>
 
 struct InputState {
     bool w, a, s, d, q, e;   // teclas de voo
@@ -32,7 +33,7 @@ public:
     float      fov_deg   = 60.0f;
     double     zoom_distance = DIST_COSMIC;
     Mode       mode      = Mode::COSMIC;
-    uint32_t   tracked_id = 0;  // 0 = câmera livre
+    uint32_t   tracked_id = std::numeric_limits<uint32_t>::max();
 
     // Modo ortográfico (Regime 0 Fase A)
     bool   ortho_mode = false;

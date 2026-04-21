@@ -52,6 +52,7 @@ private:
     void checkAndTransition(CosmicClock& clock, Universe& universe);
     void beginTransition(int from, int to, Universe& universe, CosmicClock& clock);
     void applyInitialState(int regime_index, InitialState& state, Universe& universe);
+    void renderRegime(int regime_index, Renderer& renderer, const Universe& universe) const;
 
     std::array<std::unique_ptr<IRegime>, 5> regimes_;
     int   active_index_   = 0;
@@ -63,4 +64,5 @@ private:
 
     double last_real_time_ = 0.0;   // para o temporizador de transição (definido em tick)
     float  transition_elapsed_ = 0.0f;
+    Universe transition_from_universe_;
 };

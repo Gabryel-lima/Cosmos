@@ -6,6 +6,7 @@
 #include <vector>
 #include <memory>
 
+// Parâmetros de configuração do solver (pode ser ajustado em runtime).
 struct OctreeNode {
     // Caixa delimitadora
     double cx, cy, cz;   // centro
@@ -44,4 +45,10 @@ private:
                               double& ax, double& ay, double& az) const;
 
     std::unique_ptr<OctreeNode> root_;
+};
+
+// Fachada pública (dispatcher AVX/SSE2)
+class NBody {
+public:
+    void step(ParticlePool& pool, float dt);
 };

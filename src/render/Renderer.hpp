@@ -15,7 +15,7 @@ class  Camera;
 
 struct GlBuffer {
     GLuint id = 0;
-    GlBuffer() { glGenBuffers(1, &id); }
+    GlBuffer() = default;
     ~GlBuffer() { if (id) glDeleteBuffers(1, &id); }
     GlBuffer(const GlBuffer&)            = delete;
     GlBuffer& operator=(const GlBuffer&) = delete;
@@ -24,7 +24,7 @@ struct GlBuffer {
 
 struct GlTexture {
     GLuint id = 0;
-    GlTexture() { glGenTextures(1, &id); }
+    GlTexture() = default;
     ~GlTexture() { if (id) glDeleteTextures(1, &id); }
     GlTexture(const GlTexture&)            = delete;
     GlTexture& operator=(const GlTexture&) = delete;
@@ -33,7 +33,7 @@ struct GlTexture {
 
 struct GlVAO {
     GLuint id = 0;
-    GlVAO() { glGenVertexArrays(1, &id); }
+    GlVAO() = default;
     ~GlVAO() { if (id) glDeleteVertexArrays(1, &id); }
     GlVAO(const GlVAO&)            = delete;
     GlVAO& operator=(const GlVAO&) = delete;
@@ -41,7 +41,7 @@ struct GlVAO {
 
 struct GlFBO {
     GLuint id = 0;
-    GlFBO() { glGenFramebuffers(1, &id); }
+    GlFBO() = default;
     ~GlFBO() { if (id) glDeleteFramebuffers(1, &id); }
     GlFBO(const GlFBO&)            = delete;
     GlFBO& operator=(const GlFBO&) = delete;
@@ -73,6 +73,9 @@ public:
     /// Recarrega todos os shaders do disco (tecla R).
     void reloadShaders();
 
+    /// Libera recursos GL explicitamente antes de destruir o contexto.
+    void shutdown();
+
     /// Chamado no início do quadro.
     void beginFrame();
 
@@ -93,6 +96,7 @@ public:
 
     /// Define o blend de regime (0..1) para o crossfade de transição.
     void setRegimeBlend(int from_regime, int to_regime, float blend_t);
+    void setRenderOpacity(float opacity);
 
     // Para RegimeOverlay (ImGui): estatísticas somente leitura
     int   getWidth()  const { return width_; }
@@ -124,6 +128,7 @@ private:
     int   blend_from_  = 0;
     int   blend_to_    = 0;
     float blend_t_     = 0.0f;
+    float render_opacity_ = 1.0f;
 
     // Shaders
     GlShader particle_shader_;

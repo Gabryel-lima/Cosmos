@@ -13,10 +13,13 @@ public:
     static constexpr double T_RECOMBINATION = 2.6e-4; // regime 3→4 (0.26 eV)
 
     // ── Escalas de tempo padrão por regime (cosmic_dt / real_dt) ─────────────────
-    // Ajustadas para que cada época seja concluída em ~30 s reais na velocidade padrão
+    // Ajustadas para que cada época seja completada em ~30 s reais.
+    // Regime 0: inflação de t=1e-43 a t=1e-32 s  → Δt≈1e-32, 30s → 3.3e-34 s/s
+    // Regime 1: PQG  de t=1e-32 a t=6e-5 s       → usa RD analítico; 2e-6 dá ~30 s
+    // Regimes 2-4: idem antes.
     static constexpr std::array<double,5> DEFAULT_SCALE = {
-        3.33e-34,   // Regime 0: Inflação      (~10⁻³² s / 30 s)
-        3.33e-8,    // Regime 1: PQG           (~10⁻⁶ s / 30 s)
+        3.33e-34,   // Regime 0: Inflação      (~10⁻³² s de intervalo / 30 s reais)
+        2.0e-6,     // Regime 1: PQG           (solução RD analítica; QGP em ~30 s)
         40.0,       // Regime 2: NBB           (~1200 s / 30 s)
         4.0e11,     // Regime 3: Plasma        (~1,2e13 s / 30 s)
         1.33e16,    // Regime 4: Estrutura     (~4e17 s / 30 s)

@@ -56,7 +56,7 @@ void Camera::trackParticle(uint32_t particle_id) {
 }
 
 void Camera::releaseTracking() {
-    tracked_id = 0;
+    tracked_id = std::numeric_limits<uint32_t>::max();
     orbiting_  = false;
 }
 

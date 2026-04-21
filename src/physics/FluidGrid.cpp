@@ -43,9 +43,9 @@ void FluidGrid::solvePoisson(const Universe& universe,
         for (int i = 0; i < N; ++i) {
             float rhs = rhs_factor * delta.at(i, j, k);
             // Estêncil laplaciano: -6φ_ij + vizinhos = rhs * dx²
-            float sum = (sample(delta,i+1,j,k) + sample(delta,i-1,j,k)
-                       + sample(delta,i,j+1,k) + sample(delta,i,j-1,k)
-                       + sample(delta,i,j,k+1) + sample(delta,i,j,k-1));
+            //float sum = (sample(delta,i+1,j,k) + sample(delta,i-1,j,k)
+            //           + sample(delta,i,j+1,k) + sample(delta,i,j-1,k)
+            //           + sample(delta,i,j,k+1) + sample(delta,i,j,k-1));
             // Aguarde — phi, não delta. Usar phi_new para o estêncil:
             auto phi_get = [&](int x, int y, int z) -> float {
                 x = ((x%N)+N)%N; y = ((y%N)+N)%N; z = ((z%N)+N)%N;

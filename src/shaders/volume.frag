@@ -9,6 +9,7 @@ out vec4 frag_color;
 uniform sampler3D u_density_tex;
 uniform float     u_density_scale;
 uniform float     u_opacity_scale;
+uniform float     u_opacity;
 
 #define MAX_STEPS 128
 #define STEP_SIZE 0.016     // in [0,1]^3 volume coords
@@ -23,7 +24,7 @@ vec4 transferFunction(float density) {
     float t = clamp(density * u_density_scale, 0.0, 1.0);
     vec3 col = mix(cool, warm, smoothstep(0.0, 0.5, t));
     col = mix(col, hot, smoothstep(0.5, 1.0, t));
-    float alpha = clamp(density * u_opacity_scale, 0.0, 1.0);
+        float alpha = clamp(density * u_opacity_scale, 0.0, 1.0) * u_opacity;
     return vec4(col, alpha);
 }
 

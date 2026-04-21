@@ -6,6 +6,40 @@
 #include <cstdio>
 #include <algorithm>
 
+namespace {
+
+double targetTemperatureForRegime(int regime_index) {
+    switch (regime_index) {
+        case 0: return CosmicClock::T_INFLATION_END * 10.0;
+        case 1: return std::sqrt(CosmicClock::T_INFLATION_END * CosmicClock::T_QGP_END);
+        case 2: return std::sqrt(CosmicClock::T_QGP_END * CosmicClock::T_BBN_END);
+        case 3: return std::sqrt(CosmicClock::T_BBN_END * CosmicClock::T_RECOMBINATION);
+        case 4: return CosmicClock::T_RECOMBINATION * 0.1;
+        default: return CosmicClock::T_INFLATION_END;
+    }
+}
+
+double regimeEndTime(int regime_index) {
+    if (regime_index < 0) return CosmicClock::REGIME_START_TIMES[0];
+    if (regime_index >= 4) {
+        return phys::t_today;
+    }
+    return CosmicClock::REGIME_START_TIMES[static_cast<size_t>(regime_index + 1)];
+}
+
+double defaultScaleForRegime(int regime_index, double current_time) {
+    constexpr double TARGET_REAL_SECONDS = 10.0;
+    double remaining = regimeEndTime(regime_index) - current_time;
+
+    if (remaining <= 0.0) {
+        return CosmicClock::DEFAULT_SCALE[static_cast<size_t>(std::clamp(regime_index, 0, 4))];
+    }
+
+    return std::max(remaining / TARGET_REAL_SECONDS, 1e-50);
+}
+
+}
+
 CosmicClock::CosmicClock() {
     cosmic_time_    = REGIME_START_TIMES[0];
     scale_factor_   = phys::scale_at_temperature_keV(T_INFLATION_END * 10.0);
@@ -69,7 +103,7 @@ void CosmicClock::setTimeScale(double scale) {
 }
 
 void CosmicClock::applySpeedPreset(SpeedPreset preset) {
-    double base = DEFAULT_SCALE[static_cast<size_t>(regime_index_)];
+    double base = defaultScaleForRegime(regime_index_, cosmic_time_);
     switch (preset) {
         case SpeedPreset::SLOW_MOTION:        setTimeScale(base * 0.01); break;
         case SpeedPreset::NORMAL:             setTimeScale(base);        break;
@@ -81,7 +115,7 @@ void CosmicClock::applySpeedPreset(SpeedPreset preset) {
 
 void CosmicClock::applyRegimeDefaultScale(int regime_index) {
     int idx = std::clamp(regime_index, 0, 4);
-    setTimeScale(DEFAULT_SCALE[static_cast<size_t>(idx)]);
+    setTimeScale(defaultScaleForRegime(idx, cosmic_time_));
 }
 
 void CosmicClock::jumpToCosmicTime(double t_seconds) {
@@ -96,8 +130,9 @@ void CosmicClock::jumpToCosmicTime(double t_seconds) {
         scale_factor_ = 1.0;
     } else {
         // Bisseção: encontrar a tal que cosmic_time_from_scale(a) ≈ cosmic_time_
-        double a_lo = 1e-40, a_hi = 2.0;
-        for (int iter = 0; iter < 60; ++iter) {
+        // a_lo = 1e-70 cobre a época da inflação (a ≈ 6e-32 em t = 1e-43 s)
+        double a_lo = 1e-70, a_hi = 2.0;
+        for (int iter = 0; iter < 100; ++iter) {
             double a_mid = std::sqrt(a_lo * a_hi); // ponto médio geométrico
             double t_mid = phys::cosmic_time_from_scale(a_mid);
             if (t_mid < cosmic_time_) a_lo = a_mid;
@@ -111,7 +146,10 @@ void CosmicClock::jumpToCosmicTime(double t_seconds) {
 
 void CosmicClock::jumpToRegime(int regime_index) {
     int idx = std::clamp(regime_index, 0, 4);
-    jumpToCosmicTime(REGIME_START_TIMES[static_cast<size_t>(idx)]);
+    scale_factor_ = phys::scale_at_temperature_keV(targetTemperatureForRegime(idx));
+    cosmic_time_ = REGIME_START_TIMES[static_cast<size_t>(idx)];
+    recomputeDerivedQuantities();
+    updateRegimeIndex();
     applyRegimeDefaultScale(idx);
     std::printf("[REGIME] Jumped to regime %d at t=%.4e s, T=%.4e keV\n",
                 idx, cosmic_time_, temperature_keV_);
@@ -150,16 +188,11 @@ void CosmicClock::recomputeDerivedQuantities() {
 
 void CosmicClock::updateRegimeIndex() {
     int new_regime;
-    if (temperature_keV_ > T_INFLATION_END)
-        new_regime = 0;
-    else if (temperature_keV_ > T_QGP_END)
-        new_regime = 1;
-    else if (temperature_keV_ > T_BBN_END)
-        new_regime = 2;
-    else if (temperature_keV_ > T_RECOMBINATION)
-        new_regime = 3;
-    else
-        new_regime = 4;
+    if (cosmic_time_ >= REGIME_START_TIMES[4])      new_regime = 4;
+    else if (cosmic_time_ >= REGIME_START_TIMES[3]) new_regime = 3;
+    else if (cosmic_time_ >= REGIME_START_TIMES[2]) new_regime = 2;
+    else if (cosmic_time_ >= REGIME_START_TIMES[1]) new_regime = 1;
+    else                                             new_regime = 0;
 
     if (new_regime != regime_index_) {
         std::printf("[REGIME] Transitioning %d→%d at T=%.4e keV, t=%.4e s\n",
