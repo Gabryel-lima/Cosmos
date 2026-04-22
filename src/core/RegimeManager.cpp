@@ -345,9 +345,12 @@ void RegimeManager::applyInitialState(int regime_index, InitialState& state,
 {
     universe.particles      = std::move(state.particles);
     universe.abundances     = state.abundances;
-    universe.scale_factor   = state.scale_factor;
-    universe.temperature_keV= state.temperature_keV;
-    universe.cosmic_time    = state.cosmic_time;
+    
+    // AVISO: Não sobrescrever scale_factor, temperature_keV ou cosmic_time aqui!
+    // O relógio (CosmicClock) é a única fonte da verdade e as evoluções contínuas
+    // (automáticas) não podem sofrer descontinuidades analíticas da InitialState.
+    // main.cpp sincroniza esses valores do relógio para o universo todo quadro.
+    
     universe.regime_index   = regime_index;
     universe.active_particles = static_cast<int>(std::count_if(
         universe.particles.flags.begin(), universe.particles.flags.end(),
@@ -366,16 +369,18 @@ void RegimeManager::applyInitialState(int regime_index, InitialState& state,
 
 // ── Tick: verificar e acionar transições automáticas ─────────────────────────────
 
-void RegimeManager::tick(CosmicClock& clock, Universe& universe) {
+void RegimeManager::tick(CosmicClock& clock, Universe& universe, double real_dt_seconds) {
+    float frame_dt = static_cast<float>(std::max(0.0, real_dt_seconds));
+
     if (in_transition_) {
-        // Avançar temporizador de transição (baseado em tempo real do delta de quadro)
-        // Usamos um incremento simples — chamador passa dt real via checkAndTransition
-        transition_elapsed_ += 1.0f / 60.0f;  // assume 60fps; suficientemente preciso
+        // Avançar o blend com o delta real do quadro para estabilizar a duração visual.
+        transition_elapsed_ += frame_dt;
         transition_t_ = std::clamp(transition_elapsed_ / transition_dur_, 0.0f, 1.0f);
+
         if (transition_t_ >= 1.0f) {
-            clock.rebaseTimeScaleForRegime(transition_to_);
             in_transition_ = false;
             active_index_  = transition_to_;
+            regime_elapsed_real_ = 0.0f;
             std::printf("[REGIME] Transition %d→%d complete.\n",
                         transition_from_, transition_to_);
         }
@@ -393,6 +398,8 @@ void RegimeManager::tick(CosmicClock& clock, Universe& universe) {
         (void)universe;
     }
 
+    regime_elapsed_real_ += frame_dt;
+
     checkAndTransition(clock, universe);
 
     // Sincronizar estado do universo
@@ -403,9 +410,16 @@ void RegimeManager::tick(CosmicClock& clock, Universe& universe) {
 }
 
 void RegimeManager::checkAndTransition(CosmicClock& clock, Universe& universe) {
-    int new_regime = clock.getCurrentRegimeIndex();
-    if (new_regime != active_index_ && !in_transition_) {
-        beginTransition(active_index_, new_regime, universe, clock);
+    float required_dwell = min_regime_dwell_s_[static_cast<size_t>(std::clamp(active_index_, 0, 4))];
+    if (regime_elapsed_real_ < required_dwell) {
+        return;
+    }
+
+    int observed_regime = clock.getCurrentRegimeIndex();
+    if (observed_regime > active_index_ && !in_transition_) {
+        // Avançar apenas um regime por vez para impedir saltos visuais.
+        int next_regime = std::min(active_index_ + 1, 4);
+        beginTransition(active_index_, next_regime, universe, clock);
     }
 }
 
@@ -414,6 +428,10 @@ void RegimeManager::beginTransition(int from, int to, Universe& universe,
 {
     std::printf("[REGIME] Transitioning %d→%d at T=%.4e keV, t=%.4e s\n",
                 from, to, clock.getTemperatureKeV(), clock.getCosmicTime());
+
+    // Aplicar escala do regime destino imediatamente — física precisa de cosmic_dt correto
+    // desde o primeiro quadro para que as animações do novo regime carreguem.
+    clock.rebaseTimeScaleForRegime(to);
 
     // Sair do regime atual
     if (regimes_[from]) regimes_[from]->onExit();
@@ -432,12 +450,13 @@ void RegimeManager::beginTransition(int from, int to, Universe& universe,
     // Entrar no novo regime
     if (regimes_[to]) regimes_[to]->onEnter(universe);
 
-    in_transition_     = true;
-    transition_from_   = from;
-    transition_to_     = to;
-    transition_t_      = 0.0f;
-    transition_elapsed_= 0.0f;
-    active_index_      = to;  // física executa no novo regime imediatamente
+    in_transition_      = true;
+    transition_from_    = from;
+    transition_to_      = to;
+    transition_t_       = 0.0f;
+    transition_elapsed_ = 0.0f;
+    speed_mult_at_start_ = clock.getSpeedMultiplier(); // preservar multiplicação do usuário
+    active_index_       = to;  // física executa no novo regime imediatamente
 }
 
 // ── Navegação ───────────────────────────────────────────────────────────────
@@ -453,6 +472,7 @@ void RegimeManager::jumpToRegime(int index, CosmicClock& clock, Universe& univer
     applyInitialState(idx, st, universe);
     active_index_ = idx;
     in_transition_ = false;
+    regime_elapsed_real_ = 0.0f;
     transition_from_universe_ = Universe{};
 
     if (regimes_[idx]) regimes_[idx]->onEnter(universe);

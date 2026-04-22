@@ -150,6 +150,12 @@ void RegimeOverlay::drawTimeControls(CosmicClock& clock, RegimeManager& mgr, Uni
     }
     ImGui::SameLine();
     if (ImGui::Button("|>> STEP")) clock.stepSingleFrame();
+    ImGui::SameLine();
+    if (ImGui::Button("<< PREV REGIME")) {
+        int rewind_regime = std::max(0, clock.getCurrentRegimeIndex() - 1);
+        mgr.jumpToRegime(rewind_regime, clock, universe);
+        camera.applyState(camera.getRegimeDefaultState(rewind_regime));
+    }
 
     // Predefinições de velocidade
     ImGui::SameLine();

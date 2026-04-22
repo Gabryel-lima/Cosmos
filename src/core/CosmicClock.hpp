@@ -13,13 +13,15 @@ public:
     static constexpr double T_RECOMBINATION = 2.6e-4; // regime 3→4 (0.26 eV)
 
     // ── Escalas de tempo padrão por regime (cosmic_dt / real_dt) ─────────────────
-    // Cada regime parte de um ritmo legível por padrão, sem pular de estágio logo ao iniciar.
+    // Calibradas para que cada regime seja atravessado em ~90 segundos reais,
+    // garantindo que as transições automáticas ocorram e os elementos apareçam.
+    // scale = duração_cósmica_do_regime / 90 segundos
     static constexpr std::array<double,5> DEFAULT_SCALE = {
-        1.0e-39,   // Regime 0: Inflação
-        1.0e-10,   // Regime 1: QGP
-        1.0,       // Regime 2: Nucleossíntese
-        1.0e8,     // Regime 3: Plasma
-        1.0e12,    // Regime 4: Estrutura
+        1.0e-37,   // Regime 0: Inflação  (1e-35 s / 90 ≈ 1.1e-37)
+        1.5e-8,    // Regime 1: QGP       (1e-6 s / 90 ≈ 1.1e-8)
+        15.0,      // Regime 2: Nucleossíntese (1200 s / 90 ≈ 13)
+        1.5e11,    // Regime 3: Plasma    (1.2e13 s / 90 ≈ 1.3e11)
+        5.0e15,    // Regime 4: Estrutura (4.35e17 s / 90 ≈ 4.8e15)
     };
 
     /// Multiplicadores de preset de velocidade relativos ao DEFAULT_SCALE.
@@ -45,7 +47,11 @@ public:
 
     // ── Controle de velocidade ───────────────────────────────────────────────────
     void   setTimeScale(double scale);
-    double getTimeScale() const { return time_scale_; }
+    double getTimeScale()       const { return time_scale_; }
+    double getSpeedMultiplier() const { return speed_multiplier_; }
+    /// Define time_scale_ diretamente sem alterar speed_multiplier_.
+    /// Usado pela interpolação de escala durante blends de transição.
+    void   setTimeScaleRaw(double scale) { time_scale_ = std::max(1e-50, scale); }
     void   applySpeedPreset(SpeedPreset preset);
     void   applyRegimeDefaultScale(int regime_index);
     void   rebaseTimeScaleForRegime(int regime_index);

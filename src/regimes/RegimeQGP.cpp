@@ -78,9 +78,12 @@ void RegimeQGP::applyCosmicExpansion(Universe& universe, double a_prev, double a
     ParticlePool& p = universe.particles;
     for (size_t i = 0; i < p.x.size(); ++i) {
         if (!(p.flags[i] & PF_ACTIVE)) continue;
-        p.x[i] *= ratio;
-        p.y[i] *= ratio;
-        p.z[i] *= ratio;
+        // Não multiplicar p.x[i] *= ratio geométricamente! 
+        // Isso causa que as coordenadas explodam por 1.000.000x, 
+        // distanciando os objetos enormemente e forçando a câmera 
+        // a se afastar tanto que eles somem da tela.
+        // Manter em coordenadas comóveis na visualização.
+        
         // Velocidades peculiares diminuem: v ∝ 1/a
         p.vx[i] /= ratio;
         p.vy[i] /= ratio;

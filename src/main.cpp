@@ -400,22 +400,17 @@ int main(int argc, char** argv) {
 
         // Tick de física do regime
         int previous_regime = app.mgr.getCurrentRegimeIndex();
-        app.mgr.tick(app.clock, app.universe);
+        app.mgr.tick(app.clock, app.universe, static_cast<double>(real_dt));
         int current_regime = app.mgr.getCurrentRegimeIndex();
 
         if (current_regime != previous_regime &&
             app.camera.tracked_id == std::numeric_limits<uint32_t>::max()) {
-            // opcional: app.camera.applyState(...)
+            app.camera.applyState(app.camera.getRegimeDefaultState(current_regime));
         }
 
         IRegime* regime = app.mgr.getCurrentRegime();
         if (regime) {
             double cosmic_dt = app.clock.getLastStepCosmicDt();
-
-            if (current_regime != previous_regime) {
-                cosmic_dt = 0.0;
-            }
-
             regime->update(cosmic_dt,
                            app.clock.getScaleFactor(),
                            app.clock.getTemperatureKeV(),

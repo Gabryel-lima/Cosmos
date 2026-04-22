@@ -74,7 +74,8 @@ void RegimeStructure::applyCosmicExpansion(Universe& universe, double a_prev, do
     ParticlePool& p = universe.particles;
     for (size_t i = 0; i < p.x.size(); ++i) {
         if (!(p.flags[i] & PF_ACTIVE)) continue;
-        p.x[i] *= ratio; p.y[i] *= ratio; p.z[i] *= ratio;
+        // Removido: p.x[i] *= ratio; geométricamente isso causa fuga da câmera.
+        // Simulamos e renderizamos en coordenadas comóveis = tamanho da caixa visível fixo.
         p.vx[i] /= ratio; p.vy[i] /= ratio; p.vz[i] /= ratio;
     }
 }

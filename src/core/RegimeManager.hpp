@@ -31,7 +31,7 @@ public:
 
     /// Chamado a cada quadro pelo loop principal.
     /// Lê a temperatura do relógio, aciona transição automática quando o limiar é cruzado.
-    void tick(CosmicClock& clock, Universe& universe);
+    void tick(CosmicClock& clock, Universe& universe, double real_dt_seconds);
 
     /// Atalho de navegação — reconstrói estado para aquele regime e retoma a evolução.
     void jumpToRegime(int index, CosmicClock& clock, Universe& universe);
@@ -64,5 +64,10 @@ private:
 
     double last_real_time_ = 0.0;   // para o temporizador de transição (definido em tick)
     float  transition_elapsed_ = 0.0f;
+    float  regime_elapsed_real_ = 0.0f;   // tempo real acumulado no regime ativo
+    // Permanência mínima por regime antes de permitir a próxima transição automática.
+    // Evita pular rápido demais sem dar tempo de aparecer visualmente.
+    std::array<float, 5> min_regime_dwell_s_ = {0.0f, 2.0f, 1.0f, 1.0f, 0.0f};
+    double speed_mult_at_start_ = 1.0; // multiplicador de velocidade capturado ao início da transição
     Universe transition_from_universe_;
 };

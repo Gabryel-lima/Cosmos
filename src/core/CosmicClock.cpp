@@ -63,9 +63,13 @@ void CosmicClock::step(double real_dt_seconds) {
     double next_boundary = nextRegimeStartTime(regime_index_);
     double max_dt_until_transition = std::max(0.0, next_boundary - cosmic_time_);
 
+    bool hit_transition = false;
     double applied_cosmic_dt = requested_cosmic_dt;
     if (regime_index_ < 4) {
-        applied_cosmic_dt = std::min(requested_cosmic_dt, max_dt_until_transition);
+        if (requested_cosmic_dt >= max_dt_until_transition) {
+            applied_cosmic_dt = max_dt_until_transition;
+            hit_transition = true;
+        }
     }
 
     last_step_cosmic_dt_ = applied_cosmic_dt;
@@ -79,6 +83,12 @@ void CosmicClock::step(double real_dt_seconds) {
             scale_factor_ = 1e-60;
         cosmic_time_ += sub_dt;
         remaining -= sub_dt;
+    }
+
+    if (hit_transition) {
+        // Previne o paradoxo de Zeno (erros de float acumulados travando a simulação 
+        // no limite exato do regime) forçando o tempo para a fronteira final.
+        cosmic_time_ = next_boundary;
     }
 
     recomputeDerivedQuantities();
