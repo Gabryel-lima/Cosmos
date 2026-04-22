@@ -116,7 +116,7 @@ void ParticlePool::defaultColor(ParticleType t, float& r, float& g, float& b) {
         case ParticleType::DARK_MATTER:r=0.3f; g=0.0f; b=0.5f; break; // roxo escuro
         case ParticleType::STAR:       r=1.0f; g=0.9f; b=0.7f; break; // amarelo estelar
         case ParticleType::GAS:        r=0.4f; g=0.6f; b=1.0f; break; // gás azul
-        case ParticleType::BLACKHOLE:  r=0.0f; g=0.0f; b=0.0f; break; // preto
+        case ParticleType::BLACKHOLE:  r=1.0f; g=0.0f; b=0.0f; break; // vermelho (mesmo do PROTON, para destacar)
         default:                       r=1.0f; g=1.0f; b=1.0f; break;
     }
 }
