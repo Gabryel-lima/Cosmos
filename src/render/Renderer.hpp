@@ -118,6 +118,7 @@ private:
 
     int width_ = 1280, height_ = 720;
     float last_gpu_ms_ = 0.0f;
+    float cmb_flash_alpha_ = 0.0f; // Armazena a intensidade do flash CMB para o passe de pós-processamento
 
     // Dados da câmera
     glm::mat4   view_mat_      = glm::mat4(1.0f);

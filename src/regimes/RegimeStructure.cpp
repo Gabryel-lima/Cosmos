@@ -176,8 +176,9 @@ void RegimeStructure::updateStellarEvolution(Universe& universe, double cosmic_d
                             if (j == i || !(p.flags[j] & PF_ACTIVE)) continue;
                             double dx = p.x[j]-p.x[i], dy = p.y[j]-p.y[i], dz = p.z[j]-p.z[i];
                             double r = std::sqrt(dx*dx+dy*dy+dz*dz) + 0.001;
-                            if (r < 0.1) {
-                                double kick = 100.0 / (r + 0.01);
+                            if (r < 0.25) { // Ampliado levemente o raio
+                                // Reduzido drasticamente o kick para evitar explosão (fuga da câmera)
+                                double kick = 0.2 / (r + 0.05); 
                                 p.vx[j] += kick * dx/r;
                                 p.vy[j] += kick * dy/r;
                                 p.vz[j] += kick * dz/r;

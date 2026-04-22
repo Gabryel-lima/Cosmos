@@ -302,6 +302,7 @@ void Renderer::resize(int w, int h) {
 // ── Ciclo de vida do quadro ──────────────────────────────────────────────────────
 
 void Renderer::beginFrame() {
+    cmb_flash_alpha_ = 0.0f; // Resetar flash a cada quadro
     // Iniciar temporizador GPU
     glBeginQuery(GL_TIME_ELAPSED, timer_query_[timer_idx_]);
 
@@ -391,30 +392,12 @@ void Renderer::renderParticles(const Universe& universe) {
     std::vector<float> pos_data; pos_data.reserve(n * 4);
     std::vector<float> col_data; col_data.reserve(n * 4);
 
-    // Calcular extensão da nuvem de partículas para escalar o tamanho dos billboards
-    // de forma relativa à cena visível (funciona em todas as épocas cósmicas).
-    // Encontra a primeira partícula activa para inicializar min/max corretamente.
-    size_t first_active = n;
-    for (size_t i = 0; i < n; ++i) { if (p.flags[i] & PF_ACTIVE) { first_active = i; break; } }
-    if (first_active == n) return;  // nenhuma partícula activa
+    // Calcular tamanho de extensão de nuvem para não dependermos de min/max que quebram com runaway particles.
+    float box_size = 5.0f;
+    if (universe.regime_index >= 4) box_size = 50.0f;
+    else if (universe.regime_index <= 2) box_size = 1.0f;
 
-    double xmin = p.x[first_active], xmax = p.x[first_active];
-    double ymin = p.y[first_active], ymax = p.y[first_active];
-    double zmin = p.z[first_active], zmax = p.z[first_active];
-    for (size_t i = first_active + 1; i < n; ++i) {
-        if (!(p.flags[i] & PF_ACTIVE)) continue;
-        if (p.x[i] < xmin) xmin = p.x[i];
-        if (p.x[i] > xmax) xmax = p.x[i];
-        if (p.y[i] < ymin) ymin = p.y[i];
-        if (p.y[i] > ymax) ymax = p.y[i];
-        if (p.z[i] < zmin) zmin = p.z[i];
-        if (p.z[i] > zmax) zmax = p.z[i];
-    }
-
-    // Use the cloud extent plus a minimum apparent size in screen space so
-    // particles remain visible while the camera moves across cosmic scales.
-    float spread = static_cast<float>(std::max({xmax - xmin, ymax - ymin, zmax - zmin, 1e-10}));
-    float extent_size = std::max(spread * 0.006f, 1e-6f);
+    float extent_size = box_size * 0.005f;
     float proj_scale = std::abs(proj_mat_[1][1]) > 1e-6f ? std::abs(proj_mat_[1][1]) : 1.0f;
     float min_screen_radius_ndc = 5.0f / static_cast<float>(std::max(height_, 1));
 
@@ -524,17 +507,9 @@ void Renderer::renderNuclearAbundances(const NuclearAbundances& /*ab*/) {}
 // ── Flash do CMB ──────────────────────────────────────────────────────────────────
 
 void Renderer::renderCMBFlash(float t) {
-    // Bloom gaussiano brilhante que se dissipa — renderizado como um quad de tela cheia
-    if (!tonemap_shader_.id) return;
-    // Usar blend aditivo, desenhar um quad branco com alpha = flash_t
-    float alpha = std::max(0.0f, 1.0f - t) * 5.0f;  // muito brilhante no início
-    glUseProgram(tonemap_shader_.id);
-    glUniform1f(glGetUniformLocation(tonemap_shader_.id, "u_cmb_flash"), alpha);
-    glBindVertexArray(quad_vao_.id);
-    glDisable(GL_DEPTH_TEST);
-    glDrawArrays(GL_TRIANGLES, 0, 6);
-    glEnable(GL_DEPTH_TEST);
-    glBindVertexArray(0);
+    // Armazena a intensidade do flash para aplicar aditivamente durante o post-process (ACES)
+    // ao invés de aplicar recursivamente sobre o HDR fbo enquanto ele ainda está vinculado.
+    cmb_flash_alpha_ = std::max(0.0f, 1.0f - t) * 5.0f;
 }
 
 // ── Halos de galáxias (esferas em wireframe) ───────────────────────────────────────
@@ -563,7 +538,7 @@ void Renderer::applyPostProcess() {
     glUseProgram(tonemap_shader_.id);
     glUniform1i(glGetUniformLocation(tonemap_shader_.id, "u_hdr_tex"), 0);
     glUniform1f(glGetUniformLocation(tonemap_shader_.id, "u_exposure"), 1.0f);
-    glUniform1f(glGetUniformLocation(tonemap_shader_.id, "u_cmb_flash"), 0.0f);
+    glUniform1f(glGetUniformLocation(tonemap_shader_.id, "u_cmb_flash"), cmb_flash_alpha_);
     glUniform1f(glGetUniformLocation(tonemap_shader_.id, "u_blend_t"), blend_t_);
 
     glActiveTexture(GL_TEXTURE0);

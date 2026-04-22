@@ -214,8 +214,8 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
         case 0: cam.ortho = true;  cam.zoom = 1.0; break;
         case 1: cam.ortho = false; cam.zoom = 3.0; break;
         case 2: cam.ortho = false; cam.zoom = 3.0; break;
-        case 3: cam.ortho = false; cam.zoom = 100.0; break;
-        case 4: cam.ortho = false; cam.zoom = 500.0; break;
+        case 3: cam.ortho = false; cam.zoom = 12.0; break;
+        case 4: cam.ortho = false; cam.zoom = 45.0; break;
     }
     cam.pos_z = static_cast<double>(cam.zoom) * 1.5;
     st.suggested_camera = cam;

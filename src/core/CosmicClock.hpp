@@ -17,11 +17,11 @@ public:
     // garantindo que as transições automáticas ocorram e os elementos apareçam.
     // scale = duração_cósmica_do_regime / 90 segundos
     static constexpr std::array<double,5> DEFAULT_SCALE = {
-        1.0e-37,   // Regime 0: Inflação  (1e-35 s / 90 ≈ 1.1e-37)
-        1.5e-8,    // Regime 1: QGP       (1e-6 s / 90 ≈ 1.1e-8)
-        15.0,      // Regime 2: Nucleossíntese (1200 s / 90 ≈ 13)
-        1.5e11,    // Regime 3: Plasma    (1.2e13 s / 90 ≈ 1.3e11)
-        5.0e15,    // Regime 4: Estrutura (4.35e17 s / 90 ≈ 4.8e15)
+        1.0e-37,   // Regime 0: Inflação
+        1.5e-8,    // Regime 1: QGP
+        15.0,      // Regime 2: Nucleossíntese
+        3.0e10,    // Regime 3: Plasma (Lentificado para melhor visualização e acompanhamento)
+        5.0e14,    // Regime 4: Estrutura (Lentificado para dar tempo de carregar estruturas/galáxias)
     };
 
     /// Multiplicadores de preset de velocidade relativos ao DEFAULT_SCALE.
