@@ -140,9 +140,16 @@ ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
 void inheritStateAcrossTransition(int from, int to, const Universe& previous, InitialState& next) {
     if (from == to) return;
 
-    ParticlePool remapped = remapParticlesForRegime(to, previous);
-    if (!remapped.x.empty()) {
-        next.particles = std::move(remapped);
+    // Ao ir para o Regime 4 (Formação de Estruturas), o escopo da simulação dá um pulo
+    // de uma pequena escala local de plasma para uma caixa cosmológica de 50 Megaparsecs.
+    // Manter as posições literais das partículas do plasma (espremidas em [-2.5, 2.5]) 
+    // num vazio de 50 Mpc arruinaria a simulação da teia cósmica.
+    // Portanto, para o Regime 4, preservamos a grade de Zel'dovich gerada por buildInitialState.
+    if (to != 4) {
+        ParticlePool remapped = remapParticlesForRegime(to, previous);
+        if (!remapped.x.empty()) {
+            next.particles = std::move(remapped);
+        }
     }
 
     if ((to == 3 || to == 4) && previous.density_field.NX > 0 && previous.density_field.data.size() == next.field.data.size()) {
@@ -185,9 +192,10 @@ static void zelDovichDisplace(ParticlePool& pool, int N_cbrt, double box_size) {
         ParticleType t = (rng_init() % 5 == 0) ? ParticleType::GAS : ParticleType::DARK_MATTER;
         double mass = (t == ParticleType::DARK_MATTER) ? 8.0e6 : 2.0e6;
         ParticlePool::defaultColor(t, cr, cg, cb);
-        pool.add(x, y, z,
+        size_t added = pool.add(x, y, z,
                  velocity(rng_init), velocity(rng_init), velocity(rng_init),
                  mass, t, cr, cg, cb);
+        pool.luminosity[added] = (t == ParticleType::GAS) ? 0.7f : 0.05f; // Gás visível, Matéria Escura bem discreta
     }
 }
 

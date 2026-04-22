@@ -291,7 +291,7 @@ void RegimeOverlay::drawCompositionTable(const CosmicClock& clock, const Univers
         renderType(ParticleType::DARK_MATTER,"Dark Mat.", {0.2f, 0.1f, 0.3f, 1.0f});
         renderType(ParticleType::GAS,       "Gas",        {0.6f, 0.4f, 1.0f, 1.0f});
         renderType(ParticleType::STAR,      "Stars",      {1.0f, 0.9f, 0.5f, 1.0f});
-        renderType(ParticleType::BLACKHOLE, "Blk. Holes", {0.0f, 0.0f, 0.0f, 1.0f});
+        renderType(ParticleType::BLACKHOLE, "Blk. Holes", {1.0f, 0.0f, 0.0f, 1.0f});
     }
 }
 

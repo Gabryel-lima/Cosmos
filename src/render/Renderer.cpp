@@ -474,6 +474,12 @@ void Renderer::renderVolumeField(const Universe& universe) {
     const GridData& field = universe.density_field;
     if (field.data.empty() || !volume_shader_.id) return;
 
+    // Determine the box size based on the current cosmic regime.
+    // Regime 1 and 2 operate on small boxes. Regime 3 uses a 5.0 unit box. Regime 4 uses 50.0 units.
+    float box_size = 5.0f;
+    if (universe.regime_index >= 4) box_size = 50.0f;
+    else if (universe.regime_index <= 2) box_size = 1.0f;
+
     // Enviar campo para textura 3D (redimensionar se necessário)
     glBindTexture(GL_TEXTURE_3D, density_3d_tex_.id);
     if (field.NX > 0) {
@@ -484,9 +490,16 @@ void Renderer::renderVolumeField(const Universe& universe) {
 
     glUseProgram(volume_shader_.id);
     glUniform1i(glGetUniformLocation(volume_shader_.id, "u_density_tex"), 0);
-    glUniform1f(glGetUniformLocation(volume_shader_.id, "u_density_scale"), 300.0f);
-    glUniform1f(glGetUniformLocation(volume_shader_.id, "u_opacity_scale"), 15.0f);
+    // Reduz u_density_scale para não estourar o mapeamento (antes era 300 explodindo ruídos em 1)
+    glUniform1f(glGetUniformLocation(volume_shader_.id, "u_density_scale"), 10.0f);
+    glUniform1f(glGetUniformLocation(volume_shader_.id, "u_opacity_scale"), 1.0f);
     glUniform1f(glGetUniformLocation(volume_shader_.id, "u_opacity"), render_opacity_);
+    glUniform3f(glGetUniformLocation(volume_shader_.id, "u_cam_world_pos"), 
+                static_cast<float>(cam_world_pos_.x), 
+                static_cast<float>(cam_world_pos_.y), 
+                static_cast<float>(cam_world_pos_.z));
+    glUniform1f(glGetUniformLocation(volume_shader_.id, "u_box_size"), box_size);
+
     glUniformMatrix4fv(glGetUniformLocation(volume_shader_.id, "u_inv_view_proj"),
                        1, GL_FALSE,
                        glm::value_ptr(glm::inverse(proj_mat_ * view_mat_)));

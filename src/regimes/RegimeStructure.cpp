@@ -309,6 +309,7 @@ void RegimeStructure::update(double cosmic_dt, double scale_factor, double temp_
 }
 
 void RegimeStructure::render(Renderer& renderer, const Universe& universe) {
+    renderer.renderVolumeField(universe); // Mostrar a teia/poeira cósmica de gás em fundo
     renderer.renderParticles(universe);
     // Converte Halo interno para HaloInfo para o renderizador
     std::vector<HaloInfo> halo_info;
