@@ -54,7 +54,7 @@ void RegimeInflation::stepScalarField(double cosmic_dt, double H, Universe& univ
     double progress_dt = (regime_duration > 0.0) ? cosmic_dt / regime_duration : 0.0;
     float dt = cosmic_dt <= 0.0 ? 0.0f
                                 : std::clamp(static_cast<float>(progress_dt * 8.0), 0.001f, 0.04f);
-    float Hf = static_cast<float>(H);
+    float Hf = std::clamp(static_cast<float>(H), 0.1f, 5.0f); // Cap Hubble visualmente para não matar oscilações
     float dx2 = (1.0f / static_cast<float>(N)) * (1.0f / static_cast<float>(N));
 
     auto idx = [&](int i, int j) -> int {
@@ -62,22 +62,26 @@ void RegimeInflation::stepScalarField(double cosmic_dt, double H, Universe& univ
     };
 
     // Klein-Gordon em 2D: φ̈ + 3Hφ̇ - ∇²φ/a² + V'(φ) = 0
-    // V(φ) = m²φ²/2 → V'(φ) = m²φ
-    // Discretização: φ̈ = -3Hφ̇ + ∇²φ/a² - M2*φ
     std::vector<float> phi_new = universe.phi_field;
     std::vector<float> phid_new = universe.phi_dot_field;
+
+    // Gerador rápido de ruído para bombear flutuações quânticas constantes (o campo não "apaga" de vez)
+    std::normal_distribution<float> quantum_pump(0.0f, 0.05f * dt);
 
     for (int j = 0; j < N; ++j)
     for (int i = 0; i < N; ++i) {
         float phi  = universe.phi_field[idx(i, j)];
         float phid = universe.phi_dot_field[idx(i, j)];
+        // Derivada espacial amortecida visando estética
         float lap  = (universe.phi_field[idx(i+1,j)] + universe.phi_field[idx(i-1,j)]
                     + universe.phi_field[idx(i,j+1)] + universe.phi_field[idx(i,j-1)]
                     - 4.0f * phi) / dx2;
-        float phi_ddot = -3.0f * Hf * phid + lap - M2 * phi;
+        
+        // Equação de onda c/ atrito suave da expansão local e poço do potencial M2
+        float phi_ddot = -1.5f * Hf * phid + 0.1f * lap - M2 * phi;
 
-        phid_new[idx(i,j)] = phid + phi_ddot * dt;
-        phi_new[idx(i,j)]  = phi  + phid * dt + 0.5f * phi_ddot * dt * dt;
+        phid_new[idx(i,j)] = phid + phi_ddot * dt + quantum_pump(rng_inflation);
+        phi_new[idx(i,j)]  = phi  + phid_new[idx(i,j)] * dt;
     }
 
     // Keep the inflation field visually centered and within a usable dynamic

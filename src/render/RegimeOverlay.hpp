@@ -17,7 +17,7 @@ private:
     void drawTimeline(CosmicClock& clock, RegimeManager& mgr);
     void drawTimeControls(CosmicClock& clock, RegimeManager& mgr, Universe& universe, Camera& camera);
     void drawPhysicsInfo(const CosmicClock& clock, const Universe& universe);
-    void drawAbundancePieChart(const Universe& universe);
+    void drawCompositionTable(const CosmicClock& clock, const Universe& universe);
     void drawPerformanceStats(const Universe& universe);
 
     // Estado do ciclo de predefinições de velocidade

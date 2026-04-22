@@ -11,6 +11,7 @@
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+#include <unordered_map>
 
 static const char* REGIME_NAMES[5] = {
     "0:INFLATION", "1:QGP", "2:BBN", "3:PLASMA", "4:STRUCTURE"
@@ -62,16 +63,14 @@ void RegimeOverlay::render(CosmicClock& clock, RegimeManager& mgr, Universe& uni
     }
     ImGui::End();
 
-    // Painel de abundâncias (visível apenas no Regime 2)
-    if (clock.getCurrentRegimeIndex() == 2) {
-        ImGui::SetNextWindowPos({10, 210}, ImGuiCond_Always);
-        ImGui::SetNextWindowSize({260, 160}, ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.72f);
-        if (ImGui::Begin("##Abundances", nullptr, flags)) {
-            drawAbundancePieChart(universe);
-        }
-        ImGui::End();
+    // Painel de composição (visível em todos os regimes)
+    ImGui::SetNextWindowPos({10, 210}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({300, 220}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowBgAlpha(0.72f);
+    if (ImGui::Begin("Cosmic Composition", nullptr, ImGuiWindowFlags_NoCollapse)) {
+        drawCompositionTable(clock, universe);
     }
+    ImGui::End();
 
     // Overlay de desempenho (canto superior direito)
     ImGui::SetNextWindowPos({io.DisplaySize.x - 200.0f, 210.0f}, ImGuiCond_Always);
@@ -219,21 +218,81 @@ void RegimeOverlay::drawPhysicsInfo(const CosmicClock& clock, const Universe& /*
     ImGui::EndGroup();
 }
 
-void RegimeOverlay::drawAbundancePieChart(const Universe& universe) {
-    ImGui::Text("Nuclear Abundances (BBN)");
-    const NuclearAbundances& ab = universe.abundances;
+void RegimeOverlay::drawCompositionTable(const CosmicClock& clock, const Universe& universe) {
+    int regime = clock.getCurrentRegimeIndex();
+    
+    // Auxiliar progress bar
     auto bar = [&](const char* label, double val, ImVec4 color) {
-        ImGui::TextColored(color, "%s", label);
-        ImGui::SameLine(80);
-        char buf[32]; snprintf(buf, sizeof(buf), "%.4f%%", val * 100.0);
-        ImGui::ProgressBar(static_cast<float>(val), {120, 14}, buf);
+        ImGui::TextColored(color, "%-10s", label);
+        ImGui::SameLine(90);
+        char buf[32]; snprintf(buf, sizeof(buf), "%.2f%%", val * 100.0);
+        ImGui::ProgressBar(static_cast<float>(val), {150, 14}, buf);
     };
-    bar("n",    ab.Xn,   {0.3f,0.3f,1.0f,1.0f});
-    bar("p",    ab.Xp,   {1.0f,0.2f,0.2f,1.0f});
-    bar("D",    ab.Xd,   {0.7f,0.0f,1.0f,1.0f});
-    bar("He3",  ab.Xhe3, {1.0f,0.5f,0.1f,1.0f});
-    bar("He4",  ab.Xhe4, {1.0f,0.7f,0.0f,1.0f});
-    bar("Li7",  ab.Xli7, {0.0f,1.0f,0.4f,1.0f});
+
+    if (regime == 0) {
+        ImGui::Text("Inflation Era");
+        ImGui::Text("Scalar Field (Inflaton) Vacuum Energy");
+        bar("Inflaton", 1.0, {0.2f, 0.4f, 1.0f, 1.0f});
+        return;
+    }
+
+    if (regime == 2) {
+        // Para BBN, usamos as frações exatas do NuclearNetwork
+        ImGui::Text("Nuclear Abundances (Mass Fraction)");
+        const NuclearAbundances& ab = universe.abundances;
+        bar("Proton (H)", ab.Xp,   {1.0f,0.2f,0.2f,1.0f});
+        bar("Neutron",    ab.Xn,   {0.3f,0.3f,1.0f,1.0f});
+        bar("Deuterium",  ab.Xd,   {0.7f,0.0f,1.0f,1.0f});
+        bar("Helium-3",   ab.Xhe3, {1.0f,0.5f,0.1f,1.0f});
+        bar("Helium-4",   ab.Xhe4, {1.0f,0.7f,0.0f,1.0f});
+        bar("Lithium-7",  ab.Xli7, {0.0f,1.0f,0.4f,1.0f});
+        return;
+    }
+
+    // Para outros regimes, contamos ativamente as partículas simuladas
+    std::unordered_map<ParticleType, int> counts;
+    int total = 0;
+    const ParticlePool& pp = universe.particles;
+    for (size_t i = 0; i < pp.x.size(); ++i) {
+        if (!(pp.flags[i] & PF_ACTIVE)) continue;
+        counts[pp.type[i]]++;
+        total++;
+    }
+
+    if (total == 0) {
+        ImGui::Text("Awaiting Particle Generation...");
+        return;
+    }
+
+    ImGui::Text("Particle Distribution (%d total)", total);
+    
+    // Função local para mapear tipo -> cor & nome
+    auto renderType = [&](ParticleType type, const char* name, ImVec4 color) {
+        if (counts[type] > 0) {
+            double frac = static_cast<double>(counts[type]) / total;
+            bar(name, frac, color);
+        }
+    };
+
+    if (regime == 1) {
+        renderType(ParticleType::QUARK_U,   "Quark Up",   {1.0f, 0.0f, 0.0f, 1.0f});
+        renderType(ParticleType::QUARK_D,   "Quark Down", {0.0f, 1.0f, 0.0f, 1.0f});
+        renderType(ParticleType::QUARK_S,   "Quark Str.", {0.0f, 0.0f, 1.0f, 1.0f});
+        renderType(ParticleType::GLUON,     "Gluon",      {1.0f, 1.0f, 0.0f, 1.0f});
+        renderType(ParticleType::PROTON,    "Protons",    {1.0f, 0.2f, 0.2f, 1.0f});
+        renderType(ParticleType::NEUTRON,   "Neutrons",   {0.3f, 0.3f, 1.0f, 1.0f});
+    } else if (regime == 3) {
+        renderType(ParticleType::PHOTON,    "Photons",    {1.0f, 1.0f, 1.0f, 1.0f});
+        renderType(ParticleType::PROTON,    "Protons",    {1.0f, 0.2f, 0.2f, 1.0f});
+        renderType(ParticleType::HELIUM4,   "Helium-4",   {1.0f, 0.7f, 0.0f, 1.0f});
+        renderType(ParticleType::ELECTRON,  "Electrons",  {0.0f, 1.0f, 1.0f, 1.0f});
+        renderType(ParticleType::GAS,       "Neut. Gas",  {0.6f, 0.4f, 1.0f, 1.0f});
+    } else if (regime == 4) {
+        renderType(ParticleType::DARK_MATTER,"Dark Mat.", {0.2f, 0.1f, 0.3f, 1.0f});
+        renderType(ParticleType::GAS,       "Gas",        {0.6f, 0.4f, 1.0f, 1.0f});
+        renderType(ParticleType::STAR,      "Stars",      {1.0f, 0.9f, 0.5f, 1.0f});
+        renderType(ParticleType::BLACKHOLE, "Blk. Holes", {0.0f, 0.0f, 0.0f, 1.0f});
+    }
 }
 
 void RegimeOverlay::drawPerformanceStats(const Universe& universe) {
