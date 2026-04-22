@@ -28,7 +28,7 @@ WGET := $(shell command -v wget 2>/dev/null)
 .PHONY: all setup build run clean distclean help
 
 # ── Alvo padrão ──────────────────────────────────────────────────────────────
-all: build
+all: clean build
 
 # ── setup: baixar dependências (idempotente) ──────────────────────────────────
 setup: $(GLAD_SRC) $(IMGUI_H)
@@ -81,7 +81,7 @@ build: setup
 	@$(MAKE) -C $(BUILD) -j$(JOBS)
 
 # ── execução ─────────────────────────────────────────────────────────────────
-run: build
+run:
 	./$(BUILD)/$(PROJECT)
 
 # ── limpeza ──────────────────────────────────────────────────────────────────
