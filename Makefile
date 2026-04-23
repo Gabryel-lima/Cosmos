@@ -28,7 +28,10 @@ WGET := $(shell command -v wget 2>/dev/null)
 .PHONY: all setup build run clean distclean help
 
 # ── Alvo padrão ──────────────────────────────────────────────────────────────
-all: clean build
+all: 
+	rm -rf $(PROJECT)
+	@echo "Removido binário antigo (se existia). Preservando dependências para build mais rápido."
+	@$(MAKE) build
 
 # ── setup: baixar dependências (idempotente) ──────────────────────────────────
 setup: $(GLAD_SRC) $(IMGUI_H)

@@ -275,23 +275,23 @@ void RegimeOverlay::drawCompositionTable(const CosmicClock& clock, const Univers
     };
 
     if (regime == 1) {
-        renderType(ParticleType::QUARK_U,   "Quark Up",   {1.0f, 0.0f, 0.0f, 1.0f});
-        renderType(ParticleType::QUARK_D,   "Quark Down", {0.0f, 1.0f, 0.0f, 1.0f});
-        renderType(ParticleType::QUARK_S,   "Quark Str.", {0.0f, 0.0f, 1.0f, 1.0f});
-        renderType(ParticleType::GLUON,     "Gluon",      {1.0f, 1.0f, 0.0f, 1.0f});
-        renderType(ParticleType::PROTON,    "Protons",    {1.0f, 0.2f, 0.2f, 1.0f});
-        renderType(ParticleType::NEUTRON,   "Neutrons",   {0.3f, 0.3f, 1.0f, 1.0f});
+        renderType(ParticleType::QUARK_U,   "Quark Up",      {0.0f, 1.0f, 1.0f, 1.0f});
+        renderType(ParticleType::QUARK_D,   "Quark Down",    {1.0f, 0.0f, 1.0f, 1.0f});
+        renderType(ParticleType::QUARK_S,   "Quark Strange", {1.0f, 1.0f, 0.0f, 1.0f});
+        renderType(ParticleType::GLUON,     "Gluon",         {1.0f, 1.0f, 1.0f, 1.0f});
+        renderType(ParticleType::PROTON,    "Protons",       {1.0f, 0.2f, 0.2f, 1.0f});
+        renderType(ParticleType::NEUTRON,   "Neutrons",      {0.3f, 0.3f, 1.0f, 1.0f});
     } else if (regime == 3) {
-        renderType(ParticleType::PHOTON,    "Photons",    {1.0f, 1.0f, 1.0f, 1.0f});
-        renderType(ParticleType::PROTON,    "Protons",    {1.0f, 0.2f, 0.2f, 1.0f});
-        renderType(ParticleType::HELIUM4,   "Helium-4",   {1.0f, 0.7f, 0.0f, 1.0f});
-        renderType(ParticleType::ELECTRON,  "Electrons",  {0.0f, 1.0f, 1.0f, 1.0f});
-        renderType(ParticleType::GAS,       "Neut. Gas",  {0.6f, 0.4f, 1.0f, 1.0f});
+        renderType(ParticleType::PHOTON,    "Photons",       {1.0f, 1.0f, 0.8f, 1.0f});
+        renderType(ParticleType::PROTON,    "Protons",       {1.0f, 0.2f, 0.2f, 1.0f});
+        renderType(ParticleType::HELIUM4,   "Helium-4",      {1.0f, 0.6f, 0.0f, 1.0f});
+        renderType(ParticleType::ELECTRON,  "Electrons",     {0.0f, 0.8f, 1.0f, 1.0f});
+        renderType(ParticleType::GAS,       "Neutrino Gas",  {0.4f, 0.6f, 1.0f, 1.0f});
     } else if (regime == 4) {
-        renderType(ParticleType::DARK_MATTER,"Dark Mat.", {0.2f, 0.1f, 0.3f, 1.0f});
-        renderType(ParticleType::GAS,       "Gas",        {0.6f, 0.4f, 1.0f, 1.0f});
-        renderType(ParticleType::STAR,      "Stars",      {1.0f, 0.9f, 0.5f, 1.0f});
-        renderType(ParticleType::BLACKHOLE, "Blk. Holes", {1.0f, 0.0f, 0.0f, 1.0f});
+        renderType(ParticleType::DARK_MATTER,"Dark Matter",  {0.3f, 0.0f, 0.5f, 1.0f});
+        renderType(ParticleType::GAS,       "Gas",           {0.4f, 0.6f, 1.0f, 1.0f});
+        renderType(ParticleType::STAR,      "Stars",         {1.0f, 0.9f, 0.7f, 1.0f});
+        renderType(ParticleType::BLACKHOLE, "Black Holes",   {1.0f, 0.0f, 0.0f, 1.0f});
     }
 }
 
