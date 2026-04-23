@@ -1,6 +1,7 @@
 // src/core/RegimeManager.cpp
 #include "RegimeManager.hpp"
 #include "CosmicClock.hpp"
+#include "RegimeConfig.hpp"
 #include "../regimes/RegimeInflation.hpp"
 #include "../regimes/RegimeQGP.hpp"
 #include "../regimes/RegimeNucleosynthesis.hpp"
@@ -114,13 +115,13 @@ ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
                 }
                 size_t added = addParticleCopy(next, src, i, mapped);
                 if (mapped == ParticleType::GAS || mapped == ParticleType::DARK_MATTER) {
-                    next.mass[added] = (mapped == ParticleType::DARK_MATTER) ? 8.0e6 : 2.0e6;
+                    next.mass[added] = (mapped == ParticleType::DARK_MATTER) ? RegimeConfig::MASS_DARK_MATTER : RegimeConfig::MASS_GAS;
                 }
 
-                if (mapped == ParticleType::GAS && i % 96 == 0) {
+                if (mapped == ParticleType::GAS && i % RegimeConfig::TRANS_STRUCT_STAR_SPAWN_STEP == 0) {
                     size_t star = next.add(src.x[i], src.y[i], src.z[i],
                                            src.vx[i], src.vy[i], src.vz[i],
-                                           5.0e7, ParticleType::STAR,
+                                           RegimeConfig::MASS_STAR, ParticleType::STAR,
                                            1.0f, 0.92f, 0.72f, 0.0f);
                     next.star_state[star] = StarState::PROTOSTAR;
                     next.luminosity[star] = 4.0f;
@@ -148,6 +149,51 @@ void inheritStateAcrossTransition(int from, int to, const Universe& previous, In
     if (to != 4) {
         ParticlePool remapped = remapParticlesForRegime(to, previous);
         if (!remapped.x.empty()) {
+            size_t target_size = next.particles.x.size();
+
+            if (target_size > remapped.x.size()) {
+                // Completar com as partículas geradas pelo buildInitialState para atingir a quantidade desejada
+                for (size_t i = remapped.x.size(); i < target_size; ++i) {
+                    size_t added = remapped.add(
+                        next.particles.x[i], next.particles.y[i], next.particles.z[i],
+                        next.particles.vx[i], next.particles.vy[i], next.particles.vz[i],
+                        next.particles.mass[i], next.particles.type[i],
+                        next.particles.color_r[i], next.particles.color_g[i], next.particles.color_b[i],
+                        next.particles.charge[i]
+                    );
+                    remapped.luminosity[added] = next.particles.luminosity[i];
+                    remapped.star_state[added] = next.particles.star_state[i];
+                    remapped.star_age[added]   = next.particles.star_age[i];
+                    remapped.flags[added]      = next.particles.flags[i];
+                }
+            } else if (target_size > 0 && target_size < remapped.x.size()) {
+                // Truncar para respeitar a quantidade exigida pelo buildInitialState
+                remapped.x.resize(target_size);
+                remapped.y.resize(target_size);
+                remapped.z.resize(target_size);
+                remapped.vx.resize(target_size);
+                remapped.vy.resize(target_size);
+                remapped.vz.resize(target_size);
+                remapped.mass.resize(target_size);
+                remapped.type.resize(target_size);
+                remapped.charge.resize(target_size);
+                remapped.color_r.resize(target_size);
+                remapped.color_g.resize(target_size);
+                remapped.color_b.resize(target_size);
+                remapped.luminosity.resize(target_size);
+                remapped.temp_particle.resize(target_size);
+                remapped.star_state.resize(target_size);
+                remapped.star_age.resize(target_size);
+                remapped.flags.resize(target_size);
+                remapped.capacity = target_size;
+                
+                size_t fresh_active = 0;
+                for (size_t i = 0; i < target_size; ++i) {
+                    if (remapped.flags[i] & PF_ACTIVE) fresh_active++;
+                }
+                remapped.active = fresh_active;
+            }
+
             next.particles = std::move(remapped);
         }
     }
@@ -181,22 +227,38 @@ static void zelDovichDisplace(ParticlePool& pool, int N_cbrt, double box_size) {
     pool.clear();
     double spacing = box_size / static_cast<double>(N_cbrt);
     double half = box_size * 0.5;  // centre particles around origin
+    double R2 = half * half; // reject points outside sphere to prevent cuboid collapse artifacts
     for (int k = 0; k < N_cbrt; ++k)
     for (int j = 0; j < N_cbrt; ++j)
     for (int i = 0; i < N_cbrt; ++i) {
-        double x = (i + 0.5) * spacing - half + gauss(rng_init);
-        double y = (j + 0.5) * spacing - half + gauss(rng_init);
-        double z = (k + 0.5) * spacing - half + gauss(rng_init);
+        double px = (i + 0.5) * spacing - half;
+        double py = (j + 0.5) * spacing - half;
+        double pz = (k + 0.5) * spacing - half;
+        if (px * px + py * py + pz * pz > R2) continue; // Shape as a sphere
+        
+        double x = px + gauss(rng_init);
+        double y = py + gauss(rng_init);
+        double z = pz + gauss(rng_init);
         float cr, cg, cb;
         // 80% matéria escura, 20% gás
-        ParticleType t = (rng_init() % 5 == 0) ? ParticleType::GAS : ParticleType::DARK_MATTER;
-        double mass = (t == ParticleType::DARK_MATTER) ? 8.0e6 : 2.0e6;
+        ParticleType t = (rng_init() % RegimeConfig::STRUCT_GAS_RATIO_DIVISOR == 0) ? ParticleType::GAS : ParticleType::DARK_MATTER;
+        double mass = (t == ParticleType::DARK_MATTER) ? RegimeConfig::MASS_DARK_MATTER : RegimeConfig::MASS_GAS;
         ParticlePool::defaultColor(t, cr, cg, cb);
         size_t added = pool.add(x, y, z,
                  velocity(rng_init), velocity(rng_init), velocity(rng_init),
                  mass, t, cr, cg, cb);
         pool.luminosity[added] = (t == ParticleType::GAS) ? 0.7f : 0.05f; // Gás visível, Matéria Escura bem discreta
     }
+}
+
+// ── Helper para geração de posições esféricas ────────────────────────────────
+static void randomPosInSphere(double r_max, double& px, double& py, double& pz) {
+    std::uniform_real_distribution<double> dist(-r_max, r_max);
+    do {
+        px = dist(rng_init);
+        py = dist(rng_init);
+        pz = dist(rng_init);
+    } while (px*px + py*py + pz*pz > r_max*r_max);
 }
 
 InitialState RegimeManager::buildInitialState(int regime_index) {
@@ -228,14 +290,14 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
 
         case 1: {
             // PQG: 2000 quarks – pequeno o suficiente para Yukawa O(N²) rodar em tempo real
-            int N = 2000;
-            std::uniform_real_distribution<double> pos_dist(-0.5, 0.5);
+            int N = RegimeConfig::QGP_QUARK_COUNT;
             std::normal_distribution<double> vel_dist(0.0, 0.05);
             static const ParticleType quark_types[3] = {
                 ParticleType::QUARK_U, ParticleType::QUARK_D, ParticleType::QUARK_S
             };
             for (int i = 0; i < N; ++i) {
-                double px = pos_dist(rng_init), py = pos_dist(rng_init), pz = pos_dist(rng_init);
+                double px, py, pz;
+                randomPosInSphere(0.5, px, py, pz);
                 double vx = vel_dist(rng_init), vy = vel_dist(rng_init), vz = vel_dist(rng_init);
                 ParticleType t = quark_types[rng_init() % 3];
                 float cr, cg, cb; ParticlePool::defaultColor(t, cr, cg, cb);
@@ -244,8 +306,9 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
                 st.particles.luminosity[added] = 2.2f;
             }
             // Glúons mediadores
-            for (int i = 0; i < N / 5; ++i) {
-                double px = pos_dist(rng_init), py = pos_dist(rng_init), pz = pos_dist(rng_init);
+            for (int i = 0; i < N / RegimeConfig::QGP_GLUON_RATIO_DIVISOR; ++i) {
+                double px, py, pz;
+                randomPosInSphere(0.5, px, py, pz);
                 size_t added = st.particles.add(px, py, pz,
                                                 vel_dist(rng_init), vel_dist(rng_init), vel_dist(rng_init),
                                                 phys::m_p * 0.01, ParticleType::GLUON, 1.0f, 0.8f, 0.2f, 0.0f);
@@ -257,15 +320,17 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
         case 2: {
             // NBB: prótons e nêutrons (da hadronização)
             st.abundances = NuclearAbundances{};
-            st.abundances.Xp = 0.875; st.abundances.Xn = 0.125;
-            int N = 10000;
-            std::uniform_real_distribution<double> pos_dist(-0.5, 0.5);
+            st.abundances.Xp = RegimeConfig::BBN_INIT_XP; 
+            st.abundances.Xn = RegimeConfig::BBN_INIT_XN;
+            int N = RegimeConfig::BBN_NUCLEON_COUNT;
             std::normal_distribution<double> vel_dist(0.0, 0.01);
             for (int i = 0; i < N; ++i) {
-                bool is_proton = (rng_init() % 8 != 0);
+                double px, py, pz;
+                randomPosInSphere(0.5, px, py, pz);
+                bool is_proton = (rng_init() % RegimeConfig::BBN_PROTON_RATIO != 0);
                 ParticleType t = is_proton ? ParticleType::PROTON : ParticleType::NEUTRON;
                 float cr, cg, cb; ParticlePool::defaultColor(t, cr, cg, cb);
-                size_t added = st.particles.add(pos_dist(rng_init), pos_dist(rng_init), pos_dist(rng_init),
+                size_t added = st.particles.add(px, py, pz,
                                                 vel_dist(rng_init), vel_dist(rng_init), vel_dist(rng_init),
                                                 phys::m_p, t, cr, cg, cb);
                 st.particles.luminosity[added] = is_proton ? 1.7f : 1.5f;
@@ -275,20 +340,21 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
 
         case 3: {
             // Plasma: inicializar grade de fluido com amplitude visível de perturbações
-            int N = 64;
+            int N = RegimeConfig::PLASMA_GRID_SIZE;
             st.field.resize(N, N, N);
             // Perturbações BAO: amplitude 0.1 para contraste visível no renderizador de volume
             std::normal_distribution<float> delta_noise(0.0f, 0.1f);
             for (float& v : st.field.data) v = delta_noise(rng_init);
 
-            std::uniform_real_distribution<double> pos_dist(-2.5, 2.5);
             std::normal_distribution<double> vel_dist(0.0, 0.06);
-            for (int i = 0; i < 1800; ++i) {
-                bool is_helium = (i % 7 == 0);
+            for (int i = 0; i < RegimeConfig::PLASMA_BARYON_COUNT; ++i) {
+                double px, py, pz;
+                randomPosInSphere(2.5, px, py, pz);
+                bool is_helium = (i % RegimeConfig::PLASMA_HELIUM_RATIO_DIVISOR == 0);
                 ParticleType baryon = is_helium ? ParticleType::HELIUM4 : ParticleType::PROTON;
                 float br, bg, bb;
                 ParticlePool::defaultColor(baryon, br, bg, bb);
-                st.particles.add(pos_dist(rng_init), pos_dist(rng_init), pos_dist(rng_init),
+                st.particles.add(px, py, pz,
                                  vel_dist(rng_init), vel_dist(rng_init), vel_dist(rng_init),
                                  is_helium ? phys::m_p * 4.0 : phys::m_p,
                                  baryon, br, bg, bb,
@@ -296,14 +362,16 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
 
                 float er, eg, eb;
                 ParticlePool::defaultColor(ParticleType::ELECTRON, er, eg, eb);
-                st.particles.add(pos_dist(rng_init), pos_dist(rng_init), pos_dist(rng_init),
+                st.particles.add(px, py, pz,
                                  vel_dist(rng_init), vel_dist(rng_init), vel_dist(rng_init),
                                  phys::m_e, ParticleType::ELECTRON, er, eg, eb, -1.0f);
             }
-            for (int i = 0; i < 3200; ++i) {
+            for (int i = 0; i < RegimeConfig::PLASMA_PHOTON_COUNT; ++i) {
+                double px, py, pz;
+                randomPosInSphere(2.5, px, py, pz);
                 float pr, pg, pb;
                 ParticlePool::defaultColor(ParticleType::PHOTON, pr, pg, pb);
-                size_t photon = st.particles.add(pos_dist(rng_init), pos_dist(rng_init), pos_dist(rng_init),
+                size_t photon = st.particles.add(px, py, pz,
                                                  vel_dist(rng_init) * 2.0, vel_dist(rng_init) * 2.0, vel_dist(rng_init) * 2.0,
                                                  0.0, ParticleType::PHOTON, pr, pg, pb, 0.0f);
                 st.particles.luminosity[photon] = 2.5f;
@@ -313,29 +381,29 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
 
         case 4: {
             // Estrutura: grade de Zel'dovich em z~20 — N_cbrt³ partículas
-            int N_cbrt = 25;  // ~15 625 partículas (gerenciável para formação estelar)
-            double box = 50.0;  // Mpc comóvel (câmera vê melhor)
+            int N_cbrt = RegimeConfig::STRUCT_ZELDOVICH_N_CBRT;  // ~15 625 partículas (gerenciável para formação estelar)
+            double box = RegimeConfig::STRUCT_BOX_SIZE_MPC;  // Mpc comóvel (câmera vê melhor)
             zelDovichDisplace(st.particles, N_cbrt, box);
             // Campo de densidade semente
-            st.field.resize(64, 64, 64);
+            st.field.resize(RegimeConfig::STRUCT_GRID_SIZE, RegimeConfig::STRUCT_GRID_SIZE, RegimeConfig::STRUCT_GRID_SIZE);
             std::normal_distribution<float> dn(0.0f, 0.05f);
             for (float& v : st.field.data) v = dn(rng_init);
 
-            for (size_t i = 0; i < st.particles.x.size(); i += 320) {
+            for (size_t i = 0; i < st.particles.x.size(); i += RegimeConfig::STRUCT_STAR_SPAWN_STEP) {
                 if (st.particles.type[i] != ParticleType::GAS) continue;
                 size_t star = st.particles.add(st.particles.x[i], st.particles.y[i], st.particles.z[i],
                                                st.particles.vx[i], st.particles.vy[i], st.particles.vz[i],
-                                               5.0e7, ParticleType::STAR,
+                                               RegimeConfig::MASS_STAR, ParticleType::STAR,
                                                1.0f, 0.92f, 0.72f, 0.0f);
                 st.particles.star_state[star] = StarState::PROTOSTAR;
                 st.particles.luminosity[star] = 4.0f;
                 st.particles.flags[star] |= PF_STAR_FORMED;
             }
 
-            for (size_t i = 150; i < st.particles.x.size(); i += 2400) {
+            for (size_t i = RegimeConfig::STRUCT_BH_SPAWN_OFFSET; i < st.particles.x.size(); i += RegimeConfig::STRUCT_BH_SPAWN_STEP) {
                 size_t bh = st.particles.add(st.particles.x[i], st.particles.y[i], st.particles.z[i],
                                              0.0, 0.0, 0.0,
-                                             2.0e8, ParticleType::BLACKHOLE,
+                                             RegimeConfig::MASS_BLACKHOLE, ParticleType::BLACKHOLE,
                                              0.0f, 0.0f, 0.0f, 0.0f);
                 st.particles.luminosity[bh] = 6.0f;
                 st.particles.star_state[bh] = StarState::BLACK_HOLE;
