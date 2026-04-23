@@ -111,7 +111,7 @@ void ParticlePool::defaultColor(ParticleType t, float& r, float& g, float& b) {
         case ParticleType::PHOTON:     r=1.0f; g=1.0f; b=0.8f; break; // branco quente
         case ParticleType::DEUTERIUM:  r=0.7f; g=0.0f; b=1.0f; break; // roxo
         case ParticleType::HELIUM3:    r=1.0f; g=0.4f; b=0.1f; break; // vermelho-laranja
-        case ParticleType::HELIUM4:    r=1.0f; g=0.6f; b=0.0f; break; // laranja
+        case ParticleType::HELIUM4NUCLEI:    r=1.0f; g=0.6f; b=0.0f; break; // laranja
         case ParticleType::LITHIUM7:   r=0.0f; g=1.0f; b=0.4f; break; // verde
         case ParticleType::DARK_MATTER:r=0.3f; g=0.0f; b=0.5f; break; // roxo escuro
         case ParticleType::STAR:       r=1.0f; g=0.9f; b=0.7f; break; // amarelo estelar

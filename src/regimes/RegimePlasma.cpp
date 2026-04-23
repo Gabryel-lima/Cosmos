@@ -87,7 +87,7 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
                 particles.vz[i] += std::sin(static_cast<double>(wave_phase_) * 0.7 + particles.x[i]) * visual_dt * 0.14;
                 break;
             case ParticleType::PROTON:
-            case ParticleType::HELIUM4:
+            case ParticleType::HELIUM4NUCLEI:
             case ParticleType::GAS:
                 particles.vy[i] += swirl * visual_dt * 0.08;
                 break;

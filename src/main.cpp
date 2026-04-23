@@ -188,7 +188,7 @@ static void on_key(GLFWwindow* /*w*/, int key, int /*sc*/, int action, int mods)
                                   pp.type[i] == ParticleType::PROTON ||
                                   pp.type[i] == ParticleType::NEUTRON ||
                                   pp.type[i] == ParticleType::DEUTERIUM ||
-                                  pp.type[i] == ParticleType::HELIUM4 ||
+                                  pp.type[i] == ParticleType::HELIUM4NUCLEI ||
                                   pp.type[i] == ParticleType::ELECTRON ||
                                   pp.type[i] == ParticleType::GAS ||
                                   pp.type[i] == ParticleType::DARK_MATTER);

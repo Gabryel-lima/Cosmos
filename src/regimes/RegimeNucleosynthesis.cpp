@@ -60,20 +60,20 @@ void RegimeNucleosynthesis::update(double cosmic_dt, double scale_factor, double
                 if      (frac < fp)        new_type = ParticleType::PROTON;
                 else if (frac < fp + fn)   new_type = ParticleType::NEUTRON;
                 else if (frac < fp+fn+fd)  new_type = ParticleType::DEUTERIUM;
-                else                       new_type = ParticleType::HELIUM4;
+                else                       new_type = ParticleType::HELIUM4NUCLEI;
                 p.type[i] = new_type;
                 ParticlePool::defaultColor(new_type, p.color_r[i], p.color_g[i], p.color_b[i]);
                 // He4 é mais brilhante (recém formado)
-                p.luminosity[i] = (new_type == ParticleType::HELIUM4) ? 2.0f : 1.0f;
+                p.luminosity[i] = (new_type == ParticleType::HELIUM4NUCLEI) ? 2.0f : 1.0f;
 
                 if (visual_dt > 0.0) {
                     double phase = universe.cosmic_time * 0.05 + static_cast<double>(i) * 0.13;
-                    double jitter = (new_type == ParticleType::HELIUM4) ? 0.006 : 0.003;
+                    double jitter = (new_type == ParticleType::HELIUM4NUCLEI) ? 0.006 : 0.003;
                     p.vx[i] = p.vx[i] * 0.985 + std::sin(phase) * jitter;
                     p.vy[i] = p.vy[i] * 0.985 + std::cos(phase * 1.1) * jitter;
                     p.vz[i] = p.vz[i] * 0.985 + std::sin(phase * 0.7) * jitter;
 
-                    double collapse = (new_type == ParticleType::HELIUM4 || new_type == ParticleType::DEUTERIUM) ? 0.02 : 0.008;
+                    double collapse = (new_type == ParticleType::HELIUM4NUCLEI || new_type == ParticleType::DEUTERIUM) ? 0.02 : 0.008;
                     p.vx[i] += -p.x[i] * collapse * visual_dt;
                     p.vy[i] += -p.y[i] * collapse * visual_dt;
                     p.vz[i] += -p.z[i] * collapse * visual_dt;

@@ -18,15 +18,15 @@ static const char* REGIME_NAMES[5] = {
 };
 
 static const char* SPEED_LABELS[] = {
-    "×0.01 SLOW", "NORMAL", "×2", "×10", "×100"
+    "x0.01 SLOW", "NORMAL", "x2", "x10", "x100"
 };
 
-// Formata um número em notação científica (ex: 1.23 × 10⁸)
+// Formata um número em notação científica (ex: 1.23 x 10^8)
 static void fmtSci(char* buf, size_t len, double v) {
     if (v == 0.0) { snprintf(buf, len, "0"); return; }
     int exp = static_cast<int>(std::floor(std::log10(std::abs(v))));
     double mantissa = v / std::pow(10.0, exp);
-    snprintf(buf, len, "%.3g × 10^%d", mantissa, exp);
+    snprintf(buf, len, "%.3g x 10^%d", mantissa, exp);
 }
 
 static double timelineBoundaryTime(int boundary_index) {
@@ -158,7 +158,7 @@ void RegimeOverlay::drawTimeControls(CosmicClock& clock, RegimeManager& mgr, Uni
 
     // Predefinições de velocidade
     ImGui::SameLine();
-    if (ImGui::Button("S: SPEED")) {
+    if (ImGui::Button("SPEED")) {
         speed_preset_index_ = (speed_preset_index_ + 1) % 5;
         clock.applySpeedPreset(static_cast<CosmicClock::SpeedPreset>(speed_preset_index_));
     }
@@ -224,9 +224,9 @@ void RegimeOverlay::drawCompositionTable(const CosmicClock& clock, const Univers
     // Auxiliar progress bar
     auto bar = [&](const char* label, double val, ImVec4 color) {
         ImGui::TextColored(color, "%-10s", label);
-        ImGui::SameLine(90);
+        ImGui::SameLine(105);
         char buf[32]; snprintf(buf, sizeof(buf), "%.2f%%", val * 100.0);
-        ImGui::ProgressBar(static_cast<float>(val), {150, 14}, buf);
+        ImGui::ProgressBar(static_cast<float>(val), {155, 14}, buf);
     };
 
     if (regime == 0) {
@@ -240,12 +240,12 @@ void RegimeOverlay::drawCompositionTable(const CosmicClock& clock, const Univers
         // Para BBN, usamos as frações exatas do NuclearNetwork
         ImGui::Text("Nuclear Abundances (Mass Fraction)");
         const NuclearAbundances& ab = universe.abundances;
-        bar("Proton (H)", ab.Xp,   {1.0f,0.2f,0.2f,1.0f});
-        bar("Neutron",    ab.Xn,   {0.3f,0.3f,1.0f,1.0f});
-        bar("Deuterium",  ab.Xd,   {0.7f,0.0f,1.0f,1.0f});
-        bar("Helium-3",   ab.Xhe3, {1.0f,0.5f,0.1f,1.0f});
-        bar("Helium-4",   ab.Xhe4, {1.0f,0.7f,0.0f,1.0f});
-        bar("Lithium-7",  ab.Xli7, {0.0f,1.0f,0.4f,1.0f});
+        bar("Proton (H)",       ab.Xp,   {1.0f,0.2f,0.2f,1.0f});
+        bar("Neutron",          ab.Xn,   {0.3f,0.3f,1.0f,1.0f});
+        bar("Deuterium",        ab.Xd,   {0.7f,0.0f,1.0f,1.0f});
+        bar("Helium-3",         ab.Xhe3, {1.0f,0.5f,0.1f,1.0f});
+        bar("Helium-4 Nuclei",  ab.Xhe4, {1.0f,0.7f,0.0f,1.0f});
+        bar("Lithium-7",        ab.Xli7, {0.0f,1.0f,0.4f,1.0f});
         return;
     }
 
@@ -275,23 +275,27 @@ void RegimeOverlay::drawCompositionTable(const CosmicClock& clock, const Univers
     };
 
     if (regime == 1) {
-        renderType(ParticleType::QUARK_U,   "Quark Up",      {0.0f, 1.0f, 1.0f, 1.0f});
-        renderType(ParticleType::QUARK_D,   "Quark Down",    {1.0f, 0.0f, 1.0f, 1.0f});
-        renderType(ParticleType::QUARK_S,   "Quark Strange", {1.0f, 1.0f, 0.0f, 1.0f});
-        renderType(ParticleType::GLUON,     "Gluon",         {1.0f, 1.0f, 1.0f, 1.0f});
-        renderType(ParticleType::PROTON,    "Protons",       {1.0f, 0.2f, 0.2f, 1.0f});
-        renderType(ParticleType::NEUTRON,   "Neutrons",      {0.3f, 0.3f, 1.0f, 1.0f});
+        renderType(ParticleType::QUARK_U,       "Quark Up",      {0.0f, 1.0f, 1.0f, 1.0f});
+        renderType(ParticleType::QUARK_D,       "Quark Down",    {1.0f, 0.0f, 1.0f, 1.0f});
+        renderType(ParticleType::QUARK_S,       "Quark Strange", {1.0f, 1.0f, 0.0f, 1.0f});
+        renderType(ParticleType::GLUON,         "Gluon",         {1.0f, 1.0f, 1.0f, 1.0f});
+        renderType(ParticleType::PROTON,        "Protons",       {1.0f, 0.2f, 0.2f, 1.0f});
+        renderType(ParticleType::NEUTRON,       "Neutrons",      {0.3f, 0.3f, 1.0f, 1.0f});
     } else if (regime == 3) {
-        renderType(ParticleType::PHOTON,    "Photons",       {1.0f, 1.0f, 0.8f, 1.0f});
-        renderType(ParticleType::PROTON,    "Protons",       {1.0f, 0.2f, 0.2f, 1.0f});
-        renderType(ParticleType::HELIUM4,   "Helium-4",      {1.0f, 0.6f, 0.0f, 1.0f});
-        renderType(ParticleType::ELECTRON,  "Electrons",     {0.0f, 0.8f, 1.0f, 1.0f});
-        renderType(ParticleType::GAS,       "Neutrino Gas",  {0.4f, 0.6f, 1.0f, 1.0f});
+        /** DEUTERIUM, HELIUM3, HELIUM4NUCLEI e LITHIUM7 também devem existir aqui, mesmo que em menos quantidade */
+        renderType(ParticleType::DEUTERIUM,     "Deuterium",     {0.7f, 0.0f, 1.0f, 1.0f});
+        renderType(ParticleType::HELIUM3,       "Helium-3",      {1.0f, 0.5f, 0.1f, 1.0f});
+        renderType(ParticleType::HELIUM4NUCLEI, "He-4 Nuclei",   {1.0f, 0.6f, 0.0f, 1.0f});
+        renderType(ParticleType::LITHIUM7,      "Lithium-7",     {0.0f, 1.0f, 0.4f, 1.0f});
+        renderType(ParticleType::PHOTON,        "Photons",       {1.0f, 1.0f, 0.8f, 1.0f});
+        renderType(ParticleType::PROTON,        "Protons",       {1.0f, 0.2f, 0.2f, 1.0f});
+        renderType(ParticleType::ELECTRON,      "Electrons",     {0.0f, 0.8f, 1.0f, 1.0f});
+        renderType(ParticleType::NEUTRINO,      "Neutrinos",     {0.4f, 0.6f, 1.0f, 1.0f});
     } else if (regime == 4) {
-        renderType(ParticleType::DARK_MATTER,"Dark Matter",  {0.3f, 0.0f, 0.5f, 1.0f});
-        renderType(ParticleType::GAS,       "Gas",           {0.4f, 0.6f, 1.0f, 1.0f});
-        renderType(ParticleType::STAR,      "Stars",         {1.0f, 0.9f, 0.7f, 1.0f});
-        renderType(ParticleType::BLACKHOLE, "Black Holes",   {1.0f, 0.0f, 0.0f, 1.0f});
+        renderType(ParticleType::DARK_MATTER,   "Dark Matter",   {0.3f, 0.0f, 0.5f, 1.0f});
+        renderType(ParticleType::GAS,           "Gas",           {0.4f, 0.6f, 1.0f, 1.0f});
+        renderType(ParticleType::STAR,          "Stars",         {1.0f, 0.9f, 0.7f, 1.0f});
+        renderType(ParticleType::BLACKHOLE,     "Black Holes",   {1.0f, 0.0f, 0.0f, 1.0f});
     }
 }
 

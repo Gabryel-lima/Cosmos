@@ -23,7 +23,7 @@ bool isBaryonicType(ParticleType type) {
         case ParticleType::NEUTRON:
         case ParticleType::DEUTERIUM:
         case ParticleType::HELIUM3:
-        case ParticleType::HELIUM4:
+        case ParticleType::HELIUM4NUCLEI:
         case ParticleType::LITHIUM7:
         case ParticleType::GAS:
         case ParticleType::STAR:
@@ -351,7 +351,7 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
                 double px, py, pz;
                 randomPosInSphere(2.5, px, py, pz);
                 bool is_helium = (i % RegimeConfig::PLASMA_HELIUM_RATIO_DIVISOR == 0);
-                ParticleType baryon = is_helium ? ParticleType::HELIUM4 : ParticleType::PROTON;
+                ParticleType baryon = is_helium ? ParticleType::HELIUM4NUCLEI : ParticleType::PROTON;
                 float br, bg, bb;
                 ParticlePool::defaultColor(baryon, br, bg, bb);
                 st.particles.add(px, py, pz,
