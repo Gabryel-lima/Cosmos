@@ -22,9 +22,9 @@ namespace RegimeConfig {
     constexpr int    PLASMA_HELIUM_RATIO_DIVISOR = 7;  // Partículas alfa: 1 a cada 7 bárions
 
     // ── Regime 4: Structure Formation ──
-    constexpr int    STRUCT_ZELDOVICH_N_CBRT = 25;     // 25³ (gerará ~15.625 partículas)
+    constexpr int    STRUCT_ZELDOVICH_N_CBRT = 25;      // 25³ (gerará ~15.625 partículas)
     constexpr double STRUCT_BOX_SIZE_MPC = 50.0;       // Tamanho cúbico da simulação inicial
-    constexpr int    STRUCT_GRID_SIZE = 64;
+    constexpr int    STRUCT_GRID_SIZE = 64; 
     constexpr int    STRUCT_GAS_RATIO_DIVISOR = 5;     // 20% gás (i % 5 == 0), 80% DM
 
     // ── Massas e Constantes de Astro-formação Inicial ──
@@ -40,4 +40,36 @@ namespace RegimeConfig {
 
     // Transição de Plasma -> Formação de Estruturas: chance de formar protostar a partir de gás
     constexpr size_t TRANS_STRUCT_STAR_SPAWN_STEP = 96;
+
+    // --- Struct-like groups matching `Universe.hpp` types ---
+    // These provide names that mirror the structs in Universe for easier mapping.
+    struct NuclearAbundances {
+        static constexpr double Xp = BBN_INIT_XP;
+        static constexpr double Xn = BBN_INIT_XN;
+        static constexpr int    NucleonCount = BBN_NUCLEON_COUNT;
+        static constexpr int    ProtonRatio = BBN_PROTON_RATIO;
+    };
+
+    struct QualityProfile {
+        static constexpr int   N_particles = STRUCT_ZELDOVICH_N_CBRT * STRUCT_ZELDOVICH_N_CBRT * STRUCT_ZELDOVICH_N_CBRT;
+        static constexpr int   grid_res    = STRUCT_GRID_SIZE;
+        static constexpr float barnes_hut_theta = 0.5f;
+    };
+
+    struct CameraState {
+        static constexpr double pos_x = 0.0;
+        static constexpr double pos_y = 0.0;
+        static constexpr double pos_z = 5.0;
+        static constexpr float  fwd_x = 0.0f;
+        static constexpr float  fwd_y = 0.0f;
+        static constexpr float  fwd_z = -1.0f;
+        static constexpr double zoom  = 100.0;
+        static constexpr bool   ortho = false;
+    };
+
+    struct GridDataDefaults {
+        static constexpr int default_NX = PLASMA_GRID_SIZE;
+        static constexpr int default_NY = PLASMA_GRID_SIZE;
+        static constexpr int default_NZ = PLASMA_GRID_SIZE;
+    };
 }

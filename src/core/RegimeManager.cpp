@@ -1,7 +1,6 @@
 // src/core/RegimeManager.cpp
 #include "RegimeManager.hpp"
 #include "CosmicClock.hpp"
-#include "RegimeConfig.hpp"
 #include "../regimes/RegimeInflation.hpp"
 #include "../regimes/RegimeQGP.hpp"
 #include "../regimes/RegimeNucleosynthesis.hpp"

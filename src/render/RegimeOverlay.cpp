@@ -12,6 +12,7 @@
 #include <cmath>
 #include <algorithm>
 #include <unordered_map>
+#include <vector>
 
 static const char* REGIME_NAMES[5] = {
     "0:INFLATION", "1:QGP", "2:BBN", "3:PLASMA", "4:STRUCTURE"
@@ -73,8 +74,8 @@ void RegimeOverlay::render(CosmicClock& clock, RegimeManager& mgr, Universe& uni
     ImGui::End();
 
     // Overlay de desempenho (canto superior direito)
-    ImGui::SetNextWindowPos({io.DisplaySize.x - 200.0f, 210.0f}, ImGuiCond_Always);
-    ImGui::SetNextWindowSize({190, 90}, ImGuiCond_Always);
+    ImGui::SetNextWindowPos({io.DisplaySize.x - 245.0f, 210.0f}, ImGuiCond_Always);
+    ImGui::SetNextWindowSize({226, 96}, ImGuiCond_Always);
     ImGui::SetNextWindowBgAlpha(0.6f);
     if (ImGui::Begin("##Perf", nullptr, flags)) {
         drawPerformanceStats(universe);
@@ -224,7 +225,7 @@ void RegimeOverlay::drawCompositionTable(const CosmicClock& clock, const Univers
     // Auxiliar progress bar
     auto bar = [&](const char* label, double val, ImVec4 color) {
         ImGui::TextColored(color, "%-10s", label);
-        ImGui::SameLine(105);
+        ImGui::SameLine(110);
         char buf[32]; snprintf(buf, sizeof(buf), "%.2f%%", val * 100.0);
         ImGui::ProgressBar(static_cast<float>(val), {155, 14}, buf);
     };
@@ -240,12 +241,12 @@ void RegimeOverlay::drawCompositionTable(const CosmicClock& clock, const Univers
         // Para BBN, usamos as frações exatas do NuclearNetwork
         ImGui::Text("Nuclear Abundances (Mass Fraction)");
         const NuclearAbundances& ab = universe.abundances;
-        bar("Proton (H)",       ab.Xp,   {1.0f,0.2f,0.2f,1.0f});
-        bar("Neutron",          ab.Xn,   {0.3f,0.3f,1.0f,1.0f});
-        bar("Deuterium",        ab.Xd,   {0.7f,0.0f,1.0f,1.0f});
-        bar("Helium-3",         ab.Xhe3, {1.0f,0.5f,0.1f,1.0f});
-        bar("Helium-4 Nuclei",  ab.Xhe4, {1.0f,0.7f,0.0f,1.0f});
-        bar("Lithium-7",        ab.Xli7, {0.0f,1.0f,0.4f,1.0f});
+        bar("Proton (H)",  ab.Xp,   {1.0f,0.2f,0.2f,1.0f});
+        bar("Neutron",     ab.Xn,   {0.3f,0.3f,1.0f,1.0f});
+        bar("Deuterium",   ab.Xd,   {0.7f,0.0f,1.0f,1.0f});
+        bar("Helium-3",    ab.Xhe3, {1.0f,0.5f,0.1f,1.0f});
+        bar("He-4 Nuclei", ab.Xhe4, {1.0f,0.7f,0.0f,1.0f});
+        bar("Lithium-7",   ab.Xli7, {0.0f,1.0f,0.4f,1.0f});
         return;
     }
 
@@ -300,7 +301,47 @@ void RegimeOverlay::drawCompositionTable(const CosmicClock& clock, const Univers
 }
 
 void RegimeOverlay::drawPerformanceStats(const Universe& universe) {
-    ImGui::Text("FPS:     %.1f", universe.fps);
-    ImGui::Text("GPU:     %.2f ms", universe.gpu_time_ms);
-    ImGui::Text("Particles: %d", universe.active_particles);
+    ImGui::Text("FPS: %.1f", universe.fps);
+    ImGui::Text("GPU: %.2f ms", universe.gpu_time_ms);
+
+    // Contar partículas ativas por tipo (mesma lógica da tabela de composição)
+    std::unordered_map<ParticleType, int> counts;
+    const ParticlePool& pp = universe.particles;
+    int total_active = 0;
+    for (size_t i = 0; i < pp.x.size(); ++i) {
+        if (!(pp.flags[i] & PF_ACTIVE)) continue;
+        counts[pp.type[i]]++;
+        total_active++;
+    }
+
+    // Mostrar informações específicas por regime, usando contagens reais
+    if (universe.regime_index == 0) {
+        ImGui::Text("Inflation field: %dx%d", universe.phi_NX, universe.phi_NY);
+        ImGui::Text("Phi samples: %zu", universe.phi_field.size());
+        ImGui::Text("Active particles: %d", total_active);
+    } else if (universe.regime_index == 1) {
+        int qu_u = counts[ParticleType::QUARK_U];
+        int qu_d = counts[ParticleType::QUARK_D];
+        int qu_s = counts[ParticleType::QUARK_S];
+        int gluons_est = (qu_u + qu_d + qu_s) / std::max(1, RegimeConfig::QGP_GLUON_RATIO_DIVISOR);
+        ImGui::Text("Active particles: %d", total_active);
+        ImGui::Text("Quarks U/D/S: %d/%d/%d", qu_u, qu_d, qu_s);
+        ImGui::Text("Estimated Gluons: %d", gluons_est);
+    } else if (universe.regime_index == 2) {
+        int protons = counts[ParticleType::PROTON];
+        int neutrons = counts[ParticleType::NEUTRON];
+        ImGui::Text("Active particles: %d", total_active);
+        ImGui::Text("Protons: %d Neutrons: %d", protons, neutrons);
+        ImGui::Text("Abundances Xp: %.3f Xn: %.3f", universe.abundances.Xp, universe.abundances.Xn);
+    } else if (universe.regime_index == 3) {
+        ImGui::Text("Active particles: %d", total_active);
+        ImGui::Text("Photons: %d", counts[ParticleType::PHOTON]);
+        ImGui::Text("Protons: %d Electrons: %d", counts[ParticleType::PROTON], counts[ParticleType::ELECTRON]);
+    } else if (universe.regime_index == 4) {
+        ImGui::Text("Active particles: %d", total_active);
+        ImGui::Text("Dark Matter: %d Gas: %d", counts[ParticleType::DARK_MATTER], counts[ParticleType::GAS]);
+        ImGui::Text("Stars: %d Black Holes: %d", counts[ParticleType::STAR], counts[ParticleType::BLACKHOLE]);
+    } else {
+        ImGui::Text("Active particles: %d", total_active);
+    }
 }

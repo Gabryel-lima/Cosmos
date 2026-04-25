@@ -2,6 +2,9 @@
 // src/core/Universe.hpp — Contêiner de estado de nível superior compartilhado por todos os sistemas.
 
 #include "../physics/ParticlePool.hpp"
+#include "RegimeConfig.hpp"
+#include <cstddef>
+
 #include <array>
 #include <vector>
 #include <cstdint>
@@ -10,6 +13,11 @@
 struct GridData {
     std::vector<float> data;   // linha-principal, índice = x + NX*(y + NY*z)
     int NX = 0, NY = 0, NZ = 0;
+
+    // Defaults mapped from RegimeConfig (no automatic allocation).
+    static constexpr int DEFAULT_NX = RegimeConfig::GridDataDefaults::default_NX;
+    static constexpr int DEFAULT_NY = RegimeConfig::GridDataDefaults::default_NY;
+    static constexpr int DEFAULT_NZ = RegimeConfig::GridDataDefaults::default_NZ;
 
     void resize(int nx, int ny, int nz) {
         NX = nx; NY = ny; NZ = nz;
@@ -22,20 +30,38 @@ struct GridData {
 
 /// Abundâncias nucleares (frações numéricas, soma ≈ 1 para bárions).
 struct NuclearAbundances {
-    double Xn  = 0.125;  // nêutron
-    double Xp  = 0.875;  // próton/hidrogênio
+    double Xn  = RegimeConfig::BBN_INIT_XN;  // nêutron
+    double Xp  = RegimeConfig::BBN_INIT_XP;  // próton/hidrogênio
     double Xd  = 0.0;    // deutério
     double Xhe3= 0.0;    // He-3
     double Xhe4= 0.0;    // He-4
     double Xli7= 0.0;    // Li-7
+    // Mirrors in RegimeConfig for convenience
+    static constexpr double DEFAULT_Xp = RegimeConfig::NuclearAbundances::Xp;
+    static constexpr double DEFAULT_Xn = RegimeConfig::NuclearAbundances::Xn;
+    static constexpr int    DEFAULT_NUCLEON_COUNT = RegimeConfig::NuclearAbundances::NucleonCount;
+    static constexpr int    DEFAULT_PROTON_RATIO = RegimeConfig::NuclearAbundances::ProtonRatio;
 };
 
 /// Instantâneo de câmera para transferência entre regimes.
 struct CameraState {
-    double pos_x = 0.0, pos_y = 0.0, pos_z = 5.0;
-    float  fwd_x = 0.0f, fwd_y = 0.0f, fwd_z = -1.0f;
-    double zoom  = 100.0;
-    bool   ortho = false;
+    double pos_x = RegimeConfig::CameraState::pos_x;
+    double pos_y = RegimeConfig::CameraState::pos_y;
+    double pos_z = RegimeConfig::CameraState::pos_z;
+    float  fwd_x = RegimeConfig::CameraState::fwd_x;
+    float  fwd_y = RegimeConfig::CameraState::fwd_y;
+    float  fwd_z = RegimeConfig::CameraState::fwd_z;
+    double zoom  = RegimeConfig::CameraState::zoom;
+    bool   ortho = RegimeConfig::CameraState::ortho;
+
+    static constexpr double DEFAULT_POS_X = RegimeConfig::CameraState::pos_x;
+    static constexpr double DEFAULT_POS_Y = RegimeConfig::CameraState::pos_y;
+    static constexpr double DEFAULT_POS_Z = RegimeConfig::CameraState::pos_z;
+    static constexpr float  DEFAULT_FWD_X = RegimeConfig::CameraState::fwd_x;
+    static constexpr float  DEFAULT_FWD_Y = RegimeConfig::CameraState::fwd_y;
+    static constexpr float  DEFAULT_FWD_Z = RegimeConfig::CameraState::fwd_z;
+    static constexpr double DEFAULT_ZOOM  = RegimeConfig::CameraState::zoom;
+    static constexpr bool   DEFAULT_ORTHO = RegimeConfig::CameraState::ortho;
 };
 
 /// Estado completo da simulação. Instância única, propriedade de main().
@@ -49,8 +75,8 @@ struct Universe {
 
     // Perfil de qualidade (definido pelo sinalizador --quality)
     struct QualityProfile {
-        int   N_particles    = 100'000;
-        int   grid_res       = 64;
+        int   N_particles    = RegimeConfig::STRUCT_ZELDOVICH_N_CBRT * RegimeConfig::STRUCT_ZELDOVICH_N_CBRT * RegimeConfig::STRUCT_ZELDOVICH_N_CBRT;
+        int   grid_res       = RegimeConfig::STRUCT_GRID_SIZE;
         float barnes_hut_theta = 0.5f;
     } quality;
 
