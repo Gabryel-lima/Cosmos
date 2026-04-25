@@ -1,6 +1,7 @@
 // src/regimes/RegimeStructure.cpp — Regime 4: Formação de Estruturas
 #include "RegimeStructure.hpp"
 #include "../core/CosmicClock.hpp"
+#include "../core/SimulationRandom.hpp"
 #include "../core/Universe.hpp"
 #include "../render/Renderer.hpp"
 #include "../physics/Constants.hpp"
@@ -28,6 +29,11 @@ double phaseDurationSeconds(StructurePhase phase) {
         default:
             return phys::t_today - CosmicClock::REGIME_START_TIMES[6];
     }
+}
+
+std::mt19937& starFormationRng() {
+    static std::mt19937 rng = simrng::makeStream("structure-stars");
+    return rng;
 }
 }
 
@@ -178,11 +184,10 @@ void RegimeStructure::checkStarFormation(Universe& universe, double /*temp_K*/) 
         p.star_state[i] = StarState::PROTOSTAR;
         p.star_age[i]   = 0.0;
         // Massa estelar aleatória 0.1–40 M☉ (em kg, normalizada pela simulação)
-        static std::mt19937 rng_sf(777);
         std::uniform_real_distribution<double> mass_dist(
             (phase_ == StructurePhase::REIONIZATION) ? 8.0 : 0.1,
             (phase_ == StructurePhase::REIONIZATION) ? 60.0 : 40.0);
-        p.mass[i] = mass_dist(rng_sf) * 1.989e30;  // kg
+        p.mass[i] = mass_dist(starFormationRng()) * 1.989e30;  // kg
         if (phase_ == StructurePhase::REIONIZATION) {
             p.color_r[i] = 0.82f; p.color_g[i] = 0.9f; p.color_b[i] = 1.0f;
             p.luminosity[i] = 4.8f;

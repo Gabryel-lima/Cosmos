@@ -11,6 +11,7 @@
 
 #include "core/CosmicClock.hpp"
 #include "core/RegimeManager.hpp"
+#include "core/SimulationRandom.hpp"
 #include "core/Universe.hpp"
 #include "core/Camera.hpp"
 #include "render/Renderer.hpp"
@@ -19,6 +20,7 @@
 #include "physics/ParticlePool.hpp"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <chrono>
 #include <limits>
@@ -260,6 +262,10 @@ static bool parseArgs(int argc, char** argv) {
         if (arg == "--fullscreen" || arg == "-f") g_fullscreen = true;
         if (arg == "--width"  && i+1 < argc) g_width  = std::atoi(argv[++i]);
         if (arg == "--height" && i+1 < argc) g_height = std::atoi(argv[++i]);
+        if (arg == "--seed" && i + 1 < argc) {
+            unsigned long parsed_seed = std::strtoul(argv[++i], nullptr, 10);
+            simrng::setGlobalSeed(static_cast<std::uint32_t>(parsed_seed));
+        }
     }
     return true;
 }
@@ -344,7 +350,8 @@ int main(int argc, char** argv) {
     // Estado padrão da câmera para o Regime 0
     app.camera.applyState(app.camera.getRegimeDefaultState(0));
 
-    std::printf("[main] Starting simulation. Keys: SPACE=play/pause, 1-7=jump, R=reload shaders, H=HUD, F=fullscreen, ESC=quit\n");
+    std::printf("[main] Starting simulation. Seed=%u. Keys: SPACE=play/pause, 1-7=jump, R=reload shaders, H=HUD, F=fullscreen, ESC=quit\n",
+                simrng::globalSeed());
 
     // ── Loop principal ──────────────────────────────────────────────────────────────
     using Clock = std::chrono::steady_clock;

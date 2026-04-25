@@ -56,6 +56,7 @@ target_include_directories(imgui PUBLIC ${GLFW3_INCLUDE_DIRS})
 # ── Arquivos-fonte principais ─────────────────────────────────────────────────
 set(SOURCES
     src/main.cpp
+    src/core/SimulationRandom.cpp
     src/core/CosmicClock.cpp
     src/core/RegimeManager.cpp
     src/core/Universe.cpp

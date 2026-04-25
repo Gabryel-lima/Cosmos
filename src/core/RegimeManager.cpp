@@ -1,6 +1,7 @@
 // src/core/RegimeManager.cpp
 #include "RegimeManager.hpp"
 #include "CosmicClock.hpp"
+#include "SimulationRandom.hpp"
 #include "../regimes/RegimeInflation.hpp"
 #include "../regimes/RegimeQGP.hpp"
 #include "../regimes/RegimeNucleosynthesis.hpp"
@@ -26,7 +27,7 @@ size_t addParticleCopy(ParticlePool& dst, const ParticlePool& src, size_t i,
                        ParticleType type, float jitter = 0.0f,
                        float luminosity = 1.0f, float charge = 0.0f)
 {
-    static std::mt19937 rng_copy(424242);
+    static std::mt19937 rng_copy = simrng::makeStream("regime-copy");
     std::uniform_real_distribution<double> offset(-static_cast<double>(jitter),
                                                   static_cast<double>(jitter));
     float cr, cg, cb;
@@ -41,6 +42,11 @@ size_t addParticleCopy(ParticlePool& dst, const ParticlePool& src, size_t i,
     dst.star_age[added] = src.star_age[i];
     dst.flags[added] = (type == src.type[i]) ? src.flags[i] : PF_ACTIVE;
     return added;
+}
+
+std::mt19937& initRng() {
+    static std::mt19937 rng = simrng::makeStream("regime-init");
+    return rng;
 }
 
 size_t activeParticleCount(const ParticlePool& pool) {
@@ -337,13 +343,12 @@ RegimeManager::RegimeManager() {
 
 // ── Construtores de Estado Inicial ─────────────────────────────────────────────────────
 
-static std::mt19937 rng_init(9999);
-
 /// Aproximação de Zel'dovich: desloca grade regular com perturbações de densidade.
 /// Produz distribuição inicial de partículas cosmologicamente motivada em z~20.
 static void zelDovichDisplace(ParticlePool& pool, int N_cbrt, double box_size) {
     std::normal_distribution<double> gauss(0.0, 0.05 * box_size);
     std::normal_distribution<double> velocity(0.0, 0.015);
+    std::mt19937& rng_init = initRng();
     pool.clear();
     double spacing = box_size / static_cast<double>(N_cbrt);
     double half = box_size * 0.5;  // centre particles around origin
@@ -374,6 +379,7 @@ static void zelDovichDisplace(ParticlePool& pool, int N_cbrt, double box_size) {
 // ── Helper para geração de posições esféricas ────────────────────────────────
 static void randomPosInSphere(double r_max, double& px, double& py, double& pz) {
     std::uniform_real_distribution<double> dist(-r_max, r_max);
+    std::mt19937& rng_init = initRng();
     do {
         px = dist(rng_init);
         py = dist(rng_init);
@@ -383,6 +389,7 @@ static void randomPosInSphere(double r_max, double& px, double& py, double& pz) 
 
 InitialState RegimeManager::buildInitialState(int regime_index) {
     InitialState st;
+    std::mt19937& rng_init = initRng();
     int idx = std::clamp(regime_index, 0, CosmicClock::LAST_REGIME_INDEX);
     st.scale_factor    = phys::scale_at_temperature_keV(targetTemperatureForRegime(idx));
     if (st.scale_factor <= 0.0 || !std::isfinite(st.scale_factor))

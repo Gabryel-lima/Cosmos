@@ -1,6 +1,7 @@
 // src/regimes/RegimeInflation.cpp — Regime 0: Inflação / Flutuações Quânticas
 #include "RegimeInflation.hpp"
 #include "../core/CosmicClock.hpp"
+#include "../core/SimulationRandom.hpp"
 #include "../core/Universe.hpp"
 #include "../render/Renderer.hpp"
 #include "../physics/Constants.hpp"
@@ -9,7 +10,12 @@
 #include <cmath>
 #include <algorithm>
 
-static std::mt19937 rng_inflation(42);
+namespace {
+std::mt19937& inflationRng() {
+    static std::mt19937 rng = simrng::makeStream("inflation");
+    return rng;
+}
+}
 
 void RegimeInflation::onEnter(Universe& state) {
     e_folds_    = 0.0;
@@ -28,6 +34,7 @@ void RegimeInflation::onExit() {
 }
 
 void RegimeInflation::initScalarField(Universe& universe) {
+    std::mt19937& rng_inflation = inflationRng();
     int N = PHI_N;
     universe.phi_NX = N;
     universe.phi_NY = N;
@@ -49,6 +56,7 @@ void RegimeInflation::initScalarField(Universe& universe) {
 }
 
 void RegimeInflation::stepScalarField(double cosmic_dt, double H, Universe& universe) {
+    std::mt19937& rng_inflation = inflationRng();
     int N = PHI_N;
     constexpr double regime_duration = CosmicClock::REGIME_START_TIMES[1] - CosmicClock::REGIME_START_TIMES[0];
     double progress_dt = (regime_duration > 0.0) ? cosmic_dt / regime_duration : 0.0;
@@ -119,7 +127,7 @@ void RegimeInflation::extrudeFieldTo3D(Universe& universe) {
     universe.density_field.resize(N3, N3, N3);
 
     std::normal_distribution<float> noise(0.0f, 0.002f);
-    std::mt19937 rng_ext(12345);
+    std::mt19937 rng_ext = simrng::makeStream("inflation-extrude");
 
     for (int k = 0; k < N3; ++k)
     for (int j = 0; j < N3; ++j)

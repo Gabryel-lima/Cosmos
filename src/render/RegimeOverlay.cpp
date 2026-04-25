@@ -30,9 +30,14 @@ static ImVec4 particleColor(ParticleType type, float alpha = 1.0f) {
 
 // Formata um número em notação científica (ex: 1.23 x 10^8)
 static void fmtSci(char* buf, size_t len, double v) {
+    if (!std::isfinite(v)) { snprintf(buf, len, "nan"); return; }
     if (v == 0.0) { snprintf(buf, len, "0"); return; }
     int exp = static_cast<int>(std::floor(std::log10(std::abs(v))));
     double mantissa = v / std::pow(10.0, exp);
+    if (std::abs(mantissa) >= 9.995) {
+        mantissa /= 10.0;
+        ++exp;
+    }
     snprintf(buf, len, "%.3g x 10^%d", mantissa, exp);
 }
 
@@ -216,7 +221,7 @@ void RegimeOverlay::drawPhysicsInfo(const CosmicClock& clock, const Universe& /*
     ImGui::Text("T = %s keV", Tbuf);
     ImGui::Text("a = %.5g", clock.getScaleFactor());
     char Hbuf[64]; fmtSci(Hbuf, sizeof(Hbuf), clock.getHubbleRate());
-    ImGui::Text("H = %s s⁻¹", Hbuf);
+    ImGui::Text("H = %s s^(-1)", Hbuf);
     ImGui::Text("Regime: %s", REGIME_NAMES[clock.getCurrentRegimeIndex()]);
     ImGui::EndGroup();
 }

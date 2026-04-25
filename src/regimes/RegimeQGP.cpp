@@ -10,8 +10,6 @@
 #include <cmath>
 #include <algorithm>
 
-static std::mt19937 rng_qgp(7);
-
 void RegimeQGP::onEnter(Universe& state) {
     prev_scale_factor_ = state.scale_factor;
     hadronized_        = false;

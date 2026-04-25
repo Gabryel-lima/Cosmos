@@ -3,8 +3,11 @@
 // as contagens, tamanhos de grades e distribuições iniciais de cada regime simulado.
 
 #include <cstddef>
+#include <cstdint>
 
 namespace RegimeConfig {
+    constexpr std::uint32_t DEFAULT_RANDOM_SEED = 424242u;
+
     // ── Regime 1: Quark-Gluon Plasma (QGP) ──
     constexpr int    QGP_QUARK_COUNT = 2000;
     constexpr int    QGP_GLUON_RATIO_DIVISOR = 5;      // 1 glúon para cada N quarks (ex: N / 5)
@@ -20,6 +23,13 @@ namespace RegimeConfig {
     constexpr int    PLASMA_PHOTON_COUNT = 3200;
     constexpr int    PLASMA_GRID_SIZE = 64;
     constexpr int    PLASMA_HELIUM_RATIO_DIVISOR = 7;  // Partículas alfa: 1 a cada 7 bárions
+    constexpr double PLASMA_INTERACTION_RADIUS = 0.18;
+    constexpr double PLASMA_CAPTURE_RADIUS = 0.08;
+    constexpr double PLASMA_FUSION_RADIUS = 0.05;
+    constexpr double PLASMA_PHOTON_SCATTER_RADIUS = 0.12;
+    constexpr int    PLASMA_MAX_MICRO_PHOTONS = 18;
+    constexpr int    PLASMA_MAX_MICRO_FUSIONS = 6;
+    constexpr int    PLASMA_MAX_MICRO_DECAYS = 3;
 
     // ── Regime 4: Structure Formation ──
     constexpr int    STRUCT_ZELDOVICH_N_CBRT = 25;      // 25³ (gerará ~15.625 partículas)
