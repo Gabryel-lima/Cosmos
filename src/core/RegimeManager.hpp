@@ -7,6 +7,7 @@
 // Regimes são detalhes de implementação — não estados visíveis ao usuário.
 
 #include "../core/Universe.hpp"
+#include "CosmicClock.hpp"
 #include "../regimes/IRegime.hpp"
 #include <array>
 #include <memory>
@@ -54,7 +55,7 @@ private:
     void applyInitialState(int regime_index, InitialState& state, Universe& universe);
     void renderRegime(int regime_index, Renderer& renderer, const Universe& universe) const;
 
-    std::array<std::unique_ptr<IRegime>, 5> regimes_;
+    std::array<std::unique_ptr<IRegime>, CosmicClock::REGIME_COUNT> regimes_;
     int   active_index_   = 0;
     bool  in_transition_  = false;
     float transition_t_   = 0.0f;   // progresso de mistura 0..1
@@ -67,7 +68,7 @@ private:
     float  regime_elapsed_real_ = 0.0f;   // tempo real acumulado no regime ativo
     // Permanência mínima por regime antes de permitir a próxima transição automática.
     // Evita pular rápido demais sem dar tempo de aparecer visualmente.
-    std::array<float, 5> min_regime_dwell_s_ = {0.0f, 2.0f, 1.0f, 1.0f, 0.0f};
+    std::array<float, CosmicClock::REGIME_COUNT> min_regime_dwell_s_ = {0.0f, 2.0f, 1.0f, 1.0f, 1.2f, 1.2f, 0.0f};
     double speed_mult_at_start_ = 1.0; // multiplicador de velocidade capturado ao início da transição
     Universe transition_from_universe_;
 };

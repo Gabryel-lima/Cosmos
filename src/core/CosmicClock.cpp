@@ -14,18 +14,20 @@ double targetTemperatureForRegime(int regime_index) {
         case 1: return std::sqrt(CosmicClock::T_INFLATION_END * CosmicClock::T_QGP_END);
         case 2: return std::sqrt(CosmicClock::T_QGP_END * CosmicClock::T_BBN_END);
         case 3: return std::sqrt(CosmicClock::T_BBN_END * CosmicClock::T_RECOMBINATION);
-        case 4: return CosmicClock::T_RECOMBINATION * 0.1;
+        case 4: return std::sqrt(CosmicClock::T_RECOMBINATION * CosmicClock::T_DARK_AGES);
+        case 5: return std::sqrt(CosmicClock::T_DARK_AGES * CosmicClock::T_REIONIZATION);
+        case 6: return CosmicClock::T_REIONIZATION * 0.15;
         default: return CosmicClock::T_INFLATION_END;
     }
 }
 
 double defaultScaleForRegime(int regime_index) {
-    return CosmicClock::DEFAULT_SCALE[static_cast<size_t>(std::clamp(regime_index, 0, 4))];
+    return CosmicClock::DEFAULT_SCALE[static_cast<size_t>(std::clamp(regime_index, 0, CosmicClock::LAST_REGIME_INDEX))];
 }
 
 double nextRegimeStartTime(int regime_index) {
-    int idx = std::clamp(regime_index, 0, 4);
-    if (idx >= 4) return phys::t_today;
+    int idx = std::clamp(regime_index, 0, CosmicClock::LAST_REGIME_INDEX);
+    if (idx >= CosmicClock::LAST_REGIME_INDEX) return phys::t_today;
     return CosmicClock::REGIME_START_TIMES[static_cast<size_t>(idx + 1)];
 }
 
@@ -65,7 +67,7 @@ void CosmicClock::step(double real_dt_seconds) {
 
     bool hit_transition = false;
     double applied_cosmic_dt = requested_cosmic_dt;
-    if (regime_index_ < 4) {
+    if (regime_index_ < LAST_REGIME_INDEX) {
         if (requested_cosmic_dt >= max_dt_until_transition) {
             applied_cosmic_dt = max_dt_until_transition;
             hit_transition = true;
@@ -127,13 +129,13 @@ void CosmicClock::applySpeedPreset(SpeedPreset preset) {
 }
 
 void CosmicClock::applyRegimeDefaultScale(int regime_index) {
-    int idx = std::clamp(regime_index, 0, 4);
+    int idx = std::clamp(regime_index, 0, LAST_REGIME_INDEX);
     speed_multiplier_ = 1.0;
     setTimeScale(defaultScaleForRegime(idx));
 }
 
 void CosmicClock::rebaseTimeScaleForRegime(int regime_index) {
-    int idx = std::clamp(regime_index, 0, 4);
+    int idx = std::clamp(regime_index, 0, LAST_REGIME_INDEX);
     double scale = defaultScaleForRegime(idx) * speed_multiplier_;
     time_scale_ = std::max(1e-50, scale);
     std::printf("[TIME] Rebased scale to %.4e (regime %d, multiplier %.4fx)\n",
@@ -167,7 +169,7 @@ void CosmicClock::jumpToCosmicTime(double t_seconds) {
 }
 
 void CosmicClock::jumpToRegime(int regime_index) {
-    int idx = std::clamp(regime_index, 0, 4);
+    int idx = std::clamp(regime_index, 0, LAST_REGIME_INDEX);
     scale_factor_ = phys::scale_at_temperature_keV(targetTemperatureForRegime(idx));
     cosmic_time_ = REGIME_START_TIMES[static_cast<size_t>(idx)];
     recomputeDerivedQuantities();
@@ -199,7 +201,7 @@ double CosmicClock::getHubbleRate() const {
 double CosmicClock::getRegimeProgress() const {
     int r = regime_index_;
     double t_start = REGIME_START_TIMES[static_cast<size_t>(r)];
-    double t_end   = (r < 4) ? REGIME_START_TIMES[static_cast<size_t>(r + 1)] : phys::t_today;
+    double t_end   = (r < LAST_REGIME_INDEX) ? REGIME_START_TIMES[static_cast<size_t>(r + 1)] : phys::t_today;
     if (t_end <= t_start) return 1.0;
     return std::clamp((cosmic_time_ - t_start) / (t_end - t_start), 0.0, 1.0);
 }
@@ -210,7 +212,9 @@ void CosmicClock::recomputeDerivedQuantities() {
 
 void CosmicClock::updateRegimeIndex() {
     int new_regime;
-    if (cosmic_time_ >= REGIME_START_TIMES[4])      new_regime = 4;
+    if (cosmic_time_ >= REGIME_START_TIMES[6])      new_regime = 6;
+    else if (cosmic_time_ >= REGIME_START_TIMES[5]) new_regime = 5;
+    else if (cosmic_time_ >= REGIME_START_TIMES[4]) new_regime = 4;
     else if (cosmic_time_ >= REGIME_START_TIMES[3]) new_regime = 3;
     else if (cosmic_time_ >= REGIME_START_TIMES[2]) new_regime = 2;
     else if (cosmic_time_ >= REGIME_START_TIMES[1]) new_regime = 1;

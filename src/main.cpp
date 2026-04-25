@@ -64,7 +64,9 @@ static SceneFrame estimateSceneFrame(const Universe& universe) {
             case 1:
             case 2: frame.radius = 1.5; break;
             case 3: frame.radius = 8.0; break;
-            case 4: frame.radius = 30.0; break;
+            case 4: frame.radius = 22.0; break;
+            case 5: frame.radius = 30.0; break;
+            case 6: frame.radius = 36.0; break;
             default: frame.radius = 5.0; break;
         }
     }
@@ -170,6 +172,10 @@ static void on_key(GLFWwindow* /*w*/, int key, int /*sc*/, int action, int mods)
                          g_app->camera.applyState(g_app->camera.getRegimeDefaultState(3)); break;
         case GLFW_KEY_5: g_app->mgr.jumpToRegime(4, g_app->clock, g_app->universe);
                          g_app->camera.applyState(g_app->camera.getRegimeDefaultState(4)); break;
+        case GLFW_KEY_6: g_app->mgr.jumpToRegime(5, g_app->clock, g_app->universe);
+                 g_app->camera.applyState(g_app->camera.getRegimeDefaultState(5)); break;
+        case GLFW_KEY_7: g_app->mgr.jumpToRegime(6, g_app->clock, g_app->universe);
+                 g_app->camera.applyState(g_app->camera.getRegimeDefaultState(6)); break;
 
         case GLFW_KEY_C:
             g_app->camera.applyState(g_app->camera.getRegimeDefaultState(g_app->mgr.getCurrentRegimeIndex()));
@@ -338,7 +344,7 @@ int main(int argc, char** argv) {
     // Estado padrão da câmera para o Regime 0
     app.camera.applyState(app.camera.getRegimeDefaultState(0));
 
-    std::printf("[main] Starting simulation. Keys: SPACE=play/pause, 1-5=jump, R=reload shaders, H=HUD, F=fullscreen, ESC=quit\n");
+    std::printf("[main] Starting simulation. Keys: SPACE=play/pause, 1-7=jump, R=reload shaders, H=HUD, F=fullscreen, ESC=quit\n");
 
     // ── Loop principal ──────────────────────────────────────────────────────────────
     using Clock = std::chrono::steady_clock;

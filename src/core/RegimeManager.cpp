@@ -125,8 +125,67 @@ double targetTemperatureForRegime(int regime_index) {
         case 1: return std::sqrt(CosmicClock::T_INFLATION_END * CosmicClock::T_QGP_END);
         case 2: return std::sqrt(CosmicClock::T_QGP_END * CosmicClock::T_BBN_END);
         case 3: return std::sqrt(CosmicClock::T_BBN_END * CosmicClock::T_RECOMBINATION);
-        case 4: return CosmicClock::T_RECOMBINATION * 0.1;
+        case 4: return std::sqrt(CosmicClock::T_RECOMBINATION * CosmicClock::T_DARK_AGES);
+        case 5: return std::sqrt(CosmicClock::T_DARK_AGES * CosmicClock::T_REIONIZATION);
+        case 6: return CosmicClock::T_REIONIZATION * 0.15;
         default: return CosmicClock::T_INFLATION_END;
+    }
+}
+
+void copyParticleState(ParticlePool& pool, size_t idx, ParticleType type,
+                       double mass, float luminosity, float charge,
+                       StarState star_state = StarState::NONE)
+{
+    pool.type[idx] = type;
+    pool.mass[idx] = mass;
+    pool.charge[idx] = charge;
+    ParticlePool::defaultColor(type, pool.color_r[idx], pool.color_g[idx], pool.color_b[idx]);
+    pool.luminosity[idx] = luminosity;
+    pool.star_state[idx] = star_state;
+    pool.star_age[idx] = 0.0;
+    pool.flags[idx] |= PF_ACTIVE;
+}
+
+void imprintStructureTemplate(ParticlePool& dst, const ParticlePool& inherited, int to) {
+    std::vector<size_t> gas_slots;
+    for (size_t i = 0; i < dst.x.size(); ++i) {
+        if (!(dst.flags[i] & PF_ACTIVE)) continue;
+        if (dst.type[i] == ParticleType::GAS) gas_slots.push_back(i);
+    }
+    if (gas_slots.empty()) return;
+
+    std::vector<size_t> inherited_stars;
+    std::vector<size_t> inherited_blackholes;
+    for (size_t i = 0; i < inherited.x.size(); ++i) {
+        if (!(inherited.flags[i] & PF_ACTIVE)) continue;
+        if (inherited.type[i] == ParticleType::STAR) inherited_stars.push_back(i);
+        else if (inherited.type[i] == ParticleType::BLACKHOLE) inherited_blackholes.push_back(i);
+    }
+
+    auto mapSlots = [&](const std::vector<size_t>& src_indices, ParticleType target_type) {
+        if (src_indices.empty() || gas_slots.empty()) return;
+        const size_t limit = std::min(src_indices.size(), gas_slots.size());
+        for (size_t pick = 0; pick < limit; ++pick) {
+            const size_t dst_pos = gas_slots[(pick * gas_slots.size()) / limit];
+            const size_t src_idx = src_indices[pick];
+            copyParticleState(dst, dst_pos, target_type,
+                              (target_type == ParticleType::BLACKHOLE) ? RegimeConfig::MASS_BLACKHOLE : std::max(inherited.mass[src_idx], RegimeConfig::MASS_STAR),
+                              inherited.luminosity[src_idx], inherited.charge[src_idx], inherited.star_state[src_idx]);
+        }
+    };
+
+    mapSlots(inherited_stars, ParticleType::STAR);
+    mapSlots(inherited_blackholes, ParticleType::BLACKHOLE);
+
+    for (size_t idx : gas_slots) {
+        if (dst.type[idx] != ParticleType::GAS) continue;
+        if (to == 4) {
+            dst.luminosity[idx] = 0.18f;
+            dst.color_r[idx] = 0.24f; dst.color_g[idx] = 0.55f; dst.color_b[idx] = 0.95f;
+        } else if (to == 5) {
+            dst.luminosity[idx] = 0.35f;
+            dst.color_r[idx] = 0.34f; dst.color_g[idx] = 0.78f; dst.color_b[idx] = 1.0f;
+        }
     }
 }
 
@@ -166,9 +225,11 @@ ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
                 break;
             }
 
-            case 4: {
+            case 4:
+            case 5:
+            case 6: {
                 ParticleType mapped = src.type[i];
-                if (mapped == ParticleType::PHOTON) continue;
+                if (mapped == ParticleType::PHOTON || mapped == ParticleType::NEUTRINO) continue;
                 if (mapped == ParticleType::ELECTRON || isBaryonicType(mapped)) {
                     if (mapped != ParticleType::STAR && mapped != ParticleType::BLACKHOLE) {
                         mapped = ParticleType::GAS;
@@ -177,16 +238,33 @@ ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
                 size_t added = addParticleCopy(next, src, i, mapped);
                 if (mapped == ParticleType::GAS || mapped == ParticleType::DARK_MATTER) {
                     next.mass[added] = (mapped == ParticleType::DARK_MATTER) ? RegimeConfig::MASS_DARK_MATTER : RegimeConfig::MASS_GAS;
+                    if (mapped == ParticleType::GAS) {
+                        next.charge[added] = 0.0f;
+                        next.luminosity[added] = (to == 4) ? 0.18f : (to == 5 ? 0.35f : 0.8f);
+                    }
                 }
 
-                if (mapped == ParticleType::GAS && i % RegimeConfig::TRANS_STRUCT_STAR_SPAWN_STEP == 0) {
+                size_t star_step = (to == 5) ? RegimeConfig::TRANS_STRUCT_STAR_SPAWN_STEP * 2
+                                             : RegimeConfig::TRANS_STRUCT_STAR_SPAWN_STEP;
+                if (to >= 5 && mapped == ParticleType::GAS && i % std::max<size_t>(star_step, 1) == 0) {
                     size_t star = next.add(src.x[i], src.y[i], src.z[i],
                                            src.vx[i], src.vy[i], src.vz[i],
                                            RegimeConfig::MASS_STAR, ParticleType::STAR,
-                                           1.0f, 0.92f, 0.72f, 0.0f);
-                    next.star_state[star] = StarState::PROTOSTAR;
-                    next.luminosity[star] = 4.0f;
+                                           (to == 5) ? 0.82f : 1.0f,
+                                           (to == 5) ? 0.9f  : 0.92f,
+                                           (to == 5) ? 1.0f  : 0.72f,
+                                           0.0f);
+                    next.star_state[star] = (to == 5) ? StarState::MAIN_SEQUENCE : StarState::PROTOSTAR;
+                    next.luminosity[star] = (to == 5) ? 4.8f : 4.0f;
                     next.flags[star] |= PF_STAR_FORMED;
+                }
+                if (to == 6 && mapped == ParticleType::GAS && i % (RegimeConfig::TRANS_STRUCT_STAR_SPAWN_STEP * 12) == 0) {
+                    size_t bh = next.add(src.x[i], src.y[i], src.z[i],
+                                         src.vx[i], src.vy[i], src.vz[i],
+                                         RegimeConfig::MASS_BLACKHOLE, ParticleType::BLACKHOLE,
+                                         0.55f, 0.05f, 0.05f, 0.0f);
+                    next.star_state[bh] = StarState::BLACK_HOLE;
+                    next.luminosity[bh] = 5.5f;
                 }
                 break;
             }
@@ -213,31 +291,32 @@ ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
 void inheritStateAcrossTransition(int from, int to, const Universe& previous, InitialState& next) {
     if (from == to) return;
 
-    // Ao ir para o Regime 4 (Formação de Estruturas), o escopo da simulação dá um pulo
+    // Ao ir para os regimes pós-plasma, o escopo da simulação dá um pulo
     // de uma pequena escala local de plasma para uma caixa cosmológica de 50 Megaparsecs.
     // Manter as posições literais das partículas do plasma (espremidas em [-2.5, 2.5]) 
     // num vazio de 50 Mpc arruinaria a simulação da teia cósmica.
-    // Portanto, para o Regime 4, preservamos a grade de Zel'dovich gerada por buildInitialState.
-    if (to != 4) {
-        ParticlePool remapped = remapParticlesForRegime(to, previous);
-        if (!remapped.x.empty()) {
-            size_t target_size = next.particles.x.size();
+    // Portanto, para eras >= 4, preservamos a malha cosmológica do buildInitialState
+    // e apenas injetamos a composição herdada nas fases baryônicas.
+    ParticlePool remapped = remapParticlesForRegime(to, previous);
+    if (!remapped.x.empty()) {
+        size_t target_size = next.particles.x.size();
 
-            if (target_size > 0 && target_size != activeParticleCount(remapped)) {
-                remapped = resampleParticlePoolLOD(remapped, target_size);
-            }
+        if (to < 4 && target_size > 0 && target_size != activeParticleCount(remapped)) {
+            remapped = resampleParticlePoolLOD(remapped, target_size);
+        }
 
-            if (to == 2 || to == 3) {
-                next.abundances = chemistry::inferAbundances(remapped);
-            }
+        if (to == 2 || to == 3) {
+            next.abundances = chemistry::inferAbundances(remapped);
+        }
 
-            if (activeParticleCount(remapped) > 0) {
-                next.particles = std::move(remapped);
-            }
+        if (to >= 4) {
+            imprintStructureTemplate(next.particles, remapped, to);
+        } else if (activeParticleCount(remapped) > 0) {
+            next.particles = std::move(remapped);
         }
     }
 
-    if ((to == 3 || to == 4) && previous.density_field.NX > 0 && previous.density_field.data.size() == next.field.data.size()) {
+    if (to >= 3 && previous.density_field.NX > 0 && previous.density_field.data.size() == next.field.data.size()) {
         next.field = previous.density_field;
     }
 }
@@ -251,7 +330,9 @@ RegimeManager::RegimeManager() {
     regimes_[1] = std::make_unique<RegimeQGP>();
     regimes_[2] = std::make_unique<RegimeNucleosynthesis>();
     regimes_[3] = std::make_unique<RegimePlasma>();
-    regimes_[4] = std::make_unique<RegimeStructure>();
+    regimes_[4] = std::make_unique<RegimeStructure>(StructurePhase::DARK_AGES);
+    regimes_[5] = std::make_unique<RegimeStructure>(StructurePhase::REIONIZATION);
+    regimes_[6] = std::make_unique<RegimeStructure>(StructurePhase::MATURE);
 }
 
 // ── Construtores de Estado Inicial ─────────────────────────────────────────────────────
@@ -302,7 +383,7 @@ static void randomPosInSphere(double r_max, double& px, double& py, double& pz) 
 
 InitialState RegimeManager::buildInitialState(int regime_index) {
     InitialState st;
-    int idx = std::clamp(regime_index, 0, 4);
+    int idx = std::clamp(regime_index, 0, CosmicClock::LAST_REGIME_INDEX);
     st.scale_factor    = phys::scale_at_temperature_keV(targetTemperatureForRegime(idx));
     if (st.scale_factor <= 0.0 || !std::isfinite(st.scale_factor))
         st.scale_factor = 1e-28;
@@ -316,7 +397,9 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
         case 1: cam.ortho = false; cam.zoom = 3.0; break;
         case 2: cam.ortho = false; cam.zoom = 3.0; break;
         case 3: cam.ortho = false; cam.zoom = 12.0; break;
-        case 4: cam.ortho = false; cam.zoom = 45.0; break;
+        case 4: cam.ortho = false; cam.zoom = 38.0; break;
+        case 5: cam.ortho = false; cam.zoom = 45.0; break;
+        case 6: cam.ortho = false; cam.zoom = 52.0; break;
     }
     cam.pos_z = static_cast<double>(cam.zoom) * 1.5;
     st.suggested_camera = cam;
@@ -418,8 +501,10 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
             break;
         }
 
-        case 4: {
-            // Estrutura: grade de Zel'dovich em z~20 — N_cbrt³ partículas
+        case 4:
+        case 5:
+        case 6: {
+            // Estruturas tardias: grade de Zel'dovich em z~20 — N_cbrt³ partículas
             int N_cbrt = RegimeConfig::STRUCT_ZELDOVICH_N_CBRT;  // ~15 625 partículas (gerenciável para formação estelar)
             double box = RegimeConfig::STRUCT_BOX_SIZE_MPC;  // Mpc comóvel (câmera vê melhor)
             zelDovichDisplace(st.particles, N_cbrt, box);
@@ -428,24 +513,47 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
             std::normal_distribution<float> dn(0.0f, 0.05f);
             for (float& v : st.field.data) v = dn(rng_init);
 
-            for (size_t i = 0; i < st.particles.x.size(); i += RegimeConfig::STRUCT_STAR_SPAWN_STEP) {
-                if (st.particles.type[i] != ParticleType::GAS) continue;
-                size_t star = st.particles.add(st.particles.x[i], st.particles.y[i], st.particles.z[i],
-                                               st.particles.vx[i], st.particles.vy[i], st.particles.vz[i],
-                                               RegimeConfig::MASS_STAR, ParticleType::STAR,
-                                               1.0f, 0.92f, 0.72f, 0.0f);
-                st.particles.star_state[star] = StarState::PROTOSTAR;
-                st.particles.luminosity[star] = 4.0f;
-                st.particles.flags[star] |= PF_STAR_FORMED;
+            for (size_t i = 0; i < st.particles.x.size(); ++i) {
+                if (st.particles.type[i] == ParticleType::GAS) {
+                    st.particles.luminosity[i] = (idx == 4) ? 0.18f : (idx == 5 ? 0.35f : 0.7f);
+                    if (idx == 4) {
+                        st.particles.color_r[i] = 0.24f; st.particles.color_g[i] = 0.55f; st.particles.color_b[i] = 0.95f;
+                    } else if (idx == 5) {
+                        st.particles.color_r[i] = 0.34f; st.particles.color_g[i] = 0.78f; st.particles.color_b[i] = 1.0f;
+                    }
+                } else if (st.particles.type[i] == ParticleType::DARK_MATTER) {
+                    st.particles.color_r[i] = 0.45f; st.particles.color_g[i] = 0.18f; st.particles.color_b[i] = 0.78f;
+                    st.particles.luminosity[i] = 0.05f;
+                }
             }
 
-            for (size_t i = RegimeConfig::STRUCT_BH_SPAWN_OFFSET; i < st.particles.x.size(); i += RegimeConfig::STRUCT_BH_SPAWN_STEP) {
-                size_t bh = st.particles.add(st.particles.x[i], st.particles.y[i], st.particles.z[i],
-                                             0.0, 0.0, 0.0,
-                                             RegimeConfig::MASS_BLACKHOLE, ParticleType::BLACKHOLE,
-                                             0.0f, 0.0f, 0.0f, 0.0f);
-                st.particles.luminosity[bh] = 6.0f;
-                st.particles.star_state[bh] = StarState::BLACK_HOLE;
+            if (idx >= 5) {
+                const size_t star_step = (idx == 5) ? RegimeConfig::STRUCT_STAR_SPAWN_STEP * 2
+                                                    : RegimeConfig::STRUCT_STAR_SPAWN_STEP;
+                for (size_t i = 0; i < st.particles.x.size(); i += star_step) {
+                    if (st.particles.type[i] != ParticleType::GAS) continue;
+                    size_t star = st.particles.add(st.particles.x[i], st.particles.y[i], st.particles.z[i],
+                                                   st.particles.vx[i], st.particles.vy[i], st.particles.vz[i],
+                                                   RegimeConfig::MASS_STAR, ParticleType::STAR,
+                                                   (idx == 5) ? 0.82f : 1.0f,
+                                                   (idx == 5) ? 0.9f  : 0.92f,
+                                                   (idx == 5) ? 1.0f  : 0.72f,
+                                                   0.0f);
+                    st.particles.star_state[star] = (idx == 5) ? StarState::MAIN_SEQUENCE : StarState::PROTOSTAR;
+                    st.particles.luminosity[star] = (idx == 5) ? 4.8f : 4.0f;
+                    st.particles.flags[star] |= PF_STAR_FORMED;
+                }
+            }
+
+            if (idx == 6) {
+                for (size_t i = RegimeConfig::STRUCT_BH_SPAWN_OFFSET; i < st.particles.x.size(); i += RegimeConfig::STRUCT_BH_SPAWN_STEP) {
+                    size_t bh = st.particles.add(st.particles.x[i], st.particles.y[i], st.particles.z[i],
+                                                 0.0, 0.0, 0.0,
+                                                 RegimeConfig::MASS_BLACKHOLE, ParticleType::BLACKHOLE,
+                                                 0.55f, 0.05f, 0.05f, 0.0f);
+                    st.particles.luminosity[bh] = 6.0f;
+                    st.particles.star_state[bh] = StarState::BLACK_HOLE;
+                }
             }
             break;
         }
@@ -471,7 +579,7 @@ void RegimeManager::applyInitialState(int regime_index, InitialState& state,
         universe.particles.flags.begin(), universe.particles.flags.end(),
         [](uint32_t f){ return f & PF_ACTIVE; }));
 
-    if (regime_index == 3 || regime_index == 4) {
+    if (regime_index >= 3) {
         universe.density_field = std::move(state.field);
         if (universe.density_field.NX > 0) {
             int N = universe.density_field.NX;
@@ -525,7 +633,7 @@ void RegimeManager::tick(CosmicClock& clock, Universe& universe, double real_dt_
 }
 
 void RegimeManager::checkAndTransition(CosmicClock& clock, Universe& universe) {
-    float required_dwell = min_regime_dwell_s_[static_cast<size_t>(std::clamp(active_index_, 0, 4))];
+    float required_dwell = min_regime_dwell_s_[static_cast<size_t>(std::clamp(active_index_, 0, CosmicClock::LAST_REGIME_INDEX))];
     if (regime_elapsed_real_ < required_dwell) {
         return;
     }
@@ -533,7 +641,7 @@ void RegimeManager::checkAndTransition(CosmicClock& clock, Universe& universe) {
     int observed_regime = clock.getCurrentRegimeIndex();
     if (observed_regime > active_index_ && !in_transition_) {
         // Avançar apenas um regime por vez para impedir saltos visuais.
-        int next_regime = std::min(active_index_ + 1, 4);
+        int next_regime = std::min(active_index_ + 1, CosmicClock::LAST_REGIME_INDEX);
         beginTransition(active_index_, next_regime, universe, clock);
     }
 }
@@ -577,7 +685,7 @@ void RegimeManager::beginTransition(int from, int to, Universe& universe,
 // ── Navegação ───────────────────────────────────────────────────────────────
 
 void RegimeManager::jumpToRegime(int index, CosmicClock& clock, Universe& universe) {
-    int idx = std::clamp(index, 0, 4);
+    int idx = std::clamp(index, 0, CosmicClock::LAST_REGIME_INDEX);
     if (regimes_[active_index_]) regimes_[active_index_]->onExit();
 
     clock.jumpToRegime(idx);

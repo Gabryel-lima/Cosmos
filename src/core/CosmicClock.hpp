@@ -6,22 +6,29 @@
 
 class CosmicClock {
 public:
+    static constexpr int REGIME_COUNT = 7;
+    static constexpr int LAST_REGIME_INDEX = REGIME_COUNT - 1;
+
     // ── Limiares de transição de regime [keV] ──────────────────────────────
     static constexpr double T_INFLATION_END = 1e16;   // regime 0→1
     static constexpr double T_QGP_END       = 150.0;  // regime 1→2
     static constexpr double T_BBN_END       = 0.07;   // regime 2→3
     static constexpr double T_RECOMBINATION = 2.6e-4; // regime 3→4 (0.26 eV)
+    static constexpr double T_DARK_AGES     = 2.4e-5; // regime 4→5 (~z 100)
+    static constexpr double T_REIONIZATION  = 6.0e-6; // regime 5→6 (~z 25)
 
     // ── Escalas de tempo padrão por regime (cosmic_dt / real_dt) ─────────────────
     // Calibradas para que cada regime seja atravessado em ~90 segundos reais,
     // garantindo que as transições automáticas ocorram e os elementos apareçam.
     // scale = duração_cósmica_do_regime / 90 segundos
-    static constexpr std::array<double,5> DEFAULT_SCALE = {
+    static constexpr std::array<double, REGIME_COUNT> DEFAULT_SCALE = {
         1.0e-37,   // Regime 0: Inflação
         1.5e-8,    // Regime 1: QGP
         15.0,      // Regime 2: Nucleossíntese
         3.0e10,    // Regime 3: Plasma (Lentificado para melhor visualização e acompanhamento)
-        5.0e14,    // Regime 4: Estrutura (Lentificado para dar tempo de carregar estruturas/galáxias)
+        6.0e12,    // Regime 4: Idades Escuras
+        8.0e13,    // Regime 5: Reionização / primeiras estrelas
+        5.0e14,    // Regime 6: Estruturas maduras
     };
 
     /// Multiplicadores de preset de velocidade relativos ao DEFAULT_SCALE.
@@ -75,12 +82,14 @@ public:
     double getRegimeProgress()    const;
 
     // ── Tempos de início dos regimes (segundos desde o Big Bang) ───────────────────────
-    static constexpr std::array<double,5> REGIME_START_TIMES = {
+    static constexpr std::array<double, REGIME_COUNT> REGIME_START_TIMES = {
         1e-43,   // Regime 0: Tempo de Planck
         1e-35,   // Regime 1: após inflação
         1e-6,    // Regime 2: após PQG
         1200.0,  // Regime 3: após NBB
         1.2e13,  // Regime 4: após recombinação
+        3.2e15,  // Regime 5: colapso inicial / idades escuras tardias (~100 Myr)
+        1.6e16,  // Regime 6: reionização e estruturas maduras (~500 Myr)
     };
 
 private:

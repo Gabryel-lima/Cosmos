@@ -8,14 +8,22 @@
 #include <vector>
 #include <cstdint>
 
+enum class StructurePhase : uint8_t {
+    DARK_AGES = 0,
+    REIONIZATION,
+    MATURE,
+};
+
 class RegimeStructure : public IRegime {
 public:
+    explicit RegimeStructure(StructurePhase phase = StructurePhase::MATURE) : phase_(phase) {}
+
     void onEnter(Universe& state) override;
     void onExit() override;
     void update(double cosmic_dt, double scale_factor, double temp_keV,
                 Universe& universe) override;
     void render(Renderer& renderer, const Universe& universe) override;
-    std::string getName() const override { return "Structure Formation"; }
+    std::string getName() const override;
 
 private:
     void leapfrogKick(Universe& universe, double dt);
@@ -24,8 +32,11 @@ private:
     void checkStarFormation(Universe& universe, double temp_K);
     void updateStellarEvolution(Universe& universe, double cosmic_dt);
     void runFriendsOfFriends(Universe& universe);
+    int regimeIndex() const;
+    void applyPhasePalette(Universe& state) const;
 
     NBodySolver nbody_;
+    StructurePhase phase_ = StructurePhase::MATURE;
     double prev_scale_factor_ = 0.0;
     int    star_check_frame_  = 0;    // contador para limitar O(N²) de formação estelar
 

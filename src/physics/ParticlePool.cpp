@@ -100,23 +100,23 @@ void ParticlePool::compact() {
 
 void ParticlePool::defaultColor(ParticleType t, float& r, float& g, float& b) {
     switch (t) {
-        case ParticleType::QUARK_U:    r=0.0f; g=1.0f; b=1.0f; break; // ciano
-        case ParticleType::QUARK_D:    r=1.0f; g=0.0f; b=1.0f; break; // magenta
-        case ParticleType::QUARK_S:    r=1.0f; g=1.0f; b=0.0f; break; // amarelo
-        case ParticleType::ANTIQUARK:  r=1.0f; g=0.5f; b=0.0f; break; // laranja
-        case ParticleType::GLUON:      r=1.0f; g=1.0f; b=1.0f; break; // branco
-        case ParticleType::PROTON:     r=1.0f; g=0.2f; b=0.2f; break; // vermelho
-        case ParticleType::NEUTRON:    r=0.3f; g=0.3f; b=1.0f; break; // azul
-        case ParticleType::ELECTRON:   r=0.0f; g=0.8f; b=1.0f; break; // azul claro
-        case ParticleType::PHOTON:     r=1.0f; g=1.0f; b=0.8f; break; // branco quente
-        case ParticleType::DEUTERIUM:  r=0.7f; g=0.0f; b=1.0f; break; // roxo
-        case ParticleType::HELIUM3:    r=1.0f; g=0.4f; b=0.1f; break; // vermelho-laranja
-        case ParticleType::HELIUM4NUCLEI:    r=1.0f; g=0.6f; b=0.0f; break; // laranja
-        case ParticleType::LITHIUM7:   r=0.0f; g=1.0f; b=0.4f; break; // verde
-        case ParticleType::DARK_MATTER:r=0.3f; g=0.0f; b=0.5f; break; // roxo escuro
-        case ParticleType::STAR:       r=1.0f; g=0.9f; b=0.7f; break; // amarelo estelar
-        case ParticleType::GAS:        r=0.4f; g=0.6f; b=1.0f; break; // gás azul
-        case ParticleType::BLACKHOLE:  r=1.0f; g=0.0f; b=0.0f; break; // vermelho (mesmo do PROTON, para destacar)
+        case ParticleType::QUARK_U:    r=0.10f; g=0.95f; b=0.95f; break;
+        case ParticleType::QUARK_D:    r=0.98f; g=0.20f; b=0.78f; break;
+        case ParticleType::QUARK_S:    r=0.95f; g=0.92f; b=0.18f; break;
+        case ParticleType::ANTIQUARK:  r=1.00f; g=0.58f; b=0.18f; break;
+        case ParticleType::GLUON:      r=1.00f; g=0.84f; b=0.28f; break;
+        case ParticleType::PROTON:     r=1.00f; g=0.32f; b=0.28f; break;
+        case ParticleType::NEUTRON:    r=0.36f; g=0.52f; b=1.00f; break;
+        case ParticleType::ELECTRON:   r=0.10f; g=0.88f; b=1.00f; break;
+        case ParticleType::PHOTON:     r=1.00f; g=0.97f; b=0.62f; break;
+        case ParticleType::DEUTERIUM:  r=0.76f; g=0.20f; b=1.00f; break;
+        case ParticleType::HELIUM3:    r=1.00f; g=0.55f; b=0.18f; break;
+        case ParticleType::HELIUM4NUCLEI:    r=1.00f; g=0.72f; b=0.08f; break;
+        case ParticleType::LITHIUM7:   r=0.28f; g=1.00f; b=0.52f; break;
+        case ParticleType::DARK_MATTER:r=0.45f; g=0.18f; b=0.78f; break;
+        case ParticleType::STAR:       r=1.00f; g=0.93f; b=0.76f; break;
+        case ParticleType::GAS:        r=0.34f; g=0.78f; b=1.00f; break;
+        case ParticleType::BLACKHOLE:  r=0.55f; g=0.05f; b=0.05f; break;
         default:                       r=1.0f; g=1.0f; b=1.0f; break;
     }
 }

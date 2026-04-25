@@ -93,7 +93,9 @@ void Camera::updateAutoFrame(int regime_index, const glm::dvec3& scene_center,
         case 1: framing_multiplier = 3.2; break;
         case 2: framing_multiplier = 3.2; break;
         case 3: framing_multiplier = 2.6; break;
-        case 4: framing_multiplier = 1.2; break;
+        case 4: framing_multiplier = 1.45; break;
+        case 5: framing_multiplier = 1.3; break;
+        case 6: framing_multiplier = 1.15; break;
         default: break;
     }
 
@@ -167,7 +169,9 @@ Camera::State Camera::getRegimeDefaultState(int regime_index) const {
         case 1: return { {0,0,5},    {0,0,-1}, 3.0,  false };
         case 2: return { {0,0,5},    {0,0,-1}, 3.0,  false };
         case 3: return { {0,0,18},   {0,0,-1}, 12.0, false };
-        case 4: return { {0,0,67.5}, {0,0,-1}, 45.0, false };
+        case 4: return { {0,0,57.0}, {0,0,-1}, 38.0, false };
+        case 5: return { {0,0,67.5}, {0,0,-1}, 45.0, false };
+        case 6: return { {0,0,78.0}, {0,0,-1}, 52.0, false };
         default:return { {0,0,5},    {0,0,-1}, 5.0,  false };
     }
 }

@@ -17,16 +17,80 @@ float stellarGlowFromMass(double m_ratio) {
     double clamped_mass = std::clamp(m_ratio, 0.1, 40.0);
     return static_cast<float>(1.2 + std::log10(1.0 + std::pow(clamped_mass, 2.2)) * 1.8);
 }
+
+double phaseDurationSeconds(StructurePhase phase) {
+    switch (phase) {
+        case StructurePhase::DARK_AGES:
+            return CosmicClock::REGIME_START_TIMES[5] - CosmicClock::REGIME_START_TIMES[4];
+        case StructurePhase::REIONIZATION:
+            return CosmicClock::REGIME_START_TIMES[6] - CosmicClock::REGIME_START_TIMES[5];
+        case StructurePhase::MATURE:
+        default:
+            return phys::t_today - CosmicClock::REGIME_START_TIMES[6];
+    }
+}
+}
+
+std::string RegimeStructure::getName() const {
+    switch (phase_) {
+        case StructurePhase::DARK_AGES:   return "Dark Ages";
+        case StructurePhase::REIONIZATION:return "Reionization";
+        case StructurePhase::MATURE:      return "Structure Formation";
+        default:                          return "Structure Formation";
+    }
+}
+
+int RegimeStructure::regimeIndex() const {
+    switch (phase_) {
+        case StructurePhase::DARK_AGES: return 4;
+        case StructurePhase::REIONIZATION: return 5;
+        case StructurePhase::MATURE: return 6;
+        default: return 6;
+    }
+}
+
+void RegimeStructure::applyPhasePalette(Universe& state) const {
+    ParticlePool& p = state.particles;
+    for (size_t i = 0; i < p.x.size(); ++i) {
+        if (!(p.flags[i] & PF_ACTIVE)) continue;
+        switch (phase_) {
+            case StructurePhase::DARK_AGES:
+                if (p.type[i] == ParticleType::GAS) {
+                    p.color_r[i] = 0.24f; p.color_g[i] = 0.55f; p.color_b[i] = 0.95f;
+                    p.luminosity[i] = std::max(0.18f, p.luminosity[i] * 0.35f);
+                } else if (p.type[i] == ParticleType::DARK_MATTER) {
+                    p.color_r[i] = 0.45f; p.color_g[i] = 0.18f; p.color_b[i] = 0.78f;
+                    p.luminosity[i] = 0.05f;
+                }
+                break;
+            case StructurePhase::REIONIZATION:
+                if (p.type[i] == ParticleType::GAS) {
+                    p.color_r[i] = 0.34f; p.color_g[i] = 0.78f; p.color_b[i] = 1.0f;
+                    p.luminosity[i] = std::max(0.35f, p.luminosity[i] * 0.65f);
+                } else if (p.type[i] == ParticleType::STAR) {
+                    p.color_r[i] = 0.82f; p.color_g[i] = 0.9f; p.color_b[i] = 1.0f;
+                    p.luminosity[i] = std::max(p.luminosity[i], 4.6f);
+                }
+                break;
+            case StructurePhase::MATURE:
+                if (p.type[i] == ParticleType::STAR) {
+                    p.luminosity[i] = std::max(p.luminosity[i], 3.0f);
+                }
+                break;
+        }
+    }
 }
 
 void RegimeStructure::onEnter(Universe& state) {
     prev_scale_factor_ = state.scale_factor;
     halos_.clear();
     last_fof_time_ = state.cosmic_time;
+    star_check_frame_ = 0;
 
     // Aplica configurações padrão de N-body do perfil de qualidade
     nbody_.theta     = state.quality.barnes_hut_theta;
     nbody_.softening = 0.25f;
+    applyPhasePalette(state);
 }
 
 void RegimeStructure::onExit() {
@@ -83,40 +147,49 @@ void RegimeStructure::applyCosmicExpansion(Universe& universe, double a_prev, do
 // ── Formação estelar: critério de densidade local ─────────────────────────────────────────────
 
 void RegimeStructure::checkStarFormation(Universe& universe, double /*temp_K*/) {
+    if (phase_ == StructurePhase::DARK_AGES) return;
+
     ParticlePool& p = universe.particles;
     size_t n = p.x.size();
 
     // Raio de busca: ~2% do lado da caixa (≈1 Mpc em unidades de sim)
-    constexpr double R2_THRESH  = 1.0 * 1.0;   // sim units²
-    constexpr int    MIN_NEIGH  = 6;            // mínimo de vizinhos para colapso
+    const double search_radius = (phase_ == StructurePhase::REIONIZATION) ? 0.8 : 1.0;
+    const double r2_thresh  = search_radius * search_radius;
+    const int min_neigh = (phase_ == StructurePhase::REIONIZATION) ? 8 : 6;
 
     for (size_t i = 0; i < n; ++i) {
         if (!(p.flags[i] & PF_ACTIVE)) continue;
-        if (p.type[i] != ParticleType::GAS && p.type[i] != ParticleType::DARK_MATTER) continue;
+        if (p.type[i] != ParticleType::GAS) continue;
         if (p.flags[i] & PF_COLLAPSING) continue;
 
         int neighbors = 0;
         for (size_t j = 0; j < n; ++j) {
             if (i == j || !(p.flags[j] & PF_ACTIVE)) continue;
             double dx = p.x[j]-p.x[i], dy = p.y[j]-p.y[i], dz = p.z[j]-p.z[i];
-            if (dx*dx + dy*dy + dz*dz < R2_THRESH) {
-                if (++neighbors >= MIN_NEIGH) break;  // encontrou o suficiente
+            if (dx*dx + dy*dy + dz*dz < r2_thresh) {
+                if (++neighbors >= min_neigh) break;  // encontrou o suficiente
             }
         }
-        if (neighbors < MIN_NEIGH) continue;
+        if (neighbors < min_neigh) continue;
 
         // Acima do limiar de densidade: criar protoestrela
-        p.flags[i] |= PF_STAR_FORMED;
+        p.flags[i] |= PF_STAR_FORMED | PF_COLLAPSING;
         p.type[i]   = ParticleType::STAR;
         p.star_state[i] = StarState::PROTOSTAR;
         p.star_age[i]   = 0.0;
         // Massa estelar aleatória 0.1–40 M☉ (em kg, normalizada pela simulação)
         static std::mt19937 rng_sf(777);
-        std::uniform_real_distribution<double> mass_dist(0.1, 40.0);
+        std::uniform_real_distribution<double> mass_dist(
+            (phase_ == StructurePhase::REIONIZATION) ? 8.0 : 0.1,
+            (phase_ == StructurePhase::REIONIZATION) ? 60.0 : 40.0);
         p.mass[i] = mass_dist(rng_sf) * 1.989e30;  // kg
-        // Protoestrela: amarelo-branco
-        p.color_r[i] = 1.0f; p.color_g[i] = 0.9f; p.color_b[i] = 0.7f;
-        p.luminosity[i] = 1.0f;
+        if (phase_ == StructurePhase::REIONIZATION) {
+            p.color_r[i] = 0.82f; p.color_g[i] = 0.9f; p.color_b[i] = 1.0f;
+            p.luminosity[i] = 4.8f;
+        } else {
+            p.color_r[i] = 1.0f; p.color_g[i] = 0.9f; p.color_b[i] = 0.7f;
+            p.luminosity[i] = 1.0f;
+        }
     }
 }
 
@@ -169,7 +242,8 @@ void RegimeStructure::updateStellarEvolution(Universe& universe, double cosmic_d
                         // Supernova: ejeta massa, impulsiona vizinhos
                         state = StarState::BLACK_HOLE;
                         p.type[i] = ParticleType::BLACKHOLE;
-                        p.color_r[i] = 0.0f; p.color_g[i] = 0.0f; p.color_b[i] = 0.0f;
+                        ParticlePool::defaultColor(ParticleType::BLACKHOLE,
+                                                   p.color_r[i], p.color_g[i], p.color_b[i]);
                         p.luminosity[i] = 5.0f;  // brilho de acreção
                         // Impulso de velocidade às partículas próximas
                         for (size_t j = 0; j < n; ++j) {
@@ -261,12 +335,14 @@ void RegimeStructure::update(double cosmic_dt, double scale_factor, double temp_
 {
     double a_new = scale_factor;
     double T_K   = phys::keV_to_K(temp_keV);
-    constexpr double regime_duration = phys::t_today - CosmicClock::REGIME_START_TIMES[4];
+    const double regime_duration = phaseDurationSeconds(phase_);
     double progress_dt = (regime_duration > 0.0) ? cosmic_dt / regime_duration : 0.0;
+    double visual_multiplier = (phase_ == StructurePhase::DARK_AGES) ? 24.0 : (phase_ == StructurePhase::REIONIZATION ? 36.0 : 48.0);
     double visual_dt = cosmic_dt <= 0.0 ? 0.0
-                                         : std::clamp(progress_dt * 48.0, 0.0005, 0.02);
+                                         : std::clamp(progress_dt * visual_multiplier, 0.0005, 0.02);
+    double stellar_dt_scale = (phase_ == StructurePhase::REIONIZATION) ? 2.0e8 : 5.0e8;
     double stellar_dt = cosmic_dt <= 0.0 ? 0.0
-                                          : progress_dt * (5.0e8 * phys::yr_to_s);
+                                          : progress_dt * (stellar_dt_scale * phys::yr_to_s);
 
     // Integração Leapfrog KDK
     leapfrogKick(universe, visual_dt);
@@ -294,10 +370,13 @@ void RegimeStructure::update(double cosmic_dt, double scale_factor, double temp_
     prev_scale_factor_ = a_new;
 
     // Formação estelar a cada 60 frames (O(N²) por isso limitado)
-    if (++star_check_frame_ % 20 == 0) {
+    int star_check_interval = (phase_ == StructurePhase::REIONIZATION) ? 32 : 20;
+    if (phase_ != StructurePhase::DARK_AGES && ++star_check_frame_ % star_check_interval == 0) {
         checkStarFormation(universe, T_K);
     }
-    updateStellarEvolution(universe, stellar_dt);
+    if (phase_ != StructurePhase::DARK_AGES) {
+        updateStellarEvolution(universe, stellar_dt);
+    }
 
     // Executa FoF a cada 1e14 segundos (tempo cósmico)
     if (universe.cosmic_time - last_fof_time_ > 1e14) {
