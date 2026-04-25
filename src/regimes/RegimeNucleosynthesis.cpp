@@ -6,6 +6,7 @@
 #include "../physics/NuclearNetwork.hpp"
 #include "../physics/FluidGrid.hpp"
 #include "../physics/Constants.hpp"
+#include "../physics/Hadronization.hpp"
 #include "../physics/ParticlePool.hpp"
 #include <cmath>
 #include <algorithm>
@@ -13,8 +14,11 @@
 static NuclearNetwork bbn_network;
 
 void RegimeNucleosynthesis::onEnter(Universe& state) {
-    // Inicializa razão p/n a partir do equilíbrio em T=150 keV
-    state.abundances = NuclearNetwork::equilibriumAbundances(state.temperature_keV);
+    // Herdar composição do regime anterior quando ela já existe.
+    NuclearAbundances inherited = chemistry::inferAbundances(state.particles);
+    double inherited_total = inherited.Xp + inherited.Xn + inherited.Xd + inherited.Xhe3 + inherited.Xhe4 + inherited.Xli7;
+    if (inherited_total > 0.0) state.abundances = inherited;
+    else state.abundances = NuclearNetwork::equilibriumAbundances(state.temperature_keV);
     total_baryon_density_ = FluidGrid::baryonDensity(state.scale_factor);
 
     // Sincroniza pool de partículas: converte prótons/nêtrons do Regime 1
@@ -40,13 +44,15 @@ void RegimeNucleosynthesis::update(double cosmic_dt, double scale_factor, double
     size_t n = p.x.size();
     if (n > 0 && n < 20000) {
         double total = universe.abundances.Xp + universe.abundances.Xn
-                     + universe.abundances.Xd + universe.abundances.Xhe4;
+                     + universe.abundances.Xd + universe.abundances.Xhe3
+                     + universe.abundances.Xhe4 + universe.abundances.Xli7;
         if (total > 0.0) {
             // Fracções para cada tipo
             double fp  = universe.abundances.Xp  / total;
             double fn  = universe.abundances.Xn  / total;
             double fd  = universe.abundances.Xd  / total;
-            // He4 = resto
+            double fhe3 = universe.abundances.Xhe3 / total;
+            double fhe4 = universe.abundances.Xhe4 / total;
             size_t active_count = 0;
             for (size_t i = 0; i < n; ++i)
                 if (p.flags[i] & PF_ACTIVE) ++active_count;
@@ -59,21 +65,25 @@ void RegimeNucleosynthesis::update(double cosmic_dt, double scale_factor, double
                 ParticleType new_type;
                 if      (frac < fp)        new_type = ParticleType::PROTON;
                 else if (frac < fp + fn)   new_type = ParticleType::NEUTRON;
-                else if (frac < fp+fn+fd)  new_type = ParticleType::DEUTERIUM;
-                else                       new_type = ParticleType::HELIUM4NUCLEI;
+                else if (frac < fp + fn + fd)          new_type = ParticleType::DEUTERIUM;
+                else if (frac < fp + fn + fd + fhe3)   new_type = ParticleType::HELIUM3;
+                else if (frac < fp + fn + fd + fhe3 + fhe4) new_type = ParticleType::HELIUM4NUCLEI;
+                else                                   new_type = ParticleType::LITHIUM7;
                 p.type[i] = new_type;
                 ParticlePool::defaultColor(new_type, p.color_r[i], p.color_g[i], p.color_b[i]);
+                p.mass[i] = chemistry::restMass(new_type);
+                p.charge[i] = static_cast<float>(chemistry::atomicCharge(new_type));
                 // He4 é mais brilhante (recém formado)
-                p.luminosity[i] = (new_type == ParticleType::HELIUM4NUCLEI) ? 2.0f : 1.0f;
+                p.luminosity[i] = (new_type == ParticleType::HELIUM4NUCLEI || new_type == ParticleType::HELIUM3 || new_type == ParticleType::LITHIUM7) ? 2.0f : 1.0f;
 
                 if (visual_dt > 0.0) {
                     double phase = universe.cosmic_time * 0.05 + static_cast<double>(i) * 0.13;
-                    double jitter = (new_type == ParticleType::HELIUM4NUCLEI) ? 0.006 : 0.003;
+                    double jitter = (new_type == ParticleType::HELIUM4NUCLEI || new_type == ParticleType::HELIUM3 || new_type == ParticleType::LITHIUM7) ? 0.006 : 0.003;
                     p.vx[i] = p.vx[i] * 0.985 + std::sin(phase) * jitter;
                     p.vy[i] = p.vy[i] * 0.985 + std::cos(phase * 1.1) * jitter;
                     p.vz[i] = p.vz[i] * 0.985 + std::sin(phase * 0.7) * jitter;
 
-                    double collapse = (new_type == ParticleType::HELIUM4NUCLEI || new_type == ParticleType::DEUTERIUM) ? 0.02 : 0.008;
+                    double collapse = (new_type == ParticleType::HELIUM4NUCLEI || new_type == ParticleType::HELIUM3 || new_type == ParticleType::LITHIUM7 || new_type == ParticleType::DEUTERIUM) ? 0.02 : 0.008;
                     p.vx[i] += -p.x[i] * collapse * visual_dt;
                     p.vy[i] += -p.y[i] * collapse * visual_dt;
                     p.vz[i] += -p.z[i] * collapse * visual_dt;

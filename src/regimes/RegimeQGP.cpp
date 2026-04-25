@@ -4,6 +4,7 @@
 #include "../core/Universe.hpp"
 #include "../render/Renderer.hpp"
 #include "../physics/Constants.hpp"
+#include "../physics/Hadronization.hpp"
 #include "../physics/ParticlePool.hpp"
 #include <random>
 #include <cmath>
@@ -91,52 +92,10 @@ void RegimeQGP::applyCosmicExpansion(Universe& universe, double a_prev, double a
     }
 }
 
-// ── Hadronização em T < 150 keV ─────────────────────────────────────────────
 void RegimeQGP::hadronize(Universe& universe) {
     if (hadronized_) return;
     hadronized_ = true;
-
-    ParticlePool& p = universe.particles;
-    size_t n = p.x.size();
-
-    // Coleta todos os quarks activos
-    std::vector<size_t> quarks;
-    for (size_t i = 0; i < n; ++i) {
-        if ((p.flags[i] & PF_ACTIVE) &&
-            (p.type[i] == ParticleType::QUARK_U ||
-             p.type[i] == ParticleType::QUARK_D ||
-             p.type[i] == ParticleType::QUARK_S)) {
-            quarks.push_back(i);
-        }
-    }
-
-    // Agrupa em tripletos sequencialmente; sem limiar de distância
-    // (após expansão de Hubble as partículas estão espalhadas — o confinamento
-    //  é estatístico, não espacial, para fins de visualização).
-    std::vector<bool> assigned(n, false);
-    for (size_t qi = 0; qi + 2 < quarks.size(); qi += 3) {
-        size_t i = quarks[qi], j = quarks[qi+1], k = quarks[qi+2];
-        if (assigned[i] || assigned[j] || assigned[k]) continue;
-
-        double cx  = (p.x[i]  + p.x[j]  + p.x[k])  / 3.0;
-        double cy  = (p.y[i]  + p.y[j]  + p.y[k])  / 3.0;
-        double cz  = (p.z[i]  + p.z[j]  + p.z[k])  / 3.0;
-        double cvx = (p.vx[i] + p.vx[j] + p.vx[k]) / 3.0;
-        double cvy = (p.vy[i] + p.vy[j] + p.vy[k]) / 3.0;
-        double cvz = (p.vz[i] + p.vz[j] + p.vz[k]) / 3.0;
-
-        int u_count = 0;
-        for (size_t idx : {i, j, k})
-            if (p.type[idx] == ParticleType::QUARK_U) ++u_count;
-        ParticleType hadron = (u_count >= 2) ? ParticleType::PROTON : ParticleType::NEUTRON;
-        float cr, cg, cb;
-        ParticlePool::defaultColor(hadron, cr, cg, cb);
-
-        p.deactivate(i); p.deactivate(j); p.deactivate(k);
-        assigned[i] = assigned[j] = assigned[k] = true;
-
-        p.add(cx, cy, cz, cvx, cvy, cvz, phys::m_p, hadron, cr, cg, cb);
-    }
+    chemistry::hadronizeQgp(universe.particles);
 }
 
 void RegimeQGP::update(double cosmic_dt, double scale_factor, double temp_keV,

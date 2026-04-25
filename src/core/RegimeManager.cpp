@@ -9,28 +9,17 @@
 #include "../render/Renderer.hpp"
 #include "../physics/Friedmann.hpp"
 #include "../physics/Constants.hpp"
+#include "../physics/Hadronization.hpp"
 #include <random>
 #include <cmath>
 #include <cstdio>
 #include <algorithm>
+#include <array>
 
 namespace {
 
 bool isBaryonicType(ParticleType type) {
-    switch (type) {
-        case ParticleType::PROTON:
-        case ParticleType::NEUTRON:
-        case ParticleType::DEUTERIUM:
-        case ParticleType::HELIUM3:
-        case ParticleType::HELIUM4NUCLEI:
-        case ParticleType::LITHIUM7:
-        case ParticleType::GAS:
-        case ParticleType::STAR:
-        case ParticleType::BLACKHOLE:
-            return true;
-        default:
-            return false;
-    }
+    return chemistry::isBaryonicParticle(type);
 }
 
 size_t addParticleCopy(ParticlePool& dst, const ParticlePool& src, size_t i,
@@ -50,7 +39,84 @@ size_t addParticleCopy(ParticlePool& dst, const ParticlePool& src, size_t i,
     dst.luminosity[added] = luminosity;
     dst.star_state[added] = src.star_state[i];
     dst.star_age[added] = src.star_age[i];
+    dst.flags[added] = (type == src.type[i]) ? src.flags[i] : PF_ACTIVE;
     return added;
+}
+
+size_t activeParticleCount(const ParticlePool& pool) {
+    size_t active = 0;
+    for (uint32_t flags : pool.flags) {
+        if (flags & PF_ACTIVE) ++active;
+    }
+    return active;
+}
+
+ParticlePool resampleParticlePoolLOD(const ParticlePool& src, size_t target_size) {
+    ParticlePool sampled;
+    const size_t active = activeParticleCount(src);
+    if (active == 0 || target_size == 0 || target_size == active) return src;
+
+    constexpr size_t kTypeCount = static_cast<size_t>(ParticleType::COUNT);
+    std::array<std::vector<size_t>, kTypeCount> buckets;
+    for (size_t i = 0; i < src.x.size(); ++i) {
+        if (!(src.flags[i] & PF_ACTIVE)) continue;
+        buckets[static_cast<size_t>(src.type[i])].push_back(i);
+    }
+
+    std::array<size_t, kTypeCount> quotas{};
+    std::array<double, kTypeCount> remainders{};
+    size_t allocated = 0;
+    for (size_t type = 0; type < kTypeCount; ++type) {
+        if (buckets[type].empty()) continue;
+        const double exact = static_cast<double>(target_size) * static_cast<double>(buckets[type].size()) / static_cast<double>(active);
+        quotas[type] = static_cast<size_t>(std::floor(exact));
+        remainders[type] = exact - static_cast<double>(quotas[type]);
+        allocated += quotas[type];
+    }
+
+    while (allocated < target_size) {
+        size_t best_type = kTypeCount;
+        double best_remainder = -1.0;
+        for (size_t type = 0; type < kTypeCount; ++type) {
+            if (buckets[type].empty()) continue;
+            if (remainders[type] > best_remainder) {
+                best_remainder = remainders[type];
+                best_type = type;
+            }
+        }
+        if (best_type == kTypeCount) break;
+        ++quotas[best_type];
+        remainders[best_type] = 0.0;
+        ++allocated;
+    }
+
+    for (size_t type = 0; type < kTypeCount; ++type) {
+        const auto& bucket = buckets[type];
+        if (bucket.empty() || quotas[type] == 0) continue;
+
+        if (quotas[type] <= bucket.size()) {
+            for (size_t pick = 0; pick < quotas[type]; ++pick) {
+                const size_t pos = std::min(bucket.size() - 1,
+                    static_cast<size_t>(((static_cast<double>(pick) + 0.5) * bucket.size()) / quotas[type]));
+                const size_t idx = bucket[pos];
+                addParticleCopy(sampled, src, idx, src.type[idx], 0.0f, src.luminosity[idx], src.charge[idx]);
+            }
+            continue;
+        }
+
+        for (size_t idx : bucket) {
+            addParticleCopy(sampled, src, idx, src.type[idx], 0.0f, src.luminosity[idx], src.charge[idx]);
+        }
+        const size_t extra = quotas[type] - bucket.size();
+        for (size_t pick = 0; pick < extra; ++pick) {
+            const size_t idx = bucket[pick % bucket.size()];
+            addParticleCopy(sampled, src, idx, src.type[idx], 0.005f, src.luminosity[idx], src.charge[idx]);
+        }
+    }
+
+    sampled.active = activeParticleCount(sampled);
+    sampled.capacity = sampled.x.size();
+    return sampled;
 }
 
 double targetTemperatureForRegime(int regime_index) {
@@ -66,40 +132,36 @@ double targetTemperatureForRegime(int regime_index) {
 
 ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
     ParticlePool next;
-    const ParticlePool& src = previous.particles;
+    ParticlePool source = previous.particles;
+    if (to == 2) {
+        chemistry::hadronizeQgp(source);
+    }
+    const ParticlePool& src = source;
     if (src.x.empty()) return next;
+
+    std::vector<size_t> plasma_baryons;
 
     for (size_t i = 0; i < src.x.size(); ++i) {
         if (!(src.flags[i] & PF_ACTIVE)) continue;
 
         switch (to) {
             case 2: {
-                ParticleType mapped = src.type[i];
-                if (mapped == ParticleType::QUARK_U || mapped == ParticleType::QUARK_D ||
-                    mapped == ParticleType::QUARK_S || mapped == ParticleType::ANTIQUARK ||
-                    mapped == ParticleType::GLUON) {
-                    mapped = (i % 2 == 0) ? ParticleType::PROTON : ParticleType::NEUTRON;
-                }
-                if (!isBaryonicType(mapped)) continue;
-                addParticleCopy(next, src, i, mapped);
+                if (!chemistry::isLightNucleus(src.type[i])) continue;
+                addParticleCopy(next, src, i, src.type[i], 0.0f, src.luminosity[i], src.charge[i]);
                 break;
             }
 
             case 3: {
-                if (!isBaryonicType(src.type[i])) continue;
+                if (!chemistry::isLightNucleus(src.type[i])) continue;
                 ParticleType nucleus = src.type[i];
-                if (nucleus == ParticleType::STAR || nucleus == ParticleType::BLACKHOLE) {
-                    nucleus = ParticleType::GAS;
-                }
+                plasma_baryons.push_back(i);
                 addParticleCopy(next, src, i, nucleus, 0.0025f, 1.2f,
-                                (nucleus == ParticleType::PROTON) ? 1.0f : 0.0f);
+                                static_cast<float>(chemistry::atomicCharge(nucleus)));
 
-                if (nucleus != ParticleType::NEUTRON && nucleus != ParticleType::BLACKHOLE) {
-                    addParticleCopy(next, src, i, ParticleType::ELECTRON, 0.01f, 0.9f, -1.0f);
-                }
-
-                if (i % 3 == 0) {
-                    addParticleCopy(next, src, i, ParticleType::PHOTON, 0.03f, 1.6f, 0.0f);
+                for (int electron = 0; electron < chemistry::atomicCharge(nucleus); ++electron) {
+                    addParticleCopy(next, src, i, ParticleType::ELECTRON,
+                                    0.008f + static_cast<float>(electron) * 0.004f,
+                                    0.9f, -1.0f);
                 }
                 break;
             }
@@ -134,6 +196,17 @@ ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
         }
     }
 
+    if (to == 3 && !plasma_baryons.empty()) {
+        const size_t photon_target = std::max<size_t>(1,
+            static_cast<size_t>(std::lround(plasma_baryons.size() *
+                (static_cast<double>(RegimeConfig::PLASMA_PHOTON_COUNT) /
+                 std::max(1, RegimeConfig::PLASMA_BARYON_COUNT)))));
+        for (size_t photon = 0; photon < photon_target; ++photon) {
+            const size_t src_idx = plasma_baryons[photon % plasma_baryons.size()];
+            addParticleCopy(next, src, src_idx, ParticleType::PHOTON, 0.03f, 1.6f, 0.0f);
+        }
+    }
+
     return next;
 }
 
@@ -150,50 +223,17 @@ void inheritStateAcrossTransition(int from, int to, const Universe& previous, In
         if (!remapped.x.empty()) {
             size_t target_size = next.particles.x.size();
 
-            if (target_size > remapped.x.size()) {
-                // Completar com as partículas geradas pelo buildInitialState para atingir a quantidade desejada
-                for (size_t i = remapped.x.size(); i < target_size; ++i) {
-                    size_t added = remapped.add(
-                        next.particles.x[i], next.particles.y[i], next.particles.z[i],
-                        next.particles.vx[i], next.particles.vy[i], next.particles.vz[i],
-                        next.particles.mass[i], next.particles.type[i],
-                        next.particles.color_r[i], next.particles.color_g[i], next.particles.color_b[i],
-                        next.particles.charge[i]
-                    );
-                    remapped.luminosity[added] = next.particles.luminosity[i];
-                    remapped.star_state[added] = next.particles.star_state[i];
-                    remapped.star_age[added]   = next.particles.star_age[i];
-                    remapped.flags[added]      = next.particles.flags[i];
-                }
-            } else if (target_size > 0 && target_size < remapped.x.size()) {
-                // Truncar para respeitar a quantidade exigida pelo buildInitialState
-                remapped.x.resize(target_size);
-                remapped.y.resize(target_size);
-                remapped.z.resize(target_size);
-                remapped.vx.resize(target_size);
-                remapped.vy.resize(target_size);
-                remapped.vz.resize(target_size);
-                remapped.mass.resize(target_size);
-                remapped.type.resize(target_size);
-                remapped.charge.resize(target_size);
-                remapped.color_r.resize(target_size);
-                remapped.color_g.resize(target_size);
-                remapped.color_b.resize(target_size);
-                remapped.luminosity.resize(target_size);
-                remapped.temp_particle.resize(target_size);
-                remapped.star_state.resize(target_size);
-                remapped.star_age.resize(target_size);
-                remapped.flags.resize(target_size);
-                remapped.capacity = target_size;
-                
-                size_t fresh_active = 0;
-                for (size_t i = 0; i < target_size; ++i) {
-                    if (remapped.flags[i] & PF_ACTIVE) fresh_active++;
-                }
-                remapped.active = fresh_active;
+            if (target_size > 0 && target_size != activeParticleCount(remapped)) {
+                remapped = resampleParticlePoolLOD(remapped, target_size);
             }
 
-            next.particles = std::move(remapped);
+            if (to == 2 || to == 3) {
+                next.abundances = chemistry::inferAbundances(remapped);
+            }
+
+            if (activeParticleCount(remapped) > 0) {
+                next.particles = std::move(remapped);
+            }
         }
     }
 

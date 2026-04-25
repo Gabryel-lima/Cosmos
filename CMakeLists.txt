@@ -65,6 +65,7 @@ set(SOURCES
     src/physics/FluidGrid.cpp
     src/physics/ParticlePool.cpp
     src/physics/NuclearNetwork.cpp
+    src/physics/Hadronization.cpp
     src/regimes/RegimeInflation.cpp
     src/regimes/RegimeQGP.cpp
     src/regimes/RegimeNucleosynthesis.cpp

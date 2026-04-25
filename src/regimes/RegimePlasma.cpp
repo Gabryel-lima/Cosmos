@@ -5,6 +5,7 @@
 #include "../render/Renderer.hpp"
 #include "../physics/FluidGrid.hpp"
 #include "../physics/Constants.hpp"
+#include "../physics/Hadronization.hpp"
 #include "../physics/ParticlePool.hpp"
 #include "../physics/Friedmann.hpp"
 #include <cmath>
@@ -87,7 +88,10 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
                 particles.vz[i] += std::sin(static_cast<double>(wave_phase_) * 0.7 + particles.x[i]) * visual_dt * 0.14;
                 break;
             case ParticleType::PROTON:
+            case ParticleType::DEUTERIUM:
+            case ParticleType::HELIUM3:
             case ParticleType::HELIUM4NUCLEI:
+            case ParticleType::LITHIUM7:
             case ParticleType::GAS:
                 particles.vy[i] += swirl * visual_dt * 0.08;
                 break;
@@ -112,11 +116,20 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
     }
 
     if (neutral_fraction > recombined_fraction_) {
-        size_t to_convert = static_cast<size_t>((neutral_fraction - recombined_fraction_) * 200.0);
+        size_t charged_nuclei = 0;
+        for (size_t i = 0; i < particles.x.size(); ++i) {
+            if (!(particles.flags[i] & PF_ACTIVE)) continue;
+            if (chemistry::atomicCharge(particles.type[i]) > 0) ++charged_nuclei;
+        }
+
+        size_t to_convert = static_cast<size_t>((neutral_fraction - recombined_fraction_) * static_cast<double>(charged_nuclei));
         size_t converted = 0;
+        size_t electrons_to_hide = 0;
         for (size_t i = 0; i < particles.x.size() && converted < to_convert; ++i) {
             if (!(particles.flags[i] & PF_ACTIVE)) continue;
-            if (particles.type[i] != ParticleType::PROTON) continue;
+            int charge = chemistry::atomicCharge(particles.type[i]);
+            if (charge <= 0) continue;
+            electrons_to_hide += static_cast<size_t>(charge);
             particles.type[i] = ParticleType::GAS;
             ParticlePool::defaultColor(ParticleType::GAS,
                                        particles.color_r[i], particles.color_g[i], particles.color_b[i]);
@@ -125,7 +138,7 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
         }
 
         size_t hidden_electrons = 0;
-        for (size_t i = 0; i < particles.x.size() && hidden_electrons < converted; ++i) {
+        for (size_t i = 0; i < particles.x.size() && hidden_electrons < electrons_to_hide; ++i) {
             if (!(particles.flags[i] & PF_ACTIVE)) continue;
             if (particles.type[i] != ParticleType::ELECTRON) continue;
             particles.deactivate(i);
