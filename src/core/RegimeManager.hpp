@@ -45,6 +45,9 @@ public:
 
     IRegime* getCurrentRegime() const;
     int      getCurrentRegimeIndex() const { return active_index_; }
+    int      getVisualRegimeIndex() const { return in_transition_ ? transition_from_ : active_index_; }
+    int      getIncomingRegimeIndex() const { return in_transition_ ? transition_to_ : active_index_; }
+    bool     isInTransition() const { return in_transition_; }
 
     /// Retorna progresso [0,1] de mistura durante transição (0 = sem transição).
     float getTransitionProgress() const { return in_transition_ ? transition_t_ : 0.0f; }

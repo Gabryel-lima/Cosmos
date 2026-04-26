@@ -23,58 +23,17 @@
 #include <cstdlib>
 #include <cstring>
 #include <chrono>
+#include <filesystem>
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <system_error>
+#include <algorithm>
+#include <vector>
 
-struct SceneFrame {
-    glm::dvec3 center = {0.0, 0.0, 0.0};
-    double radius = 0.0;
-};
-
-static SceneFrame estimateSceneFrame(const Universe& universe) {
-    const ParticlePool& pp = universe.particles;
-    SceneFrame frame;
-    glm::dvec3 accum(0.0);
-    size_t active_count = 0;
-
-    for (size_t i = 0; i < pp.x.size(); ++i) {
-        if (!(pp.flags[i] & PF_ACTIVE)) continue;
-        accum += glm::dvec3(pp.x[i], pp.y[i], pp.z[i]);
-        ++active_count;
-    }
-
-    if (active_count > 0) {
-        frame.center = accum / static_cast<double>(active_count);
-    }
-
-    for (size_t i = 0; i < pp.x.size(); ++i) {
-        if (!(pp.flags[i] & PF_ACTIVE)) continue;
-        glm::dvec3 delta(pp.x[i], pp.y[i], pp.z[i]);
-        delta -= frame.center;
-        double r = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
-        frame.radius = std::max(frame.radius, r);
-    }
-
-    if (frame.radius <= 0.0 && universe.density_field.NX > 0) {
-        frame.radius = static_cast<double>(universe.density_field.NX) * 0.5;
-    }
-
-    if (frame.radius <= 0.0) {
-        switch (universe.regime_index) {
-            case 0: frame.radius = 1.0; break;
-            case 1:
-            case 2: frame.radius = 1.5; break;
-            case 3: frame.radius = 8.0; break;
-            case 4: frame.radius = 22.0; break;
-            case 5: frame.radius = 30.0; break;
-            case 6: frame.radius = 36.0; break;
-            default: frame.radius = 5.0; break;
-        }
-    }
-
-    return frame;
-}
+#ifdef __linux__
+#include <unistd.h>
+#endif
 
 // ── Estado global (apenas na unidade de tradução principal) ──────────────────────────────
 
@@ -83,6 +42,7 @@ static int g_height = 720;
 static bool g_fullscreen    = false;
 static bool g_show_hud      = true;
 static bool g_reload_shaders = false;
+static std::string g_imgui_ini_path = "imgui.ini";
 
 struct AppState {
     GLFWwindow*    window   = nullptr;
@@ -94,6 +54,57 @@ struct AppState {
     RegimeOverlay  overlay;
     bool           running  = true;
 };
+
+static void recenterCameraToScene(AppState& app, int regime_index) {
+    SceneFrame scene_frame = Camera::estimateSceneFrame(app.universe);
+    app.camera.applyState(app.camera.getSceneFittedState(regime_index, scene_frame));
+}
+
+static void jumpToRegimeAndFrame(AppState& app, int regime_index) {
+    app.mgr.jumpToRegime(regime_index, app.clock, app.universe);
+    recenterCameraToScene(app, regime_index);
+}
+
+static void toggleNearestTracking(AppState& app) {
+    if (app.camera.tracked_id != std::numeric_limits<uint32_t>::max()) {
+        app.camera.releaseTracking();
+        std::printf("[Camera] Tracking released\n");
+        return;
+    }
+
+    const ParticlePool& pp = app.universe.particles;
+    uint32_t best_id = std::numeric_limits<uint32_t>::max();
+    double best_r2 = 1e300;
+    auto cam_pos = app.camera.position;
+    for (size_t i = 0; i < pp.x.size(); ++i) {
+        if (!(pp.flags[i] & PF_ACTIVE)) continue;
+        bool trackable = (pp.type[i] == ParticleType::STAR   ||
+                          pp.type[i] == ParticleType::BLACKHOLE ||
+                          pp.type[i] == ParticleType::PROTON ||
+                          pp.type[i] == ParticleType::NEUTRON ||
+                          pp.type[i] == ParticleType::DEUTERIUM ||
+                          pp.type[i] == ParticleType::HELIUM4NUCLEI ||
+                          pp.type[i] == ParticleType::ELECTRON ||
+                          pp.type[i] == ParticleType::GAS ||
+                          pp.type[i] == ParticleType::DARK_MATTER);
+        if (!trackable) continue;
+        double dx = pp.x[i] - cam_pos.x;
+        double dy = pp.y[i] - cam_pos.y;
+        double dz = pp.z[i] - cam_pos.z;
+        double r2 = dx*dx + dy*dy + dz*dz;
+        if (r2 < best_r2) {
+            best_r2 = r2;
+            best_id = static_cast<uint32_t>(i);
+        }
+    }
+
+    if (best_id != std::numeric_limits<uint32_t>::max()) {
+        app.camera.trackParticle(best_id);
+        std::printf("[Camera] Tracking particle %u\n", best_id);
+    } else {
+        std::printf("[Camera] No trackable particles found\n");
+    }
+}
 
 // ── Callbacks ─────────────────────────────────────────────────────────────────
 
@@ -113,8 +124,19 @@ static void on_key(GLFWwindow* /*w*/, int key, int /*sc*/, int action, int mods)
     if (action == GLFW_PRESS) {
         switch (key) {
         case GLFW_KEY_ESCAPE:
+            if (g_app->camera.tracked_id != std::numeric_limits<uint32_t>::max()) {
+                g_app->camera.releaseTracking();
+                std::printf("[Camera] Tracking released\n");
+            } else {
+                g_app->running = false;
+            }
+            break;
+
         case GLFW_KEY_Q:
-            g_app->running = false; break;
+            if (mods & GLFW_MOD_CONTROL) {
+                g_app->running = false;
+            }
+            break;
 
         case GLFW_KEY_SPACE:
             if (g_app->clock.isPaused()) g_app->clock.play();
@@ -164,58 +186,22 @@ static void on_key(GLFWwindow* /*w*/, int key, int /*sc*/, int action, int mods)
             break;
         }
 
-        case GLFW_KEY_1: g_app->mgr.jumpToRegime(0, g_app->clock, g_app->universe);
-                         g_app->camera.applyState(g_app->camera.getRegimeDefaultState(0)); break;
-        case GLFW_KEY_2: g_app->mgr.jumpToRegime(1, g_app->clock, g_app->universe);
-                         g_app->camera.applyState(g_app->camera.getRegimeDefaultState(1)); break;
-        case GLFW_KEY_3: g_app->mgr.jumpToRegime(2, g_app->clock, g_app->universe);
-                         g_app->camera.applyState(g_app->camera.getRegimeDefaultState(2)); break;
-        case GLFW_KEY_4: g_app->mgr.jumpToRegime(3, g_app->clock, g_app->universe);
-                         g_app->camera.applyState(g_app->camera.getRegimeDefaultState(3)); break;
-        case GLFW_KEY_5: g_app->mgr.jumpToRegime(4, g_app->clock, g_app->universe);
-                         g_app->camera.applyState(g_app->camera.getRegimeDefaultState(4)); break;
-        case GLFW_KEY_6: g_app->mgr.jumpToRegime(5, g_app->clock, g_app->universe);
-                 g_app->camera.applyState(g_app->camera.getRegimeDefaultState(5)); break;
-        case GLFW_KEY_7: g_app->mgr.jumpToRegime(6, g_app->clock, g_app->universe);
-                 g_app->camera.applyState(g_app->camera.getRegimeDefaultState(6)); break;
+        case GLFW_KEY_1: jumpToRegimeAndFrame(*g_app, 0); break;
+        case GLFW_KEY_2: jumpToRegimeAndFrame(*g_app, 1); break;
+        case GLFW_KEY_3: jumpToRegimeAndFrame(*g_app, 2); break;
+        case GLFW_KEY_4: jumpToRegimeAndFrame(*g_app, 3); break;
+        case GLFW_KEY_5: jumpToRegimeAndFrame(*g_app, 4); break;
+        case GLFW_KEY_6: jumpToRegimeAndFrame(*g_app, 5); break;
+        case GLFW_KEY_7: jumpToRegimeAndFrame(*g_app, 6); break;
 
         case GLFW_KEY_C:
-            g_app->camera.applyState(g_app->camera.getRegimeDefaultState(g_app->mgr.getCurrentRegimeIndex()));
+            recenterCameraToScene(*g_app, g_app->mgr.getCurrentRegimeIndex());
+            std::printf("[Camera] Re-centered on scene for regime %d\n", g_app->mgr.getCurrentRegimeIndex());
             break;
 
-        case GLFW_KEY_T: {
-            // Rastrear a estrela ou buraco negro mais próximo da câmera
-            const ParticlePool& pp = g_app->universe.particles;
-            uint32_t best_id = std::numeric_limits<uint32_t>::max();
-            double best_r2 = 1e300;
-            auto cam_pos = g_app->camera.position;
-            for (size_t i = 0; i < pp.x.size(); ++i) {
-                if (!(pp.flags[i] & PF_ACTIVE)) continue;
-                bool trackable = (pp.type[i] == ParticleType::STAR   ||
-                                  pp.type[i] == ParticleType::BLACKHOLE ||
-                                  pp.type[i] == ParticleType::PROTON ||
-                                  pp.type[i] == ParticleType::NEUTRON ||
-                                  pp.type[i] == ParticleType::DEUTERIUM ||
-                                  pp.type[i] == ParticleType::HELIUM4NUCLEI ||
-                                  pp.type[i] == ParticleType::ELECTRON ||
-                                  pp.type[i] == ParticleType::GAS ||
-                                  pp.type[i] == ParticleType::DARK_MATTER);
-                if (!trackable) continue;
-                double dx = pp.x[i] - cam_pos.x;
-                double dy = pp.y[i] - cam_pos.y;
-                double dz = pp.z[i] - cam_pos.z;
-                double r2 = dx*dx + dy*dy + dz*dz;
-                if (r2 < best_r2) { best_r2 = r2; best_id = static_cast<uint32_t>(i); }
-            }
-            if (best_id != std::numeric_limits<uint32_t>::max()) {
-                g_app->camera.trackParticle(best_id);
-                std::printf("[Camera] Tracking particle %u\n", best_id);
-            } else {
-                g_app->camera.releaseTracking();
-                std::printf("[Camera] No trackable particles found\n");
-            }
+        case GLFW_KEY_T:
+            toggleNearestTracking(*g_app);
             break;
-        }
         }
 
         // Ciclar modo da câmera via Tab
@@ -247,9 +233,10 @@ static void on_cursor_pos(GLFWwindow* /*w*/, double xpos, double ypos) {
     g_last_mouse_x = xpos;
     g_last_mouse_y = ypos;
 
-    // Rotacionar apenas com botão direito do mouse pressionado
-    if (glfwGetMouseButton(g_app->window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) {
-        g_app->camera.processMouseDelta(static_cast<float>(dx),
+    // Rotacionar apenas com botão esquerdo do mouse pressionado
+    if (glfwGetMouseButton(g_app->window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
+        // Inverter direção do movimento enquanto o botão esquerdo estiver pressionado
+        g_app->camera.processMouseDelta(static_cast<float>(-dx),
                                          static_cast<float>(dy));
     }
 }
@@ -268,6 +255,55 @@ static bool parseArgs(int argc, char** argv) {
         }
     }
     return true;
+}
+
+static std::filesystem::path resolveExecutablePath(const char* argv0) {
+#ifdef __linux__
+    std::vector<char> buffer(4096, '\0');
+    const ssize_t length = ::readlink("/proc/self/exe", buffer.data(), buffer.size() - 1);
+    if (length > 0) {
+        buffer[static_cast<size_t>(length)] = '\0';
+        return std::filesystem::path(buffer.data());
+    }
+#endif
+
+    if (argv0 && *argv0) {
+        std::error_code ec;
+        std::filesystem::path candidate(argv0);
+        if (candidate.is_relative()) {
+            candidate = std::filesystem::current_path(ec) / candidate;
+        }
+        std::filesystem::path normalized = std::filesystem::weakly_canonical(candidate, ec);
+        if (!ec) {
+            return normalized;
+        }
+        return candidate;
+    }
+
+    return std::filesystem::current_path();
+}
+
+static void configureRuntimePaths(const char* argv0) {
+    std::error_code ec;
+    const std::filesystem::path executable_path = resolveExecutablePath(argv0);
+    const std::filesystem::path executable_dir = executable_path.has_parent_path()
+        ? executable_path.parent_path()
+        : std::filesystem::current_path(ec);
+
+    if (!executable_dir.empty()) {
+        std::filesystem::current_path(executable_dir, ec);
+        if (ec) {
+            std::fprintf(stderr,
+                         "[main] Failed to switch cwd to executable dir '%s': %s\n",
+                         executable_dir.string().c_str(),
+                         ec.message().c_str());
+            ec.clear();
+        }
+
+        g_imgui_ini_path = (executable_dir / "imgui.ini").string();
+        std::printf("[main] Runtime directory: %s\n", executable_dir.string().c_str());
+        std::printf("[main] ImGui layout file: %s\n", g_imgui_ini_path.c_str());
+    }
 }
 
 static bool initGLFW(AppState& app) {
@@ -320,6 +356,7 @@ static void initImGui(GLFWwindow* window) {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.IniFilename = g_imgui_ini_path.c_str();
     ImGui::StyleColorsDark();
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
@@ -330,6 +367,7 @@ static void initImGui(GLFWwindow* window) {
 
 int main(int argc, char** argv) {
     parseArgs(argc, argv);
+    configureRuntimePaths(argv[0]);
 
     AppState app;
     g_app = &app;
@@ -347,10 +385,10 @@ int main(int argc, char** argv) {
     app.clock.initializeToDefaultState();
     app.mgr.jumpToRegime(app.clock.getCurrentRegimeIndex(), app.clock, app.universe);
 
-    // Estado padrão da câmera para o Regime 0
-    app.camera.applyState(app.camera.getRegimeDefaultState(0));
+    // Enquadrar a cena inicial a partir do conteúdo real do regime.
+    recenterCameraToScene(app, app.clock.getCurrentRegimeIndex());
 
-    std::printf("[main] Starting simulation. Seed=%u. Keys: SPACE=play/pause, 1-7=jump, R=reload shaders, H=HUD, F=fullscreen, ESC=quit\n",
+    std::printf("[main] Starting simulation. Seed=%u. Keys: SPACE=play/pause, 1-7=jump, T=toggle track, C=recenter camera, R=reload shaders, H=HUD, F=fullscreen, ESC=release/quit, Ctrl+Q=quit\n",
                 simrng::globalSeed());
 
     // ── Loop principal ──────────────────────────────────────────────────────────────
@@ -409,16 +447,17 @@ int main(int argc, char** argv) {
         app.universe.scale_factor    = app.clock.getScaleFactor();
         app.universe.temperature_keV = app.clock.getTemperatureKeV();
         app.universe.cosmic_time     = app.clock.getCosmicTime();
-        app.universe.regime_index    = app.clock.getCurrentRegimeIndex();
+        app.universe.regime_index    = app.mgr.getCurrentRegimeIndex();
 
         // Tick de física do regime
         int previous_regime = app.mgr.getCurrentRegimeIndex();
         app.mgr.tick(app.clock, app.universe, static_cast<double>(real_dt));
         int current_regime = app.mgr.getCurrentRegimeIndex();
+        app.universe.regime_index = current_regime;
 
         if (current_regime != previous_regime &&
             app.camera.tracked_id == std::numeric_limits<uint32_t>::max()) {
-            app.camera.applyState(app.camera.getRegimeDefaultState(current_regime));
+            recenterCameraToScene(app, current_regime);
         }
 
         IRegime* regime = app.mgr.getCurrentRegime();
@@ -434,7 +473,7 @@ int main(int argc, char** argv) {
 
         if (app.camera.tracked_id == std::numeric_limits<uint32_t>::max() &&
             app.camera.isAutoFrameEnabled()) {
-            SceneFrame scene_frame = estimateSceneFrame(app.universe);
+            SceneFrame scene_frame = Camera::estimateSceneFrame(app.universe);
             app.camera.updateAutoFrame(app.mgr.getCurrentRegimeIndex(),
                                        scene_frame.center,
                                        scene_frame.radius,

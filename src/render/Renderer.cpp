@@ -407,8 +407,9 @@ void Renderer::renderParticles(const Universe& universe) {
         float ry = static_cast<float>(p.y[i] - cam_world_pos_.y);
         float rz = static_cast<float>(p.z[i] - cam_world_pos_.z);
         float camera_dist = std::sqrt(rx * rx + ry * ry + rz * rz);
+        float visual_scale = ParticlePool::defaultVisualScale(p.type[i], p.flags[i]);
         float screen_space_size = std::max(camera_dist, 1e-5f) * min_screen_radius_ndc / proj_scale;
-        float particle_sz = std::max(extent_size, screen_space_size);
+        float particle_sz = std::max(extent_size * visual_scale, screen_space_size * visual_scale);
         pos_data.push_back(rx); pos_data.push_back(ry);
         pos_data.push_back(rz); pos_data.push_back(particle_sz);
         col_data.push_back(p.color_r[i] * p.luminosity[i]);

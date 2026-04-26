@@ -22,6 +22,13 @@ static const char* SPEED_LABELS[] = {
     "x0.01 SLOW", "NORMAL", "x2", "x10", "x100"
 };
 
+static const char* speedPresetLabel(int preset_index) {
+    if (preset_index < 0 || preset_index >= static_cast<int>(std::size(SPEED_LABELS))) {
+        return "CUSTOM";
+    }
+    return SPEED_LABELS[preset_index];
+}
+
 static ImVec4 particleColor(ParticleType type, float alpha = 1.0f) {
     float r, g, b;
     ParticlePool::defaultColor(type, r, g, b);
@@ -57,7 +64,7 @@ void RegimeOverlay::render(CosmicClock& clock, RegimeManager& mgr, Universe& uni
         ImGui::Separator();
         drawTimeControls(clock, mgr, universe, camera);
         ImGui::SameLine();
-        drawPhysicsInfo(clock, universe);
+        drawPhysicsInfo(clock, mgr, universe);
     }
     ImGui::End();
 
@@ -66,7 +73,7 @@ void RegimeOverlay::render(CosmicClock& clock, RegimeManager& mgr, Universe& uni
     ImGui::SetNextWindowSize({300, 220}, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowBgAlpha(0.72f);
     if (ImGui::Begin("Cosmic Composition", nullptr, ImGuiWindowFlags_NoCollapse)) {
-        drawCompositionTable(clock, universe);
+        drawCompositionTable(mgr, universe);
     }
     ImGui::End();
 
@@ -82,6 +89,10 @@ void RegimeOverlay::render(CosmicClock& clock, RegimeManager& mgr, Universe& uni
 
 void RegimeOverlay::drawTimeline(CosmicClock& clock, RegimeManager& mgr) {
     float total_w = ImGui::GetContentRegionAvail().x;
+    const bool in_transition = mgr.isInTransition();
+    const int visual_regime = std::clamp(mgr.getVisualRegimeIndex(), 0, CosmicClock::LAST_REGIME_INDEX);
+    const int incoming_regime = std::clamp(mgr.getIncomingRegimeIndex(), 0, CosmicClock::LAST_REGIME_INDEX);
+    const float transition_t = std::clamp(mgr.getTransitionProgress(), 0.0f, 1.0f);
 
     // Desenhar segmentos de regime
     const ImVec4 regime_colors[CosmicClock::REGIME_COUNT] = {
@@ -107,7 +118,17 @@ void RegimeOverlay::drawTimeline(CosmicClock& clock, RegimeManager& mgr) {
         float seg_start = x0 + static_cast<float>(i) * (segment_w + segment_gap);
         float seg_end = seg_start + segment_w;
         ImVec4 c = regime_colors[i];
-        if (i == clock.getCurrentRegimeIndex()) {
+        if (in_transition && i == visual_regime) {
+            float weight = 1.0f + 0.4f * (1.0f - transition_t);
+            c.x = std::min(1.0f, c.x * weight);
+            c.y = std::min(1.0f, c.y * weight);
+            c.z = std::min(1.0f, c.z * weight);
+        } else if (in_transition && i == incoming_regime) {
+            float weight = 0.9f + 0.5f * transition_t;
+            c.x = std::min(1.0f, c.x * weight);
+            c.y = std::min(1.0f, c.y * weight);
+            c.z = std::min(1.0f, c.z * weight);
+        } else if (i == visual_regime) {
             c.x = std::min(1.0f, c.x * 1.4f);
             c.y = std::min(1.0f, c.y * 1.4f);
             c.z = std::min(1.0f, c.z * 1.4f);
@@ -132,12 +153,15 @@ void RegimeOverlay::drawTimeline(CosmicClock& clock, RegimeManager& mgr) {
     // Isso evita a impressão de que a transição começou "dentro" do segmento seguinte.
     // Marcador do momento atual (posição do cursor de scrubbing)
     float marker_x = x0;
-    const int current_regime = std::clamp(clock.getCurrentRegimeIndex(), 0, CosmicClock::LAST_REGIME_INDEX);
-    const float regime_progress = (mgr.getTransitionProgress() > 0.0f)
+    const int current_regime = visual_regime;
+    const float regime_progress = in_transition
         ? 0.0f
         : static_cast<float>(std::clamp(clock.getRegimeProgress(), 0.0, 1.0));
     marker_x += static_cast<float>(current_regime) * (segment_w + segment_gap);
     marker_x += regime_progress * segment_w;
+    if (in_transition) {
+        marker_x = x0 + static_cast<float>(visual_regime + 1) * (segment_w + segment_gap) - segment_gap * 0.5f;
+    }
     dl->AddLine({marker_x, y0}, {marker_x, y0+h+4}, IM_COL32(255,255,0,255), 2.0f);
     dl->AddTriangleFilled({marker_x, y0+h+4},
                           {marker_x-5, y0+h+12},
@@ -159,9 +183,10 @@ void RegimeOverlay::drawTimeControls(CosmicClock& clock, RegimeManager& mgr, Uni
     if (ImGui::Button("|>> STEP")) clock.stepSingleFrame();
     ImGui::SameLine();
     if (ImGui::Button("<< PREV REGIME")) {
-        int rewind_regime = std::max(0, clock.getCurrentRegimeIndex() - 1);
+        int rewind_regime = std::max(0, mgr.getVisualRegimeIndex() - 1);
         mgr.jumpToRegime(rewind_regime, clock, universe);
-        camera.applyState(camera.getRegimeDefaultState(rewind_regime));
+        SceneFrame scene_frame = Camera::estimateSceneFrame(universe);
+        camera.applyState(camera.getSceneFittedState(rewind_regime, scene_frame));
     }
 
     // Predefinições de velocidade
@@ -171,15 +196,20 @@ void RegimeOverlay::drawTimeControls(CosmicClock& clock, RegimeManager& mgr, Uni
         clock.applySpeedPreset(static_cast<CosmicClock::SpeedPreset>(speed_preset_index_));
     }
     ImGui::SameLine();
-    ImGui::TextUnformatted(SPEED_LABELS[speed_preset_index_]);
+    ImGui::TextUnformatted(speedPresetLabel(speed_preset_index_));
 
-    // Controle deslizante de escala de tempo (logarítmico)
-    float log_scale = std::log10(static_cast<float>(clock.getTimeScale()) + 1e-45f);
+    // Controle deslizante do multiplicador relativo ao tempo-base do regime atual.
+    int current_regime = std::clamp(mgr.getCurrentRegimeIndex(), 0, CosmicClock::LAST_REGIME_INDEX);
+    double base_scale = CosmicClock::DEFAULT_SCALE[static_cast<size_t>(current_regime)];
+    float log_multiplier = std::log10(static_cast<float>(std::max(clock.getSpeedMultiplier(), 1e-6)));
     ImGui::PushItemWidth(200.0f);
-    if (ImGui::SliderFloat("Time scale (log)", &log_scale, -40.0f, 20.0f)) {
-        clock.setTimeScale(std::pow(10.0, static_cast<double>(log_scale)));
+    if (ImGui::SliderFloat("Speed multiplier (log)", &log_multiplier, -6.0f, 6.0f, "x%.3g")) {
+        clock.setTimeScale(base_scale * std::pow(10.0, static_cast<double>(log_multiplier)));
+        speed_preset_index_ = -1;
     }
     ImGui::PopItemWidth();
+    ImGui::SameLine();
+    ImGui::Text("base %.2e | current %.2e", base_scale, clock.getTimeScale());
 
     // Botões de salto
     ImGui::Text("Jump to:");
@@ -187,14 +217,15 @@ void RegimeOverlay::drawTimeControls(CosmicClock& clock, RegimeManager& mgr, Uni
         if (i > 0) ImGui::SameLine();
         if (ImGui::SmallButton(REGIME_NAMES[i])) {
             mgr.jumpToRegime(i, clock, universe);
-            camera.applyState(camera.getRegimeDefaultState(i));
+            SceneFrame scene_frame = Camera::estimateSceneFrame(universe);
+            camera.applyState(camera.getSceneFittedState(i, scene_frame));
         }
     }
 
     ImGui::EndGroup();
 }
 
-void RegimeOverlay::drawPhysicsInfo(const CosmicClock& clock, const Universe& /*universe*/) {
+void RegimeOverlay::drawPhysicsInfo(const CosmicClock& clock, const RegimeManager& mgr, const Universe& /*universe*/) {
     ImGui::BeginGroup();
     char buf[64];
     double t = clock.getCosmicTime();
@@ -222,12 +253,19 @@ void RegimeOverlay::drawPhysicsInfo(const CosmicClock& clock, const Universe& /*
     ImGui::Text("a = %.5g", clock.getScaleFactor());
     char Hbuf[64]; fmtSci(Hbuf, sizeof(Hbuf), clock.getHubbleRate());
     ImGui::Text("H = %s s^(-1)", Hbuf);
-    ImGui::Text("Regime: %s", REGIME_NAMES[clock.getCurrentRegimeIndex()]);
+    if (mgr.isInTransition()) {
+        ImGui::Text("Regime: %s -> %s (%.0f%%)",
+                    REGIME_NAMES[mgr.getVisualRegimeIndex()],
+                    REGIME_NAMES[mgr.getIncomingRegimeIndex()],
+                    mgr.getTransitionProgress() * 100.0f);
+    } else {
+        ImGui::Text("Regime: %s", REGIME_NAMES[mgr.getCurrentRegimeIndex()]);
+    }
     ImGui::EndGroup();
 }
 
-void RegimeOverlay::drawCompositionTable(const CosmicClock& clock, const Universe& universe) {
-    int regime = clock.getCurrentRegimeIndex();
+void RegimeOverlay::drawCompositionTable(const RegimeManager& mgr, const Universe& universe) {
+    int regime = mgr.getIncomingRegimeIndex();
     
     // Auxiliar progress bar
     auto bar = [&](const char* label, double val, ImVec4 color) {

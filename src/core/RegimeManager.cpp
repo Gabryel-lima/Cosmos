@@ -403,7 +403,7 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
         case 0: cam.ortho = true;  cam.zoom = 1.0; break;
         case 1: cam.ortho = false; cam.zoom = 3.0; break;
         case 2: cam.ortho = false; cam.zoom = 3.0; break;
-        case 3: cam.ortho = false; cam.zoom = 12.0; break;
+        case 3: cam.ortho = false; cam.zoom = 7.5; break;
         case 4: cam.ortho = false; cam.zoom = 38.0; break;
         case 5: cam.ortho = false; cam.zoom = 45.0; break;
         case 6: cam.ortho = false; cam.zoom = 52.0; break;
@@ -611,6 +611,7 @@ void RegimeManager::tick(CosmicClock& clock, Universe& universe, double real_dt_
             in_transition_ = false;
             active_index_  = transition_to_;
             regime_elapsed_real_ = 0.0f;
+            transition_from_universe_ = Universe{};
             std::printf("[REGIME] Transition %d→%d complete.\n",
                         transition_from_, transition_to_);
         }
@@ -666,6 +667,7 @@ void RegimeManager::beginTransition(int from, int to, Universe& universe,
     // Sair do regime atual
     if (regimes_[from]) regimes_[from]->onExit();
     transition_from_universe_ = universe;
+    transition_from_universe_.regime_index = from;
 
     // Construir estado inicial para o novo regime
     InitialState st = buildInitialState(to);
@@ -720,9 +722,15 @@ void RegimeManager::render(Renderer& renderer, const Universe& universe) {
     if (!regimes_[active_index_]) return;
 
     if (in_transition_) {
-        renderer.setRenderOpacity(1.0f);
         renderer.setRegimeBlend(transition_from_, transition_to_, transition_t_);
-        renderRegime(active_index_, renderer, universe);
+        if (transition_t_ < 1.0f && regimes_[transition_from_]) {
+            renderer.setRenderOpacity(std::clamp(1.0f - transition_t_, 0.0f, 1.0f));
+            renderRegime(transition_from_, renderer, transition_from_universe_);
+        }
+        if (transition_t_ > 0.0f && regimes_[transition_to_]) {
+            renderer.setRenderOpacity(std::clamp(transition_t_, 0.0f, 1.0f));
+            renderRegime(transition_to_, renderer, universe);
+        }
     } else {
         renderer.setRenderOpacity(1.0f);
         renderer.setRegimeBlend(active_index_, active_index_, 0.0f);

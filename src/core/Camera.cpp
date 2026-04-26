@@ -1,8 +1,10 @@
 // src/core/Camera.cpp
 #include "Camera.hpp"
+#include "Universe.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 void Camera::processMouseDelta(float dx, float dy) {
     if (std::abs(dx) > 0.0f || std::abs(dy) > 0.0f) {
@@ -81,37 +83,101 @@ void Camera::disableAutoFrame() {
     auto_frame_enabled_ = false;
 }
 
-void Camera::updateAutoFrame(int regime_index, const glm::dvec3& scene_center,
-                             double scene_radius, float dt) {
-    if (!auto_frame_enabled_ || orbiting_) return;
+SceneFrame Camera::estimateSceneFrame(const Universe& universe) {
+    const ParticlePool& pp = universe.particles;
+    SceneFrame frame;
+    glm::dvec3 accum(0.0);
+    size_t active_count = 0;
 
+    for (size_t i = 0; i < pp.x.size(); ++i) {
+        if (!(pp.flags[i] & PF_ACTIVE)) continue;
+        accum += glm::dvec3(pp.x[i], pp.y[i], pp.z[i]);
+        ++active_count;
+    }
+
+    if (active_count > 0) {
+        frame.center = accum / static_cast<double>(active_count);
+    }
+
+    std::vector<double> radii;
+    radii.reserve(active_count);
+    double max_radius = 0.0;
+    for (size_t i = 0; i < pp.x.size(); ++i) {
+        if (!(pp.flags[i] & PF_ACTIVE)) continue;
+        glm::dvec3 delta(pp.x[i], pp.y[i], pp.z[i]);
+        delta -= frame.center;
+        double r = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+        max_radius = std::max(max_radius, r);
+        radii.push_back(r);
+    }
+
+    if (!radii.empty()) {
+        size_t robust_index = static_cast<size_t>(std::floor((static_cast<double>(radii.size()) - 1.0) * 0.95));
+        std::nth_element(radii.begin(), radii.begin() + robust_index, radii.end());
+        double robust_radius = radii[robust_index];
+        frame.radius = std::max(robust_radius, max_radius * 0.35);
+    }
+
+    if (frame.radius <= 0.0 && universe.density_field.NX > 0) {
+        frame.radius = static_cast<double>(universe.density_field.NX) * 0.5;
+    }
+
+    if (frame.radius <= 0.0) {
+        switch (universe.regime_index) {
+            case 0: frame.radius = 1.0; break;
+            case 1:
+            case 2: frame.radius = 1.5; break;
+            case 3: frame.radius = 4.0; break;
+            case 4: frame.radius = 22.0; break;
+            case 5: frame.radius = 30.0; break;
+            case 6: frame.radius = 36.0; break;
+            default: frame.radius = 5.0; break;
+        }
+    }
+
+    return frame;
+}
+
+Camera::State Camera::getSceneFittedState(int regime_index, const SceneFrame& scene_frame) const {
     Camera::State base = getRegimeDefaultState(regime_index);
-    double radius = std::max(scene_radius, 1e-6);
+    double radius = std::max(scene_frame.radius, 1e-6);
     double framing_multiplier = 3.0;
     switch (regime_index) {
         case 0: framing_multiplier = 1.4; break;
         case 1: framing_multiplier = 3.2; break;
         case 2: framing_multiplier = 3.2; break;
-        case 3: framing_multiplier = 2.6; break;
+        case 3: framing_multiplier = 2.1; break;
         case 4: framing_multiplier = 1.45; break;
         case 5: framing_multiplier = 1.3; break;
         case 6: framing_multiplier = 1.15; break;
         default: break;
     }
 
-    double desired_distance = std::max(base.zoom_distance, radius * framing_multiplier);
-    float smooth_t = 1.0f - std::exp(-std::max(dt, 0.0f) * 3.5f);
-    zoom_distance += (desired_distance - zoom_distance) * static_cast<double>(smooth_t);
-    zoom_distance = std::max(zoom_distance, base.zoom_distance);
-    ortho_mode = base.ortho_mode;
-    ortho_size = static_cast<float>(std::max(zoom_distance, radius * 1.2));
-
     glm::dvec3 desired_forward = glm::normalize(glm::dvec3(base.forward));
     if (!std::isfinite(desired_forward.x) || !std::isfinite(desired_forward.y) || !std::isfinite(desired_forward.z) ||
         glm::length(desired_forward) < 1e-9) {
         desired_forward = {0.0, 0.0, -1.0};
     }
-    forward = glm::normalize(glm::mix(forward, glm::vec3(desired_forward), smooth_t));
+
+    base.forward = glm::vec3(desired_forward);
+    base.zoom_distance = std::max(base.zoom_distance, radius * framing_multiplier);
+    base.position = scene_frame.center - desired_forward * base.zoom_distance;
+    return base;
+}
+
+void Camera::updateAutoFrame(int regime_index, const glm::dvec3& scene_center,
+                             double scene_radius, float dt) {
+    if (!auto_frame_enabled_ || orbiting_) return;
+
+    SceneFrame scene_frame{scene_center, scene_radius};
+    Camera::State desired = getSceneFittedState(regime_index, scene_frame);
+    double radius = std::max(scene_radius, 1e-6);
+    float smooth_t = 1.0f - std::exp(-std::max(dt, 0.0f) * 3.5f);
+    zoom_distance += (desired.zoom_distance - zoom_distance) * static_cast<double>(smooth_t);
+    zoom_distance = std::max(zoom_distance, desired.zoom_distance * 0.75);
+    ortho_mode = desired.ortho_mode;
+    ortho_size = static_cast<float>(std::max(zoom_distance, radius * 1.2));
+    forward = glm::normalize(glm::mix(forward, desired.forward, smooth_t));
     look_at_target_ = glm::mix(look_at_target_, scene_center, static_cast<double>(smooth_t));
     position = look_at_target_ - glm::dvec3(forward) * zoom_distance;
     move_speed_ = static_cast<float>(zoom_distance) * 0.3f;
@@ -152,11 +218,15 @@ glm::mat4 Camera::getProjectionMatrix(float aspect) const {
 
 void Camera::applyState(const State& s) {
     position      = s.position;
-    forward       = s.forward;
+    forward       = glm::normalize(s.forward);
     zoom_distance = s.zoom_distance;
     ortho_mode    = s.ortho_mode;
+    ortho_size    = ortho_mode ? static_cast<float>(std::max(zoom_distance, 1.0)) : ortho_size;
     look_at_target_ = position + glm::dvec3(forward) * zoom_distance;
+    tracked_id = std::numeric_limits<uint32_t>::max();
+    orbiting_ = false;
     auto_frame_enabled_ = true;
+    move_speed_ = static_cast<float>(zoom_distance) * 0.3f;
     updateMode();
     // Recalcular yaw/pitch a partir de forward
     pitch_ = glm::degrees(std::asin(std::clamp(forward.y, -1.0f, 1.0f)));
@@ -168,7 +238,7 @@ Camera::State Camera::getRegimeDefaultState(int regime_index) const {
         case 0: return { {0,0,1},    {0,0,-1}, 1.0,  true  }; // ortho 2D
         case 1: return { {0,0,5},    {0,0,-1}, 3.0,  false };
         case 2: return { {0,0,5},    {0,0,-1}, 3.0,  false };
-        case 3: return { {0,0,18},   {0,0,-1}, 12.0, false };
+        case 3: return { {0,0,7.5},  {0,0,-1}, 7.5, false };
         case 4: return { {0,0,57.0}, {0,0,-1}, 38.0, false };
         case 5: return { {0,0,67.5}, {0,0,-1}, 45.0, false };
         case 6: return { {0,0,78.0}, {0,0,-1}, 52.0, false };

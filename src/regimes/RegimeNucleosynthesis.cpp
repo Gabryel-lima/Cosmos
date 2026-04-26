@@ -10,6 +10,90 @@
 #include "../physics/ParticlePool.hpp"
 #include <cmath>
 #include <algorithm>
+#include <unordered_map>
+
+namespace {
+
+glm::dvec3 safeNormalize(const glm::dvec3& v, const glm::dvec3& fallback) {
+    double len2 = glm::dot(v, v);
+    if (len2 <= 1e-12 || !std::isfinite(len2)) return fallback;
+    return v / std::sqrt(len2);
+}
+
+glm::dvec3 orthogonalTangent(const glm::dvec3& dir) {
+    glm::dvec3 ref = (std::abs(dir.y) > 0.9) ? glm::dvec3(1.0, 0.0, 0.0)
+                                             : glm::dvec3(0.0, 1.0, 0.0);
+    return safeNormalize(glm::cross(dir, ref), glm::dvec3(0.0, 0.0, 1.0));
+}
+
+long long encodeCell(int x, int y, int z) {
+    constexpr long long bias = 2048;
+    return ((static_cast<long long>(x) + bias) << 42)
+         ^ ((static_cast<long long>(y) + bias) << 21)
+         ^  (static_cast<long long>(z) + bias);
+}
+
+void applyLocalNuclearForces(ParticlePool& p, double visual_dt) {
+    if (visual_dt <= 0.0 || p.x.empty() || p.x.size() > 14000) return;
+
+    constexpr double kCellSize = 0.11;
+    constexpr double kMaxInteractionR2 = 0.030;
+    std::unordered_map<long long, std::vector<size_t>> cells;
+    cells.reserve(p.x.size());
+
+    for (size_t i = 0; i < p.x.size(); ++i) {
+        if (!(p.flags[i] & PF_ACTIVE)) continue;
+        if (!chemistry::isLightNucleus(p.type[i])) continue;
+        int cx = static_cast<int>(std::floor(p.x[i] / kCellSize));
+        int cy = static_cast<int>(std::floor(p.y[i] / kCellSize));
+        int cz = static_cast<int>(std::floor(p.z[i] / kCellSize));
+        cells[encodeCell(cx, cy, cz)].push_back(i);
+    }
+
+    for (const auto& entry : cells) {
+        const auto& bucket = entry.second;
+        for (size_t local = 0; local < bucket.size(); ++local) {
+            size_t i = bucket[local];
+            int cx = static_cast<int>(std::floor(p.x[i] / kCellSize));
+            int cy = static_cast<int>(std::floor(p.y[i] / kCellSize));
+            int cz = static_cast<int>(std::floor(p.z[i] / kCellSize));
+
+            for (int dz = -1; dz <= 1; ++dz)
+            for (int dy = -1; dy <= 1; ++dy)
+            for (int dx = -1; dx <= 1; ++dx) {
+                auto it = cells.find(encodeCell(cx + dx, cy + dy, cz + dz));
+                if (it == cells.end()) continue;
+
+                for (size_t j : it->second) {
+                    if (j <= i) continue;
+
+                    double rx = p.x[j] - p.x[i];
+                    double ry = p.y[j] - p.y[i];
+                    double rz = p.z[j] - p.z[i];
+                    double r2 = rx * rx + ry * ry + rz * rz;
+                    if (r2 <= 1e-8 || r2 > kMaxInteractionR2) continue;
+
+                    double r = std::sqrt(r2);
+                    int bi = chemistry::baryonNumber(p.type[i]);
+                    int bj = chemistry::baryonNumber(p.type[j]);
+                    double nuclear_range = 0.028 + 0.004 * static_cast<double>(std::min(bi + bj, 8));
+                    double nuclear = std::exp(-r / nuclear_range) * (0.0035 + 0.0006 * static_cast<double>(bi + bj));
+                    double coulomb = std::max(0.0f, p.charge[i]) * std::max(0.0f, p.charge[j]) * 0.0008 / (r2 + 0.0025);
+                    double force = (nuclear - coulomb) * visual_dt;
+
+                    p.vx[i] -= rx * force;
+                    p.vy[i] -= ry * force;
+                    p.vz[i] -= rz * force;
+                    p.vx[j] += rx * force;
+                    p.vy[j] += ry * force;
+                    p.vz[j] += rz * force;
+                }
+            }
+        }
+    }
+}
+
+}
 
 static NuclearNetwork bbn_network;
 
@@ -43,6 +127,19 @@ void RegimeNucleosynthesis::update(double cosmic_dt, double scale_factor, double
     ParticlePool& p = universe.particles;
     size_t n = p.x.size();
     if (n > 0 && n < 20000) {
+        applyLocalNuclearForces(p, visual_dt);
+
+        glm::dvec3 active_center(0.0);
+        size_t active_count = 0;
+        for (size_t i = 0; i < n; ++i) {
+            if (!(p.flags[i] & PF_ACTIVE)) continue;
+            active_center += glm::dvec3(p.x[i], p.y[i], p.z[i]);
+            ++active_count;
+        }
+        if (active_count > 0) {
+            active_center /= static_cast<double>(active_count);
+        }
+
         double total = universe.abundances.Xp + universe.abundances.Xn
                      + universe.abundances.Xd + universe.abundances.Xhe3
                      + universe.abundances.Xhe4 + universe.abundances.Xli7;
@@ -79,14 +176,22 @@ void RegimeNucleosynthesis::update(double cosmic_dt, double scale_factor, double
                 if (visual_dt > 0.0) {
                     double phase = universe.cosmic_time * 0.05 + static_cast<double>(i) * 0.13;
                     double jitter = (new_type == ParticleType::HELIUM4NUCLEI || new_type == ParticleType::HELIUM3 || new_type == ParticleType::LITHIUM7) ? 0.006 : 0.003;
-                    p.vx[i] = p.vx[i] * 0.985 + std::sin(phase) * jitter;
-                    p.vy[i] = p.vy[i] * 0.985 + std::cos(phase * 1.1) * jitter;
-                    p.vz[i] = p.vz[i] * 0.985 + std::sin(phase * 0.7) * jitter;
+                    double dx = p.x[i] - active_center.x;
+                    double dy = p.y[i] - active_center.y;
+                    double dz = p.z[i] - active_center.z;
+                    glm::dvec3 radial = safeNormalize({dx, dy, dz},
+                        glm::dvec3(std::cos(phase), std::sin(phase * 0.7), std::cos(phase * 1.3)));
+                    glm::dvec3 tangent = orthogonalTangent(radial);
+                    double radial_drive = std::sin(phase * 0.73) * jitter * 0.8;
+                    double tangential_drive = std::cos(phase * 1.11) * jitter * 0.6;
+                    p.vx[i] = p.vx[i] * 0.985 + radial.x * radial_drive + tangent.x * tangential_drive;
+                    p.vy[i] = p.vy[i] * 0.985 + radial.y * radial_drive + tangent.y * tangential_drive;
+                    p.vz[i] = p.vz[i] * 0.985 + radial.z * radial_drive + tangent.z * tangential_drive;
 
                     double collapse = (new_type == ParticleType::HELIUM4NUCLEI || new_type == ParticleType::HELIUM3 || new_type == ParticleType::LITHIUM7 || new_type == ParticleType::DEUTERIUM) ? 0.02 : 0.008;
-                    p.vx[i] += -p.x[i] * collapse * visual_dt;
-                    p.vy[i] += -p.y[i] * collapse * visual_dt;
-                    p.vz[i] += -p.z[i] * collapse * visual_dt;
+                    p.vx[i] += -dx * collapse * visual_dt;
+                    p.vy[i] += -dy * collapse * visual_dt;
+                    p.vz[i] += -dz * collapse * visual_dt;
                     p.x[i] += p.vx[i] * visual_dt;
                     p.y[i] += p.vy[i] * visual_dt;
                     p.z[i] += p.vz[i] * visual_dt;

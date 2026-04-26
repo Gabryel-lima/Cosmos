@@ -166,6 +166,7 @@ void CosmicClock::jumpToCosmicTime(double t_seconds) {
     }
     recomputeDerivedQuantities();
     updateRegimeIndex();
+    rebaseTimeScaleForRegime(regime_index_);
 }
 
 void CosmicClock::jumpToRegime(int regime_index) {
@@ -174,7 +175,7 @@ void CosmicClock::jumpToRegime(int regime_index) {
     cosmic_time_ = REGIME_START_TIMES[static_cast<size_t>(idx)];
     recomputeDerivedQuantities();
     updateRegimeIndex();
-    applyRegimeDefaultScale(idx);
+    rebaseTimeScaleForRegime(idx);
     std::printf("[REGIME] Jumped to regime %d at t=%.4e s, T=%.4e keV\n",
                 idx, cosmic_time_, temperature_keV_);
 }

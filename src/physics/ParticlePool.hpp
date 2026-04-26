@@ -98,4 +98,7 @@ struct ParticlePool {
 
     /// Obter cor visual para um tipo de partícula (cores padrão).
     static void defaultColor(ParticleType t, float& r, float& g, float& b);
+
+    /// Escala visual relativa do sprite para cada tipo/estado de partícula.
+    static float defaultVisualScale(ParticleType t, uint32_t flags = 0u);
 };

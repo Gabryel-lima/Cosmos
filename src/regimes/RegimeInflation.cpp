@@ -15,6 +15,8 @@ std::mt19937& inflationRng() {
     static std::mt19937 rng = simrng::makeStream("inflation");
     return rng;
 }
+
+constexpr double kInflationTotalEFoldsVisual = 55.0;
 }
 
 void RegimeInflation::onEnter(Universe& state) {
@@ -155,10 +157,11 @@ void RegimeInflation::update(double cosmic_dt, double scale_factor, double temp_
     }
 
     if (in_phase_b_) {
-        constexpr double regime_duration = CosmicClock::REGIME_START_TIMES[1] - CosmicClock::REGIME_START_TIMES[0];
-        double progress_dt = (regime_duration > 0.0) ? cosmic_dt / regime_duration : 0.0;
-        extrude_t_ += static_cast<float>(progress_dt * 8.0);
-        extrude_t_  = std::clamp(extrude_t_, 0.0f, 1.0f);
+        double remaining_phase_span = std::max(kInflationTotalEFoldsVisual - static_cast<double>(EFOLDS_3D), 1e-6);
+        double phase_progress = std::clamp((e_folds_ - static_cast<double>(EFOLDS_3D)) / remaining_phase_span,
+                                           0.0,
+                                           1.0);
+        extrude_t_ = static_cast<float>(phase_progress);
         universe.inflate_3d_t = extrude_t_;
 
         if (extrude_t_ > 0.01f) {

@@ -26,6 +26,29 @@ bool isLightReactiveMatter(ParticleType type) {
     return type == ParticleType::GAS || chemistry::isLightNucleus(type);
 }
 
+double interactionScaleForParticle(const ParticlePool& particles, size_t index) {
+    double scale = 1.0;
+    int baryons = std::max(1, chemistry::baryonNumber(particles.type[index]));
+    scale += 0.10 * static_cast<double>(baryons - 1);
+    if ((particles.flags[index] & PF_BOUND) != 0u) scale += 0.18;
+    if (particles.type[index] == ParticleType::GAS) scale += 0.22;
+    if (particles.type[index] == ParticleType::ELECTRON) scale *= 0.82;
+    if (particles.type[index] == ParticleType::PHOTON) scale *= 0.92;
+    return scale;
+}
+
+glm::dvec3 safeNormalize(const glm::dvec3& v, const glm::dvec3& fallback) {
+    double len2 = glm::dot(v, v);
+    if (len2 <= 1e-12 || !std::isfinite(len2)) return fallback;
+    return v / std::sqrt(len2);
+}
+
+glm::dvec3 orthogonalTangent(const glm::dvec3& dir) {
+    glm::dvec3 ref = (std::abs(dir.y) > 0.9) ? glm::dvec3(1.0, 0.0, 0.0)
+                                             : glm::dvec3(0.0, 1.0, 0.0);
+    return safeNormalize(glm::cross(dir, ref), glm::dvec3(0.0, 0.0, 1.0));
+}
+
 ParticleType normalizedFusionType(ParticleType type) {
     return (type == ParticleType::GAS) ? ParticleType::PROTON : type;
 }
@@ -261,8 +284,13 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
             const double dx = particles.x[j] - particles.x[i];
             const double dy = particles.y[j] - particles.y[i];
             const double dz = particles.z[j] - particles.z[i];
+            const double pair_scale = 0.5 * (interactionScaleForParticle(particles, i) + interactionScaleForParticle(particles, j));
+            const double pair_interaction_r2 = interaction_r2 * pair_scale * pair_scale;
+            const double pair_capture_r2 = capture_r2 * pair_scale * pair_scale;
+            const double pair_fusion_r2 = fusion_r2 * pair_scale * pair_scale;
+            const double pair_photon_scatter_r2 = photon_scatter_r2 * pair_scale * pair_scale;
             const double r2 = dx * dx + dy * dy + dz * dz;
-            if (r2 <= 1e-8 || r2 > interaction_r2) continue;
+            if (r2 <= 1e-8 || r2 > pair_interaction_r2) continue;
 
             const double inv_r = 1.0 / std::sqrt(r2 + 1e-8);
             const float qi = effectiveCharge(particles, i);
@@ -294,7 +322,7 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
             const bool electron_j = particles.type[j] == ParticleType::ELECTRON;
 
             if ((photon_i && electron_j) || (photon_j && electron_i)) {
-                if (r2 < photon_scatter_r2) {
+                if (r2 < pair_photon_scatter_r2) {
                     const size_t photon_idx = photon_i ? i : j;
                     const size_t electron_idx = photon_i ? j : i;
                     const double scatter = visual_dt * 0.08 * inv_r;
@@ -312,7 +340,7 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
 
             if ((photon_i && isPhotonAbsorbableState(particles, j)) ||
                 (photon_j && isPhotonAbsorbableState(particles, i))) {
-                if (r2 < photon_scatter_r2) {
+                if (r2 < pair_photon_scatter_r2) {
                     const size_t photon_idx = photon_i ? i : j;
                     const size_t matter_idx = photon_i ? j : i;
                     const double ionize_probability = std::clamp(visual_dt * (0.10 + temp_keV * 1.2) * (1.0 - neutral_fraction * 0.35), 0.0, 0.22);
@@ -328,7 +356,7 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
 
             if ((electron_i && isLightReactiveMatter(particles.type[j]) && qj > 0.0f) ||
                 (electron_j && isLightReactiveMatter(particles.type[i]) && qi > 0.0f)) {
-                if (r2 < capture_r2) {
+                if (r2 < pair_capture_r2) {
                     const size_t electron_idx = electron_i ? i : j;
                     const size_t nucleus_idx = electron_i ? j : i;
                     const double capture_probability = std::clamp(visual_dt * (0.08 + neutral_fraction * 0.18) * (0.6 + particles.temp_particle[nucleus_idx] * 0.15), 0.0, 0.26);
@@ -342,7 +370,7 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
                 continue;
             }
 
-            if (fusion_budget > 0 && r2 < fusion_r2 &&
+            if (fusion_budget > 0 && r2 < pair_fusion_r2 &&
                 isLightReactiveMatter(particles.type[i]) && isLightReactiveMatter(particles.type[j])) {
                 ParticleType product = fusionProduct(particles.type[i], particles.type[j]);
                 if (product != ParticleType::COUNT && chance(rng) < fusionProbability(product, temp_keV, visual_dt)) {
@@ -430,19 +458,39 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
     wave_phase_ += static_cast<float>(visual_dt * 4.0);
 
     ParticlePool& particles = universe.particles;
+    glm::dvec3 active_center(0.0);
+    size_t active_count = 0;
+    for (size_t i = 0; i < particles.x.size(); ++i) {
+        if (!(particles.flags[i] & PF_ACTIVE)) continue;
+        active_center += glm::dvec3(particles.x[i], particles.y[i], particles.z[i]);
+        ++active_count;
+    }
+    if (active_count > 0) {
+        active_center /= static_cast<double>(active_count);
+    }
+
     for (size_t i = 0; i < particles.x.size(); ++i) {
         if (!(particles.flags[i] & PF_ACTIVE)) continue;
 
-        double swirl = std::sin(static_cast<double>(wave_phase_) + particles.x[i] * 0.6 + particles.z[i] * 0.3);
+        glm::dvec3 delta = glm::dvec3(particles.x[i], particles.y[i], particles.z[i]) - active_center;
+        double radius = std::sqrt(glm::dot(delta, delta));
+        double phase = static_cast<double>(wave_phase_) + radius * 0.9 + static_cast<double>(i) * 0.017;
+        glm::dvec3 radial = safeNormalize(delta,
+            glm::dvec3(std::cos(phase), std::sin(phase * 0.7), std::cos(phase * 1.3)));
+        glm::dvec3 tangent = orthogonalTangent(radial);
+        double swirl = std::sin(phase);
+        double pulse = std::cos(phase * 0.63);
         switch (particles.type[i]) {
             case ParticleType::PHOTON:
-                particles.vx[i] += swirl * visual_dt * 0.35;
-                particles.vy[i] += std::cos(static_cast<double>(wave_phase_) + particles.y[i]) * visual_dt * 0.25;
+                particles.vx[i] += (tangent.x * swirl * 0.35 + radial.x * pulse * 0.18) * visual_dt;
+                particles.vy[i] += (tangent.y * swirl * 0.35 + radial.y * pulse * 0.18) * visual_dt;
+                particles.vz[i] += (tangent.z * swirl * 0.35 + radial.z * pulse * 0.18) * visual_dt;
                 particles.luminosity[i] = 1.8f + 0.9f * static_cast<float>(0.5 + 0.5 * swirl);
                 break;
             case ParticleType::ELECTRON:
-                particles.vx[i] -= swirl * visual_dt * 0.18;
-                particles.vz[i] += std::sin(static_cast<double>(wave_phase_) * 0.7 + particles.x[i]) * visual_dt * 0.14;
+                particles.vx[i] += (-tangent.x * swirl * 0.18 + radial.x * pulse * 0.12) * visual_dt;
+                particles.vy[i] += (-tangent.y * swirl * 0.18 + radial.y * pulse * 0.12) * visual_dt;
+                particles.vz[i] += (-tangent.z * swirl * 0.18 + radial.z * pulse * 0.12) * visual_dt;
                 break;
             case ParticleType::PROTON:
             case ParticleType::DEUTERIUM:
@@ -450,7 +498,9 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
             case ParticleType::HELIUM4NUCLEI:
             case ParticleType::LITHIUM7:
             case ParticleType::GAS:
-                particles.vy[i] += swirl * visual_dt * 0.08;
+                particles.vx[i] += radial.x * swirl * visual_dt * 0.05;
+                particles.vy[i] += radial.y * swirl * visual_dt * 0.05;
+                particles.vz[i] += radial.z * swirl * visual_dt * 0.05;
                 break;
             default:
                 break;

@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <limits>
 
+struct Universe;
+
 struct InputState {
     bool w, a, s, d, q, e;   // teclas de voo
     float mouse_dx, mouse_dy; // delta do mouse neste quadro
@@ -14,6 +16,11 @@ struct InputState {
     bool t_pressed;           // rastrear o mais próximo
     bool esc_pressed;         // liberar rastreamento
     bool c_pressed;           // ir para posição padrão
+};
+
+struct SceneFrame {
+    glm::dvec3 center = { 0.0, 0.0, 0.0 };
+    double radius = 0.0;
 };
 
 class Camera {
@@ -39,6 +46,13 @@ public:
     bool   ortho_mode = false;
     float  ortho_size = 1.0f;  // semi-extensão em unidades do mundo
 
+    struct State {
+        glm::dvec3 position;
+        glm::vec3  forward;
+        double     zoom_distance;
+        bool       ortho_mode;
+    };
+
     Camera() = default;
 
     // ── Controles ─────────────────────────────────────────────────────────
@@ -50,6 +64,8 @@ public:
     void enableAutoFrame();
     void disableAutoFrame();
     bool isAutoFrameEnabled() const { return auto_frame_enabled_; }
+    static SceneFrame estimateSceneFrame(const Universe& universe);
+    State getSceneFittedState(int regime_index, const SceneFrame& scene_frame) const;
     void updateAutoFrame(int regime_index, const glm::dvec3& scene_center,
                          double scene_radius, float dt);
 
@@ -64,12 +80,6 @@ public:
     glm::mat4 getProjectionMatrix(float aspect) const;
 
     // ── Ir para um estado de câmera sugerido para um regime ────────────────────
-    struct State {
-        glm::dvec3 position;
-        glm::vec3  forward;
-        double     zoom_distance;
-        bool       ortho_mode;
-    };
     void applyState(const State& s);
     State getRegimeDefaultState(int regime_index) const;
 

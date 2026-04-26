@@ -120,3 +120,50 @@ void ParticlePool::defaultColor(ParticleType t, float& r, float& g, float& b) {
         default:                       r=1.0f; g=1.0f; b=1.0f; break;
     }
 }
+
+float ParticlePool::defaultVisualScale(ParticleType t, uint32_t flags) {
+    float scale = 1.0f;
+    switch (t) {
+        case ParticleType::QUARK_U:
+        case ParticleType::QUARK_D:
+        case ParticleType::QUARK_S:
+        case ParticleType::ANTIQUARK:
+            scale = 0.55f; break;
+        case ParticleType::GLUON:
+            scale = 0.65f; break;
+        case ParticleType::ELECTRON:
+        case ParticleType::NEUTRINO:
+            scale = 0.50f; break;
+        case ParticleType::PHOTON:
+            scale = 0.70f; break;
+        case ParticleType::PROTON:
+        case ParticleType::NEUTRON:
+            scale = 0.95f; break;
+        case ParticleType::DEUTERIUM:
+            scale = 1.15f; break;
+        case ParticleType::HELIUM3:
+            scale = 1.28f; break;
+        case ParticleType::HELIUM4NUCLEI:
+            scale = 1.42f; break;
+        case ParticleType::LITHIUM7:
+            scale = 1.62f; break;
+        case ParticleType::GAS:
+            scale = 1.35f; break;
+        case ParticleType::DARK_MATTER:
+            scale = 1.10f; break;
+        case ParticleType::STAR:
+            scale = 2.80f; break;
+        case ParticleType::BLACKHOLE:
+            scale = 2.20f; break;
+        default:
+            scale = 1.0f; break;
+    }
+
+    if ((flags & PF_BOUND) != 0u) {
+        scale *= 1.12f;
+    }
+    if ((flags & PF_STAR_FORMED) != 0u) {
+        scale *= 1.20f;
+    }
+    return scale;
+}
