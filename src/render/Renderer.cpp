@@ -412,10 +412,13 @@ void Renderer::renderParticles(const Universe& universe) {
         float particle_sz = std::max(extent_size * visual_scale, screen_space_size * visual_scale);
         pos_data.push_back(rx); pos_data.push_back(ry);
         pos_data.push_back(rz); pos_data.push_back(particle_sz);
+        // Pack particle type into the alpha channel so the shader can
+        // render special shapes (e.g. gluons) without changing the
+        // RGB color which already contains QCD tint * luminosity.
         col_data.push_back(p.color_r[i] * p.luminosity[i]);
         col_data.push_back(p.color_g[i] * p.luminosity[i]);
         col_data.push_back(p.color_b[i] * p.luminosity[i]);
-        col_data.push_back(1.0f);
+        col_data.push_back(static_cast<float>(static_cast<int>(p.type[i])));
     }
 
     if (pos_data.empty()) return;

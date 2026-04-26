@@ -101,6 +101,12 @@ void exchangeColorThroughGluons(ParticlePool& p,
         p.setQcdCharge(emitter, receiver_color);
         p.setQcdCharge(receiver, p.qcd_color[gi]);
 
+        // Visual cue: briefly boost luminosity of participants so exchanges
+        // become visually salient without altering physics.
+        p.luminosity[emitter] = std::max(p.luminosity[emitter], 2.2f);
+        p.luminosity[receiver] = std::max(p.luminosity[receiver], 2.2f);
+        p.luminosity[gi] = std::max(p.luminosity[gi], 3.0f);
+
         double mx = 0.5 * (p.x[emitter] + p.x[receiver]);
         double my = 0.5 * (p.y[emitter] + p.y[receiver]);
         double mz = 0.5 * (p.z[emitter] + p.z[receiver]);
@@ -201,6 +207,17 @@ void RegimeQGP::applyScreenedCornellForces(Universe& universe, double temp_keV, 
         p.vx[i] *= 0.999;
         p.vy[i] *= 0.999;
         p.vz[i] *= 0.999;
+    }
+
+    // Decay visual luminosity back toward baseline so interaction flashes fade.
+    for (size_t i = 0; i < n; ++i) {
+        if (!(p.flags[i] & PF_ACTIVE)) continue;
+        float L = p.luminosity[i];
+        if (L > 1.0f) {
+            // Exponential-like decay toward 1.0 (visual only)
+            p.luminosity[i] = 1.0f + (L - 1.0f) * 0.86f;
+            if (p.luminosity[i] < 1.001f) p.luminosity[i] = 1.0f;
+        }
     }
 }
 
