@@ -6,6 +6,7 @@
 #include "../physics/NuclearNetwork.hpp"
 #include "../physics/FluidGrid.hpp"
 #include "../physics/Constants.hpp"
+#include "../physics/Friedmann.hpp"
 #include "../physics/Hadronization.hpp"
 #include "../physics/ParticlePool.hpp"
 #include <cmath>
@@ -20,9 +21,15 @@ glm::dvec3 safeNormalize(const glm::dvec3& v, const glm::dvec3& fallback) {
     return v / std::sqrt(len2);
 }
 
-glm::dvec3 orthogonalTangent(const glm::dvec3& dir) {
-    glm::dvec3 ref = (std::abs(dir.y) > 0.9) ? glm::dvec3(1.0, 0.0, 0.0)
-                                             : glm::dvec3(0.0, 1.0, 0.0);
+glm::dvec3 orthogonalTangent(const glm::dvec3& dir, double phase) {
+    glm::dvec3 ref = safeNormalize(
+        glm::dvec3(std::sin(phase * 0.71 + 0.4),
+                   std::cos(phase * 1.09 + 1.1),
+                   std::sin(phase * 1.33 + 2.4)),
+        glm::dvec3(0.577, 0.577, 0.577));
+    if (std::abs(glm::dot(ref, dir)) > 0.92) {
+        ref = safeNormalize(glm::dvec3(-dir.z, dir.x, dir.y), glm::dvec3(0.0, 0.0, 1.0));
+    }
     return safeNormalize(glm::cross(dir, ref), glm::dvec3(0.0, 0.0, 1.0));
 }
 
@@ -31,6 +38,20 @@ long long encodeCell(int x, int y, int z) {
     return ((static_cast<long long>(x) + bias) << 42)
          ^ ((static_cast<long long>(y) + bias) << 21)
          ^  (static_cast<long long>(z) + bias);
+}
+
+int computeSubsteps(double total_visual_dt, double target_visual_dt, int max_substeps) {
+    if (total_visual_dt <= 0.0) return 1;
+    double safe_target = std::max(target_visual_dt, 1e-6);
+    int substeps = static_cast<int>(std::ceil(total_visual_dt / safe_target));
+    return std::clamp(substeps, 1, max_substeps);
+}
+
+double interpolatePositive(double start, double end, double alpha) {
+    double a0 = std::max(start, 1e-60);
+    double a1 = std::max(end, 1e-60);
+    double t = std::clamp(alpha, 0.0, 1.0);
+    return a0 * std::pow(a1 / a0, t);
 }
 
 void applyLocalNuclearForces(ParticlePool& p, double visual_dt) {
@@ -98,6 +119,7 @@ void applyLocalNuclearForces(ParticlePool& p, double visual_dt) {
 static NuclearNetwork bbn_network;
 
 void RegimeNucleosynthesis::onEnter(Universe& state) {
+    prev_scale_factor_ = state.scale_factor;
     // Herdar composição do regime anterior quando ela já existe.
     NuclearAbundances inherited = chemistry::inferAbundances(state.particles);
     double inherited_total = inherited.Xp + inherited.Xn + inherited.Xd + inherited.Xhe3 + inherited.Xhe4 + inherited.Xli7;
@@ -114,20 +136,33 @@ void RegimeNucleosynthesis::onExit() {}
 void RegimeNucleosynthesis::update(double cosmic_dt, double scale_factor, double temp_keV,
                                     Universe& universe)
 {
+    double a_prev_frame = std::max(prev_scale_factor_, 1e-60);
+    double a_new = std::max(scale_factor, 1e-60);
     constexpr double regime_duration = CosmicClock::REGIME_START_TIMES[3] - CosmicClock::REGIME_START_TIMES[2];
     double progress_dt = (regime_duration > 0.0) ? cosmic_dt / regime_duration : 0.0;
-    double visual_dt = cosmic_dt <= 0.0 ? 0.0
-                                         : std::clamp(progress_dt * 24.0, 0.001, 0.04);
-
-    // Avança a rede de reações nucleares
-    bbn_network.step(universe.abundances, cosmic_dt, temp_keV, scale_factor);
+    double total_visual_dt = cosmic_dt <= 0.0 ? 0.0
+                                               : std::clamp(progress_dt * 24.0, 0.001, 0.04);
+    int substeps = computeSubsteps(total_visual_dt, 0.006, 8);
+    double sub_cosmic_dt = cosmic_dt / static_cast<double>(substeps);
+    double sub_visual_dt = total_visual_dt / static_cast<double>(substeps);
 
     // Atualiza as cores visuais das partículas com base nas abundâncias
     // Reatribui tipos ao longo do tempo conforme He4 se forma
     ParticlePool& p = universe.particles;
     size_t n = p.x.size();
-    if (n > 0 && n < 20000) {
-        applyLocalNuclearForces(p, visual_dt);
+    for (int step = 0; step < substeps; ++step) {
+        double alpha1 = static_cast<double>(step + 1) / static_cast<double>(substeps);
+        double a_step = interpolatePositive(a_prev_frame, a_new, alpha1);
+        double sub_temp_keV = phys::temperature_keV_from_scale(a_step);
+
+        // Avança a rede de reações nucleares com maior resolução temporal.
+        bbn_network.step(universe.abundances, sub_cosmic_dt, sub_temp_keV, a_step);
+
+        if (!(n > 0 && n < 20000)) {
+            continue;
+        }
+
+        applyLocalNuclearForces(p, sub_visual_dt);
 
         glm::dvec3 active_center(0.0);
         size_t active_count = 0;
@@ -173,7 +208,7 @@ void RegimeNucleosynthesis::update(double cosmic_dt, double scale_factor, double
                 // He4 é mais brilhante (recém formado)
                 p.luminosity[i] = (new_type == ParticleType::HELIUM4NUCLEI || new_type == ParticleType::HELIUM3 || new_type == ParticleType::LITHIUM7) ? 2.0f : 1.0f;
 
-                if (visual_dt > 0.0) {
+                if (sub_visual_dt > 0.0) {
                     double phase = universe.cosmic_time * 0.05 + static_cast<double>(i) * 0.13;
                     double jitter = (new_type == ParticleType::HELIUM4NUCLEI || new_type == ParticleType::HELIUM3 || new_type == ParticleType::LITHIUM7) ? 0.006 : 0.003;
                     double dx = p.x[i] - active_center.x;
@@ -181,7 +216,7 @@ void RegimeNucleosynthesis::update(double cosmic_dt, double scale_factor, double
                     double dz = p.z[i] - active_center.z;
                     glm::dvec3 radial = safeNormalize({dx, dy, dz},
                         glm::dvec3(std::cos(phase), std::sin(phase * 0.7), std::cos(phase * 1.3)));
-                    glm::dvec3 tangent = orthogonalTangent(radial);
+                    glm::dvec3 tangent = orthogonalTangent(radial, phase);
                     double radial_drive = std::sin(phase * 0.73) * jitter * 0.8;
                     double tangential_drive = std::cos(phase * 1.11) * jitter * 0.6;
                     p.vx[i] = p.vx[i] * 0.985 + radial.x * radial_drive + tangent.x * tangential_drive;
@@ -189,16 +224,19 @@ void RegimeNucleosynthesis::update(double cosmic_dt, double scale_factor, double
                     p.vz[i] = p.vz[i] * 0.985 + radial.z * radial_drive + tangent.z * tangential_drive;
 
                     double collapse = (new_type == ParticleType::HELIUM4NUCLEI || new_type == ParticleType::HELIUM3 || new_type == ParticleType::LITHIUM7 || new_type == ParticleType::DEUTERIUM) ? 0.02 : 0.008;
-                    p.vx[i] += -dx * collapse * visual_dt;
-                    p.vy[i] += -dy * collapse * visual_dt;
-                    p.vz[i] += -dz * collapse * visual_dt;
-                    p.x[i] += p.vx[i] * visual_dt;
-                    p.y[i] += p.vy[i] * visual_dt;
-                    p.z[i] += p.vz[i] * visual_dt;
+                    p.vx[i] += -dx * collapse * sub_visual_dt;
+                    p.vy[i] += -dy * collapse * sub_visual_dt;
+                    p.vz[i] += -dz * collapse * sub_visual_dt;
+                    p.x[i] += p.vx[i] * sub_visual_dt;
+                    p.y[i] += p.vy[i] * sub_visual_dt;
+                    p.z[i] += p.vz[i] * sub_visual_dt;
                 }
             }
         }
     }
+
+    total_baryon_density_ = FluidGrid::baryonDensity(scale_factor);
+    prev_scale_factor_ = a_new;
 
     // Expande posições com o universo
     // (tratado no tick do RegimeManager via razão do fator de escala)

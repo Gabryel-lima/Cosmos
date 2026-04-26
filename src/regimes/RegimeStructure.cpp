@@ -35,6 +35,20 @@ std::mt19937& starFormationRng() {
     static std::mt19937 rng = simrng::makeStream("structure-stars");
     return rng;
 }
+
+int computeSubsteps(double total_visual_dt, double target_visual_dt, int max_substeps) {
+    if (total_visual_dt <= 0.0) return 1;
+    double safe_target = std::max(target_visual_dt, 1e-6);
+    int substeps = static_cast<int>(std::ceil(total_visual_dt / safe_target));
+    return std::clamp(substeps, 1, max_substeps);
+}
+
+double interpolatePositive(double start, double end, double alpha) {
+    double a0 = std::max(start, 1e-60);
+    double a1 = std::max(end, 1e-60);
+    double t = std::clamp(alpha, 0.0, 1.0);
+    return a0 * std::pow(a1 / a0, t);
+}
 }
 
 std::string RegimeStructure::getName() const {
@@ -338,49 +352,62 @@ void RegimeStructure::runFriendsOfFriends(Universe& universe) {
 void RegimeStructure::update(double cosmic_dt, double scale_factor, double temp_keV,
                               Universe& universe)
 {
-    double a_new = scale_factor;
+    double a_prev_frame = std::max(prev_scale_factor_, 1e-60);
+    double a_new = std::max(scale_factor, 1e-60);
     double T_K   = phys::keV_to_K(temp_keV);
     const double regime_duration = phaseDurationSeconds(phase_);
     double progress_dt = (regime_duration > 0.0) ? cosmic_dt / regime_duration : 0.0;
     double visual_multiplier = (phase_ == StructurePhase::DARK_AGES) ? 24.0 : (phase_ == StructurePhase::REIONIZATION ? 36.0 : 48.0);
-    double visual_dt = cosmic_dt <= 0.0 ? 0.0
-                                         : std::clamp(progress_dt * visual_multiplier, 0.0005, 0.02);
+    double total_visual_dt = cosmic_dt <= 0.0 ? 0.0
+                                               : std::clamp(progress_dt * visual_multiplier, 0.0005, 0.02);
     double stellar_dt_scale = (phase_ == StructurePhase::REIONIZATION) ? 2.0e8 : 5.0e8;
-    double stellar_dt = cosmic_dt <= 0.0 ? 0.0
-                                          : progress_dt * (stellar_dt_scale * phys::yr_to_s);
+    double total_stellar_dt = cosmic_dt <= 0.0 ? 0.0
+                                                : progress_dt * (stellar_dt_scale * phys::yr_to_s);
+    int substeps = computeSubsteps(total_visual_dt, 0.005, 6);
+    double sub_visual_dt = total_visual_dt / static_cast<double>(substeps);
+    double sub_stellar_dt = total_stellar_dt / static_cast<double>(substeps);
 
-    // Integração Leapfrog KDK
-    leapfrogKick(universe, visual_dt);
-    leapfrogDrift(universe, visual_dt);
+    for (int step = 0; step < substeps; ++step) {
+        double alpha0 = static_cast<double>(step) / static_cast<double>(substeps);
+        double alpha1 = static_cast<double>(step + 1) / static_cast<double>(substeps);
+        double a_step_prev = interpolatePositive(a_prev_frame, a_new, alpha0);
+        double a_step_new = interpolatePositive(a_prev_frame, a_new, alpha1);
 
-    std::vector<double> ax, ay, az;
-    nbody_.computeForces(universe.particles, ax, ay, az);
-    // Segundo kick
-    ParticlePool& p = universe.particles;
-    for (size_t i = 0; i < p.x.size(); ++i) {
-        if (!(p.flags[i] & PF_ACTIVE)) continue;
-        double amag = std::sqrt(ax[i] * ax[i] + ay[i] * ay[i] + az[i] * az[i]);
-        if (amag > 0.15) {
-            double scale = 0.15 / amag;
-            ax[i] *= scale;
-            ay[i] *= scale;
-            az[i] *= scale;
+        // Integração Leapfrog KDK
+        leapfrogKick(universe, sub_visual_dt);
+        leapfrogDrift(universe, sub_visual_dt);
+
+        std::vector<double> ax, ay, az;
+        nbody_.computeForces(universe.particles, ax, ay, az);
+        // Segundo kick
+        ParticlePool& p = universe.particles;
+        for (size_t i = 0; i < p.x.size(); ++i) {
+            if (!(p.flags[i] & PF_ACTIVE)) continue;
+            double amag = std::sqrt(ax[i] * ax[i] + ay[i] * ay[i] + az[i] * az[i]);
+            if (amag > 0.15) {
+                double scale = 0.15 / amag;
+                ax[i] *= scale;
+                ay[i] *= scale;
+                az[i] *= scale;
+            }
+            p.vx[i] += ax[i] * sub_visual_dt * 0.5;
+            p.vy[i] += ay[i] * sub_visual_dt * 0.5;
+            p.vz[i] += az[i] * sub_visual_dt * 0.5;
         }
-        p.vx[i] += ax[i] * visual_dt * 0.5;
-        p.vy[i] += ay[i] * visual_dt * 0.5;
-        p.vz[i] += az[i] * visual_dt * 0.5;
+
+        applyCosmicExpansion(universe, a_step_prev, a_step_new);
+
+        if (phase_ != StructurePhase::DARK_AGES) {
+            updateStellarEvolution(universe, sub_stellar_dt);
+        }
     }
 
-    applyCosmicExpansion(universe, prev_scale_factor_, a_new);
     prev_scale_factor_ = a_new;
 
     // Formação estelar a cada 60 frames (O(N²) por isso limitado)
     int star_check_interval = (phase_ == StructurePhase::REIONIZATION) ? 32 : 20;
     if (phase_ != StructurePhase::DARK_AGES && ++star_check_frame_ % star_check_interval == 0) {
         checkStarFormation(universe, T_K);
-    }
-    if (phase_ != StructurePhase::DARK_AGES) {
-        updateStellarEvolution(universe, stellar_dt);
     }
 
     // Executa FoF a cada 1e14 segundos (tempo cósmico)

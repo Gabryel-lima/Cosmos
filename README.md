@@ -5,15 +5,27 @@ present day.  Each cosmological epoch is modelled as a distinct physics
 regime that transitions smoothly into the next, rendered live with OpenGL 4.3,
 Dear ImGui, and GLFW.
 
+## What's New
+
+- Expanded timeline to 7 playable regimes (Dark Ages and Reionization are now distinct stages).
+- Automatic regime transitions with smooth cross-fade and continuity-preserving state handoff.
+- Runtime-safe CPU path: portable SSE2 baseline plus AVX2 dispatch for hot loops when available.
+- Fixed-step simulation update loop with overload protection for stable dynamics under low FPS.
+- Improved camera workflow: scene auto-framing, quick recenter, and nearest-particle tracking.
+- Runtime resource path resolution anchored to executable directory (more reliable launches from different working directories).
+- Richer HUD: transition-aware timeline, speed presets, log-scale speed multiplier, and composition/performance panels.
+
 ## Simulated Regimes
 
 | Epoch | Physics |
 |-------|---------|
 | Inflation | Rapid exponential expansion, vacuum energy |
-| Quark–Gluon Plasma | QCD phase transition, colour deconfinement |
-| Big Bang Nucleosynthesis | Proton/neutron fusion network |
-| Photon–Baryon Plasma | Radiation-dominated Friedmann expansion |
-| Large-Scale Structure | N-body gravity + fluid grid, halo formation |
+| Quark-Gluon Plasma (QGP) | Colour deconfinement + simplified QCD color state |
+| Big Bang Nucleosynthesis (BBN) | Proton/neutron fusion network |
+| Photon-Baryon Plasma | Radiation-dominated era, fluid grid + recombination dynamics |
+| Dark Ages | Early post-recombination matter growth |
+| Reionization | First luminous sources and ionization rise |
+| Mature Structure Formation | N-body gravity, halo/star/black-hole evolution |
 
 ## Requirements
 
@@ -37,6 +49,12 @@ make
 make run
 ```
 
+Manual run (equivalent):
+
+```bash
+./build/cosmos
+```
+
 ### Quality profiles
 
 ```bash
@@ -49,8 +67,7 @@ make QUALITY=ULTRA    # maximum detail — demands a capable GPU
 ### Native-speed build (optional)
 
 If your CPU supports AVX2 and you want compiler auto-vectorisation to exploit
-it, pass `NATIVE_OPT=ON` to CMake (via the Makefile `BUILD_FLAGS` variable or
-directly):
+it, pass `NATIVE_OPT=ON` directly to CMake:
 
 ```bash
 cd build && cmake .. -DNATIVE_OPT=ON
@@ -58,20 +75,49 @@ cd build && cmake .. -DNATIVE_OPT=ON
 
 > **Warning**: a binary built with `-march=native` on an AVX2 host will
 > **SIGILL** on CPUs that lack AVX (e.g. Intel Celeron / Pentium, many VMs).
-> The default build targets the portable SSE2 baseline.
+> The default build targets the portable SSE2 baseline and uses runtime AVX2
+> dispatch where available.
+
+## Run Arguments
+
+```bash
+./build/cosmos [--fullscreen|-f] [--width W] [--height H] [--seed N]
+```
+
+- `--fullscreen`, `-f`: start in fullscreen.
+- `--width`, `--height`: override initial window size.
+- `--seed`: set deterministic simulation seed.
 
 ## Controls
 
 | Input | Action |
 |-------|--------|
 | `Space` | Pause / resume simulation |
-| `←` / `→` | Rewind / advance one step |
-| `R` | Restart from Big Bang |
+| `.` | Advance one fixed simulation step |
+| `1`..`7` | Jump directly to a regime |
+| `[` or `,` | Decrease time scale |
+| `]` or `;` | Increase time scale |
+| `Tab` | Cycle camera mode |
+| `T` | Toggle nearest-particle tracking |
+| `C` | Recenter camera to current scene extent |
+| `H` | Toggle HUD visibility |
+| `R` | Reload shaders |
 | `F` | Toggle fullscreen |
-| `Q` / `Esc` | Quit |
+| `Esc` | Release tracking, or quit if not tracking |
+| `Ctrl+Q` | Quit |
+| `W/A/S/D/Q/E` | Free-flight camera movement |
 | Left-drag | Orbit camera |
 | Scroll wheel | Zoom |
-| ImGui panel | Time scrubbing, quality sliders, regime info |
+| ImGui panel | Timeline + jump controls, speed presets, physics/composition/perf stats |
+
+## Physics + Rendering Highlights
+
+- Cosmology backbone: Friedmann solver (`Lambda`CDM, RK4 integration).
+- QGP regime includes simplified QCD color tagging/tinting for quarks and gluons.
+- BBN network tracks `n`, `p`, `D`, `He3`, `He4`, `Li7` abundances.
+- Plasma regime evolves baryon fluid on 3D grid with Poisson solve and recombination behavior.
+- Structure regimes use Barnes-Hut N-body with phase-specific evolution and halo logic.
+- Renderer includes HDR pipeline, bloom passes, volume rendering, and regime transition blending.
 
 ## Project Structure
 
@@ -80,9 +126,9 @@ Cosmos/
 ├── src/
 │   ├── core/        — CosmicClock, RegimeManager, Universe state, Camera
 │   ├── physics/     — Friedmann solver, N-body, FluidGrid, NuclearNetwork
-│   ├── regimes/     — Per-epoch logic (Inflation, QGP, BBN, Plasma, Structure)
+│   ├── regimes/     — Per-epoch logic (Inflation, QGP, BBN, Plasma, Dark Ages, Reionization, Structure)
 │   ├── render/      — Renderer, ParticleRenderer, VolumeRenderer, PostProcess
-│   └── shaders/     — GLSL vertex / fragment / compute shaders
+│   └── shaders/     — GLSL vertex / fragment shaders for particles, volume, post-process
 ├── libs/
 │   ├── glad/        — OpenGL 4.3 loader (generated by make setup)
 │   └── imgui/       — Dear ImGui docking branch (cloned by make setup)

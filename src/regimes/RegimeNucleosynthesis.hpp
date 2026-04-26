@@ -15,4 +15,5 @@ public:
 
 private:
     double total_baryon_density_ = 0.0;
+    double prev_scale_factor_ = 0.0;
 };

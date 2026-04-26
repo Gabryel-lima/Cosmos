@@ -396,6 +396,9 @@ int main(int argc, char** argv) {
     auto last_time = Clock::now();
     float fps_acc  = 0.0f;
     int   fps_frames = 0;
+    double sim_accumulator = 0.0;
+    constexpr double kFixedSimDt = 1.0 / 60.0;
+    constexpr int kMaxSimStepsPerFrame = 3;
 
     while (!glfwWindowShouldClose(app.window) && app.running) {
         // Tempo delta real
@@ -440,33 +443,46 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Avançar simulação
-        app.clock.step(static_cast<double>(real_dt));
+        sim_accumulator = std::min(sim_accumulator + static_cast<double>(real_dt),
+                                   kFixedSimDt * static_cast<double>(kMaxSimStepsPerFrame));
 
-        // Sincronizar universo com o relógio
-        app.universe.scale_factor    = app.clock.getScaleFactor();
-        app.universe.temperature_keV = app.clock.getTemperatureKeV();
-        app.universe.cosmic_time     = app.clock.getCosmicTime();
-        app.universe.regime_index    = app.mgr.getCurrentRegimeIndex();
+        int sim_steps = 0;
+        while (sim_accumulator >= kFixedSimDt && sim_steps < kMaxSimStepsPerFrame) {
+            // Avançar simulação em passo fixo para evitar que FPS baixo altere a dinâmica.
+            app.clock.step(kFixedSimDt);
 
-        // Tick de física do regime
-        int previous_regime = app.mgr.getCurrentRegimeIndex();
-        app.mgr.tick(app.clock, app.universe, static_cast<double>(real_dt));
-        int current_regime = app.mgr.getCurrentRegimeIndex();
-        app.universe.regime_index = current_regime;
+            // Sincronizar universo com o relógio
+            app.universe.scale_factor    = app.clock.getScaleFactor();
+            app.universe.temperature_keV = app.clock.getTemperatureKeV();
+            app.universe.cosmic_time     = app.clock.getCosmicTime();
+            app.universe.regime_index    = app.mgr.getCurrentRegimeIndex();
 
-        if (current_regime != previous_regime &&
-            app.camera.tracked_id == std::numeric_limits<uint32_t>::max()) {
-            recenterCameraToScene(app, current_regime);
+            // Tick de física do regime
+            int previous_regime = app.mgr.getCurrentRegimeIndex();
+            app.mgr.tick(app.clock, app.universe, kFixedSimDt);
+            int current_regime = app.mgr.getCurrentRegimeIndex();
+            app.universe.regime_index = current_regime;
+
+            if (current_regime != previous_regime &&
+                app.camera.tracked_id == std::numeric_limits<uint32_t>::max()) {
+                recenterCameraToScene(app, current_regime);
+            }
+
+            IRegime* regime = app.mgr.getCurrentRegime();
+            if (regime) {
+                double cosmic_dt = app.clock.getLastStepCosmicDt();
+                regime->update(cosmic_dt,
+                               app.clock.getScaleFactor(),
+                               app.clock.getTemperatureKeV(),
+                               app.universe);
+            }
+
+            sim_accumulator -= kFixedSimDt;
+            ++sim_steps;
         }
 
-        IRegime* regime = app.mgr.getCurrentRegime();
-        if (regime) {
-            double cosmic_dt = app.clock.getLastStepCosmicDt();
-            regime->update(cosmic_dt,
-                           app.clock.getScaleFactor(),
-                           app.clock.getTemperatureKeV(),
-                           app.universe);
+        if (sim_steps == kMaxSimStepsPerFrame) {
+            sim_accumulator = 0.0;
         }
 
         // Atualizar física do regime atual

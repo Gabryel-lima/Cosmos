@@ -76,7 +76,7 @@ void CosmicClock::step(double real_dt_seconds) {
 
     last_step_cosmic_dt_ = applied_cosmic_dt;
 
-    constexpr int MAX_SUBSTEPS = 16;
+    constexpr int MAX_SUBSTEPS = 8;
     double remaining = applied_cosmic_dt;
     for (int sub = 0; sub < MAX_SUBSTEPS && remaining > 0.0; ++sub) {
         double sub_dt = remaining / static_cast<double>(MAX_SUBSTEPS - sub);

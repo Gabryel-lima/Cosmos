@@ -12,6 +12,7 @@
 #include <random>
 #include <cmath>
 #include <algorithm>
+#include <unordered_map>
 
 namespace {
 
@@ -43,10 +44,37 @@ glm::dvec3 safeNormalize(const glm::dvec3& v, const glm::dvec3& fallback) {
     return v / std::sqrt(len2);
 }
 
-glm::dvec3 orthogonalTangent(const glm::dvec3& dir) {
-    glm::dvec3 ref = (std::abs(dir.y) > 0.9) ? glm::dvec3(1.0, 0.0, 0.0)
-                                             : glm::dvec3(0.0, 1.0, 0.0);
+glm::dvec3 orthogonalTangent(const glm::dvec3& dir, double phase) {
+    glm::dvec3 ref = safeNormalize(
+        glm::dvec3(std::sin(phase * 0.73 + 0.2),
+                   std::cos(phase * 1.11 + 1.3),
+                   std::sin(phase * 1.41 + 2.1)),
+        glm::dvec3(0.577, 0.577, 0.577));
+    if (std::abs(glm::dot(ref, dir)) > 0.92) {
+        ref = safeNormalize(glm::dvec3(-dir.z, dir.x, dir.y), glm::dvec3(0.0, 0.0, 1.0));
+    }
     return safeNormalize(glm::cross(dir, ref), glm::dvec3(0.0, 0.0, 1.0));
+}
+
+long long encodeCell(int x, int y, int z) {
+    constexpr long long bias = 4096;
+    return ((static_cast<long long>(x) + bias) << 42)
+         ^ ((static_cast<long long>(y) + bias) << 21)
+         ^  (static_cast<long long>(z) + bias);
+}
+
+int computeSubsteps(double total_visual_dt, double target_visual_dt, int max_substeps) {
+    if (total_visual_dt <= 0.0) return 1;
+    double safe_target = std::max(target_visual_dt, 1e-6);
+    int substeps = static_cast<int>(std::ceil(total_visual_dt / safe_target));
+    return std::clamp(substeps, 1, max_substeps);
+}
+
+double interpolatePositive(double start, double end, double alpha) {
+    double a0 = std::max(start, 1e-60);
+    double a1 = std::max(end, 1e-60);
+    double t = std::clamp(alpha, 0.0, 1.0);
+    return a0 * std::pow(a1 / a0, t);
 }
 
 ParticleType normalizedFusionType(ParticleType type) {
@@ -256,6 +284,17 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
     const double capture_r2 = RegimeConfig::PLASMA_CAPTURE_RADIUS * RegimeConfig::PLASMA_CAPTURE_RADIUS;
     const double fusion_r2 = RegimeConfig::PLASMA_FUSION_RADIUS * RegimeConfig::PLASMA_FUSION_RADIUS;
     const double photon_scatter_r2 = RegimeConfig::PLASMA_PHOTON_SCATTER_RADIUS * RegimeConfig::PLASMA_PHOTON_SCATTER_RADIUS;
+    const double cell_size = RegimeConfig::PLASMA_INTERACTION_RADIUS * 1.4;
+
+    std::unordered_map<long long, std::vector<size_t>> cells;
+    cells.reserve(initial_count);
+    for (size_t i = 0; i < initial_count; ++i) {
+        if (!(particles.flags[i] & PF_ACTIVE)) continue;
+        int cx = static_cast<int>(std::floor(particles.x[i] / cell_size));
+        int cy = static_cast<int>(std::floor(particles.y[i] / cell_size));
+        int cz = static_cast<int>(std::floor(particles.z[i] / cell_size));
+        cells[encodeCell(cx, cy, cz)].push_back(i);
+    }
 
     for (size_t i = 0; i < initial_count && decay_budget > 0; ++i) {
         if (!(particles.flags[i] & PF_ACTIVE)) continue;
@@ -278,105 +317,117 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
     for (size_t i = 0; i < initial_count; ++i) {
         if (!(particles.flags[i] & PF_ACTIVE)) continue;
 
-        for (size_t j = i + 1; j < initial_count; ++j) {
-            if (!(particles.flags[j] & PF_ACTIVE)) continue;
+        int cx = static_cast<int>(std::floor(particles.x[i] / cell_size));
+        int cy = static_cast<int>(std::floor(particles.y[i] / cell_size));
+        int cz = static_cast<int>(std::floor(particles.z[i] / cell_size));
 
-            const double dx = particles.x[j] - particles.x[i];
-            const double dy = particles.y[j] - particles.y[i];
-            const double dz = particles.z[j] - particles.z[i];
-            const double pair_scale = 0.5 * (interactionScaleForParticle(particles, i) + interactionScaleForParticle(particles, j));
-            const double pair_interaction_r2 = interaction_r2 * pair_scale * pair_scale;
-            const double pair_capture_r2 = capture_r2 * pair_scale * pair_scale;
-            const double pair_fusion_r2 = fusion_r2 * pair_scale * pair_scale;
-            const double pair_photon_scatter_r2 = photon_scatter_r2 * pair_scale * pair_scale;
-            const double r2 = dx * dx + dy * dy + dz * dz;
-            if (r2 <= 1e-8 || r2 > pair_interaction_r2) continue;
+        for (int dz = -1; dz <= 1; ++dz)
+        for (int dy = -1; dy <= 1; ++dy)
+        for (int dx = -1; dx <= 1; ++dx) {
+            auto bucket_it = cells.find(encodeCell(cx + dx, cy + dy, cz + dz));
+            if (bucket_it == cells.end()) continue;
 
-            const double inv_r = 1.0 / std::sqrt(r2 + 1e-8);
-            const float qi = effectiveCharge(particles, i);
-            const float qj = effectiveCharge(particles, j);
+            for (size_t j : bucket_it->second) {
+                if (j <= i || j >= initial_count) continue;
+                if (!(particles.flags[j] & PF_ACTIVE)) continue;
 
-            if (std::abs(qi) > 0.01f || std::abs(qj) > 0.01f) {
-                const double scalar = (-static_cast<double>(qi) * static_cast<double>(qj)) * visual_dt * 0.025 / (r2 + 0.02);
-                particles.vx[i] += scalar * dx;
-                particles.vy[i] += scalar * dy;
-                particles.vz[i] += scalar * dz;
-                particles.vx[j] -= scalar * dx;
-                particles.vy[j] -= scalar * dy;
-                particles.vz[j] -= scalar * dz;
-            }
+                const double dx = particles.x[j] - particles.x[i];
+                const double dy = particles.y[j] - particles.y[i];
+                const double dz = particles.z[j] - particles.z[i];
+                const double pair_scale = 0.5 * (interactionScaleForParticle(particles, i) + interactionScaleForParticle(particles, j));
+                const double pair_interaction_r2 = interaction_r2 * pair_scale * pair_scale;
+                const double pair_capture_r2 = capture_r2 * pair_scale * pair_scale;
+                const double pair_fusion_r2 = fusion_r2 * pair_scale * pair_scale;
+                const double pair_photon_scatter_r2 = photon_scatter_r2 * pair_scale * pair_scale;
+                const double r2 = dx * dx + dy * dy + dz * dz;
+                if (r2 <= 1e-8 || r2 > pair_interaction_r2) continue;
 
-            if (isNeutralAtom(particles, i) && isNeutralAtom(particles, j)) {
-                const double attraction = visual_dt * 0.004 * inv_r;
-                particles.vx[i] += attraction * dx;
-                particles.vy[i] += attraction * dy;
-                particles.vz[i] += attraction * dz;
-                particles.vx[j] -= attraction * dx;
-                particles.vy[j] -= attraction * dy;
-                particles.vz[j] -= attraction * dz;
-            }
+                const double inv_r = 1.0 / std::sqrt(r2 + 1e-8);
+                const float qi = effectiveCharge(particles, i);
+                const float qj = effectiveCharge(particles, j);
 
-            const bool photon_i = particles.type[i] == ParticleType::PHOTON;
-            const bool photon_j = particles.type[j] == ParticleType::PHOTON;
-            const bool electron_i = particles.type[i] == ParticleType::ELECTRON;
-            const bool electron_j = particles.type[j] == ParticleType::ELECTRON;
-
-            if ((photon_i && electron_j) || (photon_j && electron_i)) {
-                if (r2 < pair_photon_scatter_r2) {
-                    const size_t photon_idx = photon_i ? i : j;
-                    const size_t electron_idx = photon_i ? j : i;
-                    const double scatter = visual_dt * 0.08 * inv_r;
-                    particles.vx[electron_idx] += scatter * dx;
-                    particles.vy[electron_idx] += scatter * dy;
-                    particles.vz[electron_idx] += scatter * dz;
-                    particles.vx[photon_idx] -= scatter * dx * 1.6;
-                    particles.vy[photon_idx] -= scatter * dy * 1.6;
-                    particles.vz[photon_idx] -= scatter * dz * 1.6;
-                    particles.temp_particle[electron_idx] += 0.05f;
-                    particles.luminosity[photon_idx] = std::max(0.4f, particles.luminosity[photon_idx] * 0.98f);
+                if (std::abs(qi) > 0.01f || std::abs(qj) > 0.01f) {
+                    const double scalar = (-static_cast<double>(qi) * static_cast<double>(qj)) * visual_dt * 0.025 / (r2 + 0.02);
+                    particles.vx[i] += scalar * dx;
+                    particles.vy[i] += scalar * dy;
+                    particles.vz[i] += scalar * dz;
+                    particles.vx[j] -= scalar * dx;
+                    particles.vy[j] -= scalar * dy;
+                    particles.vz[j] -= scalar * dz;
                 }
-                continue;
-            }
 
-            if ((photon_i && isPhotonAbsorbableState(particles, j)) ||
-                (photon_j && isPhotonAbsorbableState(particles, i))) {
-                if (r2 < pair_photon_scatter_r2) {
-                    const size_t photon_idx = photon_i ? i : j;
-                    const size_t matter_idx = photon_i ? j : i;
-                    const double ionize_probability = std::clamp(visual_dt * (0.10 + temp_keV * 1.2) * (1.0 - neutral_fraction * 0.35), 0.0, 0.22);
-                    if (chance(rng) < ionize_probability) {
-                        particles.deactivate(photon_idx);
-                        ionizeMatter(particles, matter_idx);
-                        particles.temp_particle[matter_idx] += 0.3f;
-                        emitElectron(particles, matter_idx, rng, electron_budget);
+                if (isNeutralAtom(particles, i) && isNeutralAtom(particles, j)) {
+                    const double attraction = visual_dt * 0.004 * inv_r;
+                    particles.vx[i] += attraction * dx;
+                    particles.vy[i] += attraction * dy;
+                    particles.vz[i] += attraction * dz;
+                    particles.vx[j] -= attraction * dx;
+                    particles.vy[j] -= attraction * dy;
+                    particles.vz[j] -= attraction * dz;
+                }
+
+                const bool photon_i = particles.type[i] == ParticleType::PHOTON;
+                const bool photon_j = particles.type[j] == ParticleType::PHOTON;
+                const bool electron_i = particles.type[i] == ParticleType::ELECTRON;
+                const bool electron_j = particles.type[j] == ParticleType::ELECTRON;
+
+                if ((photon_i && electron_j) || (photon_j && electron_i)) {
+                    if (r2 < pair_photon_scatter_r2) {
+                        const size_t photon_idx = photon_i ? i : j;
+                        const size_t electron_idx = photon_i ? j : i;
+                        const double scatter = visual_dt * 0.08 * inv_r;
+                        particles.vx[electron_idx] += scatter * dx;
+                        particles.vy[electron_idx] += scatter * dy;
+                        particles.vz[electron_idx] += scatter * dz;
+                        particles.vx[photon_idx] -= scatter * dx * 1.6;
+                        particles.vy[photon_idx] -= scatter * dy * 1.6;
+                        particles.vz[photon_idx] -= scatter * dz * 1.6;
+                        particles.temp_particle[electron_idx] += 0.05f;
+                        particles.luminosity[photon_idx] = std::max(0.4f, particles.luminosity[photon_idx] * 0.98f);
                     }
+                    continue;
                 }
-                continue;
-            }
 
-            if ((electron_i && isLightReactiveMatter(particles.type[j]) && qj > 0.0f) ||
-                (electron_j && isLightReactiveMatter(particles.type[i]) && qi > 0.0f)) {
-                if (r2 < pair_capture_r2) {
-                    const size_t electron_idx = electron_i ? i : j;
-                    const size_t nucleus_idx = electron_i ? j : i;
-                    const double capture_probability = std::clamp(visual_dt * (0.08 + neutral_fraction * 0.18) * (0.6 + particles.temp_particle[nucleus_idx] * 0.15), 0.0, 0.26);
-                    if (chance(rng) < capture_probability) {
-                        particles.deactivate(electron_idx);
-                        makeNeutralAtom(particles, nucleus_idx);
-                        particles.temp_particle[nucleus_idx] += 0.22f;
-                        emitPhoton(particles, nucleus_idx, rng, 1.8f, 0.14, photon_budget);
+                if ((photon_i && isPhotonAbsorbableState(particles, j)) ||
+                    (photon_j && isPhotonAbsorbableState(particles, i))) {
+                    if (r2 < pair_photon_scatter_r2) {
+                        const size_t photon_idx = photon_i ? i : j;
+                        const size_t matter_idx = photon_i ? j : i;
+                        const double ionize_probability = std::clamp(visual_dt * (0.10 + temp_keV * 1.2) * (1.0 - neutral_fraction * 0.35), 0.0, 0.22);
+                        if (chance(rng) < ionize_probability) {
+                            particles.deactivate(photon_idx);
+                            ionizeMatter(particles, matter_idx);
+                            particles.temp_particle[matter_idx] += 0.3f;
+                            emitElectron(particles, matter_idx, rng, electron_budget);
+                        }
                     }
+                    continue;
                 }
-                continue;
-            }
 
-            if (fusion_budget > 0 && r2 < pair_fusion_r2 &&
-                isLightReactiveMatter(particles.type[i]) && isLightReactiveMatter(particles.type[j])) {
-                ParticleType product = fusionProduct(particles.type[i], particles.type[j]);
-                if (product != ParticleType::COUNT && chance(rng) < fusionProbability(product, temp_keV, visual_dt)) {
-                    fuseParticles(particles, i, j, product, photon_budget);
-                    --fusion_budget;
-                    break;
+                if ((electron_i && isLightReactiveMatter(particles.type[j]) && qj > 0.0f) ||
+                    (electron_j && isLightReactiveMatter(particles.type[i]) && qi > 0.0f)) {
+                    if (r2 < pair_capture_r2) {
+                        const size_t electron_idx = electron_i ? i : j;
+                        const size_t nucleus_idx = electron_i ? j : i;
+                        const double capture_probability = std::clamp(visual_dt * (0.08 + neutral_fraction * 0.18) * (0.6 + particles.temp_particle[nucleus_idx] * 0.15), 0.0, 0.26);
+                        if (chance(rng) < capture_probability) {
+                            particles.deactivate(electron_idx);
+                            makeNeutralAtom(particles, nucleus_idx);
+                            particles.temp_particle[nucleus_idx] += 0.22f;
+                            emitPhoton(particles, nucleus_idx, rng, 1.8f, 0.14, photon_budget);
+                        }
+                    }
+                    continue;
+                }
+
+                if (fusion_budget > 0 && r2 < pair_fusion_r2 &&
+                    isLightReactiveMatter(particles.type[i]) && isLightReactiveMatter(particles.type[j])) {
+                    ParticleType product = fusionProduct(particles.type[i], particles.type[j]);
+                    if (product != ParticleType::COUNT && chance(rng) < fusionProbability(product, temp_keV, visual_dt)) {
+                        fuseParticles(particles, i, j, product, photon_budget);
+                        --fusion_budget;
+                        break;
+                    }
                 }
             }
         }
@@ -397,6 +448,7 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
 } // namespace
 
 void RegimePlasma::onEnter(Universe& state) {
+    prev_scale_factor_ = state.scale_factor;
     cmb_flash_triggered_ = false;
     cmb_flash_t_         = 0.0f;
     recombined_fraction_ = 0.0;
@@ -440,123 +492,135 @@ double RegimePlasma::computeIonizationFraction(double T_K, double n_b) {
 void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV,
                            Universe& universe)
 {
+    double a_prev_frame = std::max(prev_scale_factor_, 1e-60);
+    double a_new = std::max(scale_factor, 1e-60);
     constexpr double regime_duration = CosmicClock::REGIME_START_TIMES[4] - CosmicClock::REGIME_START_TIMES[3];
     double progress_dt = (regime_duration > 0.0) ? cosmic_dt / regime_duration : 0.0;
-    double visual_dt = cosmic_dt <= 0.0 ? 0.0
-                                         : std::clamp(progress_dt * 24.0, 0.001, 0.04);
-    double T_K = phys::keV_to_K(temp_keV);
-    double H   = phys::hubble_from_scale(scale_factor);
-    baryon_density_ = FluidGrid::baryonDensity(scale_factor);
-    double X_e = computeIonizationFraction(T_K, baryon_density_);
-    double neutral_fraction = std::clamp(1.0 - X_e, 0.0, 1.0);
-
-    if (visual_dt > 0.0) {
-        fluid_solver.step(universe, visual_dt, scale_factor, H, temp_keV);
-        applyMicrophysics(universe, visual_dt, temp_keV, neutral_fraction);
-    }
-
-    wave_phase_ += static_cast<float>(visual_dt * 4.0);
-
     ParticlePool& particles = universe.particles;
-    glm::dvec3 active_center(0.0);
-    size_t active_count = 0;
-    for (size_t i = 0; i < particles.x.size(); ++i) {
-        if (!(particles.flags[i] & PF_ACTIVE)) continue;
-        active_center += glm::dvec3(particles.x[i], particles.y[i], particles.z[i]);
-        ++active_count;
-    }
-    if (active_count > 0) {
-        active_center /= static_cast<double>(active_count);
-    }
+    double total_visual_dt = cosmic_dt <= 0.0 ? 0.0
+                                               : std::clamp(progress_dt * 24.0, 0.001, 0.04);
+    int substeps = computeSubsteps(total_visual_dt, 0.006, 8);
+    double sub_visual_dt = total_visual_dt / static_cast<double>(substeps);
 
-    for (size_t i = 0; i < particles.x.size(); ++i) {
-        if (!(particles.flags[i] & PF_ACTIVE)) continue;
+    for (int step = 0; step < substeps; ++step) {
+        double alpha1 = static_cast<double>(step + 1) / static_cast<double>(substeps);
+        double a_step = interpolatePositive(a_prev_frame, a_new, alpha1);
+        double sub_temp_keV = phys::temperature_keV_from_scale(a_step);
+        double T_K = phys::keV_to_K(sub_temp_keV);
+        double H   = phys::hubble_from_scale(a_step);
+        baryon_density_ = FluidGrid::baryonDensity(a_step);
+        double X_e = computeIonizationFraction(T_K, baryon_density_);
+        double neutral_fraction = std::clamp(1.0 - X_e, 0.0, 1.0);
 
-        glm::dvec3 delta = glm::dvec3(particles.x[i], particles.y[i], particles.z[i]) - active_center;
-        double radius = std::sqrt(glm::dot(delta, delta));
-        double phase = static_cast<double>(wave_phase_) + radius * 0.9 + static_cast<double>(i) * 0.017;
-        glm::dvec3 radial = safeNormalize(delta,
-            glm::dvec3(std::cos(phase), std::sin(phase * 0.7), std::cos(phase * 1.3)));
-        glm::dvec3 tangent = orthogonalTangent(radial);
-        double swirl = std::sin(phase);
-        double pulse = std::cos(phase * 0.63);
-        switch (particles.type[i]) {
-            case ParticleType::PHOTON:
-                particles.vx[i] += (tangent.x * swirl * 0.35 + radial.x * pulse * 0.18) * visual_dt;
-                particles.vy[i] += (tangent.y * swirl * 0.35 + radial.y * pulse * 0.18) * visual_dt;
-                particles.vz[i] += (tangent.z * swirl * 0.35 + radial.z * pulse * 0.18) * visual_dt;
-                particles.luminosity[i] = 1.8f + 0.9f * static_cast<float>(0.5 + 0.5 * swirl);
-                break;
-            case ParticleType::ELECTRON:
-                particles.vx[i] += (-tangent.x * swirl * 0.18 + radial.x * pulse * 0.12) * visual_dt;
-                particles.vy[i] += (-tangent.y * swirl * 0.18 + radial.y * pulse * 0.12) * visual_dt;
-                particles.vz[i] += (-tangent.z * swirl * 0.18 + radial.z * pulse * 0.12) * visual_dt;
-                break;
-            case ParticleType::PROTON:
-            case ParticleType::DEUTERIUM:
-            case ParticleType::HELIUM3:
-            case ParticleType::HELIUM4NUCLEI:
-            case ParticleType::LITHIUM7:
-            case ParticleType::GAS:
-                particles.vx[i] += radial.x * swirl * visual_dt * 0.05;
-                particles.vy[i] += radial.y * swirl * visual_dt * 0.05;
-                particles.vz[i] += radial.z * swirl * visual_dt * 0.05;
-                break;
-            default:
-                break;
+        if (sub_visual_dt > 0.0) {
+            fluid_solver.step(universe, sub_visual_dt, a_step, H, sub_temp_keV);
+            applyMicrophysics(universe, sub_visual_dt, sub_temp_keV, neutral_fraction);
         }
 
-        particles.x[i] += particles.vx[i] * visual_dt;
-        particles.y[i] += particles.vy[i] * visual_dt;
-        particles.z[i] += particles.vz[i] * visual_dt;
-        particles.vx[i] *= 0.998;
-        particles.vy[i] *= 0.998;
-        particles.vz[i] *= 0.998;
-    }
+        wave_phase_ += static_cast<float>(sub_visual_dt * 4.0);
 
-    // Verifica recombinação via equação de Saha
-    if (X_e < 0.1 && !cmb_flash_triggered_) {
-        cmb_flash_triggered_ = true;
-        cmb_flash_t_         = 0.0f;
-    }
-
-    if (neutral_fraction > recombined_fraction_) {
-        size_t charged_nuclei = 0;
+        glm::dvec3 active_center(0.0);
+        size_t active_count = 0;
         for (size_t i = 0; i < particles.x.size(); ++i) {
             if (!(particles.flags[i] & PF_ACTIVE)) continue;
-            if (isLightReactiveMatter(particles.type[i]) && particles.charge[i] > 0.05f) ++charged_nuclei;
+            active_center += glm::dvec3(particles.x[i], particles.y[i], particles.z[i]);
+            ++active_count;
+        }
+        if (active_count > 0) {
+            active_center /= static_cast<double>(active_count);
         }
 
-        size_t to_convert = static_cast<size_t>((neutral_fraction - recombined_fraction_) * static_cast<double>(charged_nuclei));
-        size_t converted = 0;
-        size_t electrons_to_hide = 0;
-        int photon_budget = RegimeConfig::PLASMA_MAX_MICRO_PHOTONS / 2;
-        std::mt19937& rng = plasmaRng();
-        for (size_t i = 0; i < particles.x.size() && converted < to_convert; ++i) {
+        for (size_t i = 0; i < particles.x.size(); ++i) {
             if (!(particles.flags[i] & PF_ACTIVE)) continue;
-            int charge = static_cast<int>(std::ceil(std::max(0.0f, particles.charge[i])));
-            if (!isLightReactiveMatter(particles.type[i]) || charge <= 0) continue;
-            electrons_to_hide += static_cast<size_t>(charge);
-            makeNeutralAtom(particles, i);
-            particles.temp_particle[i] += 0.18f;
-            emitPhoton(particles, i, rng, 1.5f, 0.10, photon_budget);
-            ++converted;
+
+            glm::dvec3 delta = glm::dvec3(particles.x[i], particles.y[i], particles.z[i]) - active_center;
+            double radius = std::sqrt(glm::dot(delta, delta));
+            double phase = static_cast<double>(wave_phase_) + radius * 0.9 + static_cast<double>(i) * 0.017;
+            glm::dvec3 radial = safeNormalize(delta,
+                glm::dvec3(std::cos(phase), std::sin(phase * 0.7), std::cos(phase * 1.3)));
+            glm::dvec3 tangent = orthogonalTangent(radial, phase);
+            double swirl = std::sin(phase);
+            double pulse = std::cos(phase * 0.63);
+            switch (particles.type[i]) {
+                case ParticleType::PHOTON:
+                    particles.vx[i] += (tangent.x * swirl * 0.35 + radial.x * pulse * 0.18) * sub_visual_dt;
+                    particles.vy[i] += (tangent.y * swirl * 0.35 + radial.y * pulse * 0.18) * sub_visual_dt;
+                    particles.vz[i] += (tangent.z * swirl * 0.35 + radial.z * pulse * 0.18) * sub_visual_dt;
+                    particles.luminosity[i] = 1.8f + 0.9f * static_cast<float>(0.5 + 0.5 * swirl);
+                    break;
+                case ParticleType::ELECTRON:
+                    particles.vx[i] += (-tangent.x * swirl * 0.18 + radial.x * pulse * 0.12) * sub_visual_dt;
+                    particles.vy[i] += (-tangent.y * swirl * 0.18 + radial.y * pulse * 0.12) * sub_visual_dt;
+                    particles.vz[i] += (-tangent.z * swirl * 0.18 + radial.z * pulse * 0.12) * sub_visual_dt;
+                    break;
+                case ParticleType::PROTON:
+                case ParticleType::DEUTERIUM:
+                case ParticleType::HELIUM3:
+                case ParticleType::HELIUM4NUCLEI:
+                case ParticleType::LITHIUM7:
+                case ParticleType::GAS:
+                    particles.vx[i] += radial.x * swirl * sub_visual_dt * 0.05;
+                    particles.vy[i] += radial.y * swirl * sub_visual_dt * 0.05;
+                    particles.vz[i] += radial.z * swirl * sub_visual_dt * 0.05;
+                    break;
+                default:
+                    break;
+            }
+
+            particles.x[i] += particles.vx[i] * sub_visual_dt;
+            particles.y[i] += particles.vy[i] * sub_visual_dt;
+            particles.z[i] += particles.vz[i] * sub_visual_dt;
+            particles.vx[i] *= 0.998;
+            particles.vy[i] *= 0.998;
+            particles.vz[i] *= 0.998;
         }
 
-        size_t hidden_electrons = 0;
-        for (size_t i = 0; i < particles.x.size() && hidden_electrons < electrons_to_hide; ++i) {
-            if (!(particles.flags[i] & PF_ACTIVE)) continue;
-            if (particles.type[i] != ParticleType::ELECTRON) continue;
-            particles.deactivate(i);
-            ++hidden_electrons;
+        // Verifica recombinação via equação de Saha
+        if (X_e < 0.1 && !cmb_flash_triggered_) {
+            cmb_flash_triggered_ = true;
+            cmb_flash_t_         = 0.0f;
         }
-        recombined_fraction_ = neutral_fraction;
+
+        if (neutral_fraction > recombined_fraction_) {
+            size_t charged_nuclei = 0;
+            for (size_t i = 0; i < particles.x.size(); ++i) {
+                if (!(particles.flags[i] & PF_ACTIVE)) continue;
+                if (isLightReactiveMatter(particles.type[i]) && particles.charge[i] > 0.05f) ++charged_nuclei;
+            }
+
+            size_t to_convert = static_cast<size_t>((neutral_fraction - recombined_fraction_) * static_cast<double>(charged_nuclei));
+            size_t converted = 0;
+            size_t electrons_to_hide = 0;
+            int photon_budget = RegimeConfig::PLASMA_MAX_MICRO_PHOTONS / 2;
+            std::mt19937& rng = plasmaRng();
+            for (size_t i = 0; i < particles.x.size() && converted < to_convert; ++i) {
+                if (!(particles.flags[i] & PF_ACTIVE)) continue;
+                int charge = static_cast<int>(std::ceil(std::max(0.0f, particles.charge[i])));
+                if (!isLightReactiveMatter(particles.type[i]) || charge <= 0) continue;
+                electrons_to_hide += static_cast<size_t>(charge);
+                makeNeutralAtom(particles, i);
+                particles.temp_particle[i] += 0.18f;
+                emitPhoton(particles, i, rng, 1.5f, 0.10, photon_budget);
+                ++converted;
+            }
+
+            size_t hidden_electrons = 0;
+            for (size_t i = 0; i < particles.x.size() && hidden_electrons < electrons_to_hide; ++i) {
+                if (!(particles.flags[i] & PF_ACTIVE)) continue;
+                if (particles.type[i] != ParticleType::ELECTRON) continue;
+                particles.deactivate(i);
+                ++hidden_electrons;
+            }
+            recombined_fraction_ = neutral_fraction;
+        }
+
+        if (cmb_flash_triggered_ && cmb_flash_t_ < 1.0f) {
+            cmb_flash_t_ += static_cast<float>(sub_visual_dt * 0.5);
+            cmb_flash_t_  = std::min(cmb_flash_t_, 1.0f);
+        }
     }
 
-    if (cmb_flash_triggered_ && cmb_flash_t_ < 1.0f) {
-        cmb_flash_t_ += static_cast<float>(visual_dt * 0.5);
-        cmb_flash_t_  = std::min(cmb_flash_t_, 1.0f);
-    }
+    prev_scale_factor_ = a_new;
 
     universe.scale_factor    = scale_factor;
     universe.temperature_keV = temp_keV;

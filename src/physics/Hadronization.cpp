@@ -138,6 +138,7 @@ void applyHadronProperties(ParticlePool& pool, size_t idx, ParticleType type, bo
     pool.type[idx] = type;
     pool.mass[idx] = restMass(type);
     pool.charge[idx] = static_cast<float>(atomicCharge(type));
+    pool.clearQcdCharge(idx);
     ParticlePool::defaultColor(type, pool.color_r[idx], pool.color_g[idx], pool.color_b[idx]);
     pool.luminosity[idx] = gluon_supported ? 2.4f : 1.8f;
     pool.flags[idx] |= PF_BOUND;

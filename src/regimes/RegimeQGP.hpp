@@ -15,7 +15,7 @@ public:
     std::string getName() const override { return "Quark-Gluon Plasma"; }
 
 private:
-    void applyYukawaForces(Universe& universe, double temp_keV, double dt);
+    void applyScreenedCornellForces(Universe& universe, double temp_keV, double dt);
     void applyCosmicExpansion(Universe& universe, double a_prev, double a_new);
     void hadronize(Universe& universe);   // confinamento quark → hádron
 

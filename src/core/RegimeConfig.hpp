@@ -11,18 +11,21 @@ namespace RegimeConfig {
     // ── Regime 1: Quark-Gluon Plasma (QGP) ──
     constexpr int    QGP_QUARK_COUNT = 2000;
     constexpr int    QGP_GLUON_RATIO_DIVISOR = 5;      // 1 glúon para cada N quarks (ex: N / 5)
+    constexpr double QGP_INIT_MIN_SEPARATION = 0.020;
 
     // ── Regime 2: Big Bang Nucleosynthesis (BBN) ──
     constexpr int    BBN_NUCLEON_COUNT = 10000;
     constexpr int    BBN_PROTON_RATIO = 8;             // 1 nêutron para cada 7 prótons (i % 8 == 0 -> de um tipo)
     constexpr double BBN_INIT_XP = 0.875;
     constexpr double BBN_INIT_XN = 0.125;
+    constexpr double BBN_INIT_MIN_SEPARATION = 0.016;
 
     // ── Regime 3: Photon Plasma / Recombination ──
     constexpr int    PLASMA_BARYON_COUNT = 1800;
     constexpr int    PLASMA_PHOTON_COUNT = 3200;
     constexpr int    PLASMA_GRID_SIZE = 64;
     constexpr int    PLASMA_HELIUM_RATIO_DIVISOR = 7;  // Partículas alfa: 1 a cada 7 bárions
+    constexpr double PLASMA_INIT_BARYON_MIN_SEPARATION = 0.070;
     constexpr double PLASMA_INTERACTION_RADIUS = 0.18;
     constexpr double PLASMA_CAPTURE_RADIUS = 0.08;
     constexpr double PLASMA_FUSION_RADIUS = 0.05;

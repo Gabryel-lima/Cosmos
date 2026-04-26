@@ -2,6 +2,7 @@
 // src/physics/ParticlePool.hpp — Array plano de partículas SOA, amigável ao cache.
 // Todos os dados de partículas residem aqui. Regimes manipulam isso diretamente.
 
+#include "QcdColor.hpp"
 #include <cstdint>
 #include <vector>
 
@@ -65,6 +66,8 @@ struct ParticlePool {
     std::vector<float> charge;
     // Cor visual (0..1 RGB)
     std::vector<float> color_r, color_g, color_b;
+    // Estado de cor QCD simplificado
+    std::vector<QcdColor> qcd_color, qcd_anticolor;
     // Luminosidade (para estrelas, usada para renderizar brilho)
     std::vector<float> luminosity;
     // Temperatura da partícula [K] (individual, para partículas estelares)
@@ -98,6 +101,12 @@ struct ParticlePool {
 
     /// Obter cor visual para um tipo de partícula (cores padrão).
     static void defaultColor(ParticleType t, float& r, float& g, float& b);
+
+    /// Ajustar o estado cromático QCD e atualizar a cor visual correspondente.
+    void setQcdCharge(size_t i, QcdColor color, QcdColor anticolor = QcdColor::NONE);
+    void clearQcdCharge(size_t i);
+    static void applyQcdTint(ParticleType t, QcdColor color, QcdColor anticolor,
+                             float& r, float& g, float& b);
 
     /// Escala visual relativa do sprite para cada tipo/estado de partícula.
     static float defaultVisualScale(ParticleType t, uint32_t flags = 0u);

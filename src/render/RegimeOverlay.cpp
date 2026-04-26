@@ -6,6 +6,7 @@
 #include "../core/Universe.hpp"
 #include "../physics/Constants.hpp"
 #include "../physics/Friedmann.hpp"
+#include "../physics/QcdColor.hpp"
 #include <imgui.h>
 #include <cstdio>
 #include <cstring>
@@ -33,6 +34,34 @@ static ImVec4 particleColor(ParticleType type, float alpha = 1.0f) {
     float r, g, b;
     ParticlePool::defaultColor(type, r, g, b);
     return {r, g, b, alpha};
+}
+
+static ImVec4 qcdColorSwatch(QcdColor color, QcdColor anticolor = QcdColor::NONE, float alpha = 1.0f) {
+    float r = 1.0f, g = 1.0f, b = 1.0f;
+    ParticlePool::applyQcdTint(ParticleType::QUARK_U, color, anticolor, r, g, b);
+    return {r, g, b, alpha};
+}
+
+static const char* qcdColorLabel(QcdColor color) {
+    switch (color) {
+        case QcdColor::RED: return "Red";
+        case QcdColor::GREEN: return "Green";
+        case QcdColor::BLUE: return "Blue";
+        case QcdColor::ANTI_RED: return "Anti-Red";
+        case QcdColor::ANTI_GREEN: return "Anti-Green";
+        case QcdColor::ANTI_BLUE: return "Anti-Blue";
+        default: return "Neutral";
+    }
+}
+
+static const char* directionalGluonLabel(QcdColor color, QcdColor anticolor) {
+    if (color == QcdColor::RED && anticolor == QcdColor::ANTI_GREEN) return "R-Gbar";
+    if (color == QcdColor::RED && anticolor == QcdColor::ANTI_BLUE) return "R-Bbar";
+    if (color == QcdColor::GREEN && anticolor == QcdColor::ANTI_RED) return "G-Rbar";
+    if (color == QcdColor::GREEN && anticolor == QcdColor::ANTI_BLUE) return "G-Bbar";
+    if (color == QcdColor::BLUE && anticolor == QcdColor::ANTI_RED) return "B-Rbar";
+    if (color == QcdColor::BLUE && anticolor == QcdColor::ANTI_GREEN) return "B-Gbar";
+    return "Other Gluon";
 }
 
 // Formata um número em notação científica (ex: 1.23 x 10^8)
@@ -266,13 +295,23 @@ void RegimeOverlay::drawPhysicsInfo(const CosmicClock& clock, const RegimeManage
 
 void RegimeOverlay::drawCompositionTable(const RegimeManager& mgr, const Universe& universe) {
     int regime = mgr.getIncomingRegimeIndex();
+    std::unordered_map<ParticleType, int> counts;
+    int total = 0;
+    const ParticlePool& pp = universe.particles;
+    for (size_t i = 0; i < pp.x.size(); ++i) {
+        if (!(pp.flags[i] & PF_ACTIVE)) continue;
+        counts[pp.type[i]]++;
+        ++total;
+    }
     
     // Auxiliar progress bar
     auto bar = [&](const char* label, double val, ImVec4 color) {
         ImGui::TextColored(color, "%-10s", label);
         ImGui::SameLine(110);
         char buf[32]; snprintf(buf, sizeof(buf), "%.2f%%", val * 100.0);
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, color);
         ImGui::ProgressBar(static_cast<float>(val), {155, 14}, buf);
+        ImGui::PopStyleColor();
     };
 
     if (regime == 0) {
@@ -295,16 +334,6 @@ void RegimeOverlay::drawCompositionTable(const RegimeManager& mgr, const Univers
         return;
     }
 
-    // Para outros regimes, contamos ativamente as partículas simuladas
-    std::unordered_map<ParticleType, int> counts;
-    int total = 0;
-    const ParticlePool& pp = universe.particles;
-    for (size_t i = 0; i < pp.x.size(); ++i) {
-        if (!(pp.flags[i] & PF_ACTIVE)) continue;
-        counts[pp.type[i]]++;
-        total++;
-    }
-
     if (total == 0) {
         ImGui::Text("Awaiting Particle Generation...");
         return;
@@ -312,48 +341,119 @@ void RegimeOverlay::drawCompositionTable(const RegimeManager& mgr, const Univers
 
     ImGui::Text("Particle Distribution (%d total)", total);
     
-    // Função local para mapear tipo -> cor & nome
-    auto renderType = [&](ParticleType type, const char* name, ImVec4 color) {
+    // Função local para mapear tipo -> cor média renderizada & nome
+    auto renderType = [&](ParticleType type, const char* name) {
         if (counts[type] > 0) {
             double frac = static_cast<double>(counts[type]) / total;
-            bar(name, frac, color);
+            bar(name, frac, particleColor(type));
         }
     };
 
     if (regime == 1) {
-        renderType(ParticleType::QUARK_U,       "Quark Up",      particleColor(ParticleType::QUARK_U));
-        renderType(ParticleType::QUARK_D,       "Quark Down",    particleColor(ParticleType::QUARK_D));
-        renderType(ParticleType::QUARK_S,       "Quark Strange", particleColor(ParticleType::QUARK_S));
-        renderType(ParticleType::GLUON,         "Gluon",         particleColor(ParticleType::GLUON));
-        renderType(ParticleType::PROTON,        "Protons",       particleColor(ParticleType::PROTON));
-        renderType(ParticleType::NEUTRON,       "Neutrons",      particleColor(ParticleType::NEUTRON));
+        renderType(ParticleType::QUARK_U, "Quark Up");
+        renderType(ParticleType::QUARK_D, "Quark Down");
+        renderType(ParticleType::QUARK_S, "Quark Strange");
+        renderType(ParticleType::GLUON,   "Gluon");
+        renderType(ParticleType::PROTON,  "Protons");
+        renderType(ParticleType::NEUTRON, "Neutrons");
+
+        std::unordered_map<QcdColor, int> quark_colors;
+        struct GluonKey {
+            QcdColor color;
+            QcdColor anticolor;
+            bool operator==(const GluonKey& other) const {
+                return color == other.color && anticolor == other.anticolor;
+            }
+        };
+        struct GluonKeyHash {
+            size_t operator()(const GluonKey& key) const {
+                return (static_cast<size_t>(key.color) << 8) ^ static_cast<size_t>(key.anticolor);
+            }
+        };
+        std::unordered_map<GluonKey, int, GluonKeyHash> gluon_colors;
+        int colored_quarks = 0;
+        int actual_gluons = 0;
+
+        for (size_t i = 0; i < pp.x.size(); ++i) {
+            if (!(pp.flags[i] & PF_ACTIVE)) continue;
+            if (pp.type[i] == ParticleType::QUARK_U || pp.type[i] == ParticleType::QUARK_D ||
+                pp.type[i] == ParticleType::QUARK_S || pp.type[i] == ParticleType::ANTIQUARK) {
+                if (pp.qcd_color[i] != QcdColor::NONE) {
+                    quark_colors[pp.qcd_color[i]]++;
+                    ++colored_quarks;
+                }
+            } else if (pp.type[i] == ParticleType::GLUON) {
+                GluonKey key{pp.qcd_color[i], pp.qcd_anticolor[i]};
+                gluon_colors[key]++;
+                ++actual_gluons;
+            }
+        }
+
+        if (colored_quarks > 0) {
+            ImGui::Spacing();
+            ImGui::TextUnformatted("QCD Color Distribution");
+            auto renderColorBar = [&](QcdColor color) {
+                auto it = quark_colors.find(color);
+                if (it == quark_colors.end() || it->second <= 0) return;
+                bar(qcdColorLabel(color),
+                    static_cast<double>(it->second) / static_cast<double>(colored_quarks),
+                    qcdColorSwatch(color));
+            };
+            renderColorBar(QcdColor::RED);
+            renderColorBar(QcdColor::GREEN);
+            renderColorBar(QcdColor::BLUE);
+        }
+
+        if (actual_gluons > 0) {
+            ImGui::Spacing();
+            ImGui::TextUnformatted("Directional Gluons");
+            const GluonKey ordered_gluons[] = {
+                {QcdColor::RED, QcdColor::ANTI_GREEN},
+                {QcdColor::RED, QcdColor::ANTI_BLUE},
+                {QcdColor::GREEN, QcdColor::ANTI_RED},
+                {QcdColor::GREEN, QcdColor::ANTI_BLUE},
+                {QcdColor::BLUE, QcdColor::ANTI_RED},
+                {QcdColor::BLUE, QcdColor::ANTI_GREEN},
+            };
+            for (const GluonKey& key : ordered_gluons) {
+                auto it = gluon_colors.find(key);
+                if (it == gluon_colors.end() || it->second <= 0) continue;
+                bar(directionalGluonLabel(key.color, key.anticolor),
+                    static_cast<double>(it->second) / static_cast<double>(actual_gluons),
+                    qcdColorSwatch(key.color, key.anticolor));
+            }
+        }
     } else if (regime == 3) {
-        renderType(ParticleType::DEUTERIUM,     "Deuterium",     particleColor(ParticleType::DEUTERIUM));
-        renderType(ParticleType::HELIUM3,       "Helium-3",      particleColor(ParticleType::HELIUM3));
-        renderType(ParticleType::HELIUM4NUCLEI, "He-4 Nuclei",   particleColor(ParticleType::HELIUM4NUCLEI));
-        renderType(ParticleType::LITHIUM7,      "Lithium-7",     particleColor(ParticleType::LITHIUM7));
-        renderType(ParticleType::PHOTON,        "Photons",       particleColor(ParticleType::PHOTON));
-        renderType(ParticleType::PROTON,        "Protons",       particleColor(ParticleType::PROTON));
-        renderType(ParticleType::ELECTRON,      "Electrons",     particleColor(ParticleType::ELECTRON));
-        renderType(ParticleType::NEUTRINO,      "Neutrinos",     particleColor(ParticleType::NEUTRINO));
+        renderType(ParticleType::DEUTERIUM,     "Deuterium");
+        renderType(ParticleType::HELIUM3,       "Helium-3");
+        renderType(ParticleType::HELIUM4NUCLEI, "He-4 Nuclei");
+        renderType(ParticleType::LITHIUM7,      "Lithium-7");
+        renderType(ParticleType::PHOTON,        "Photons");
+        renderType(ParticleType::PROTON,        "Protons");
+        renderType(ParticleType::ELECTRON,      "Electrons");
+        renderType(ParticleType::NEUTRINO,      "Neutrinos");
     } else if (regime == 4) {
-        renderType(ParticleType::DARK_MATTER,   "Dark Matter",   particleColor(ParticleType::DARK_MATTER));
-        renderType(ParticleType::GAS,           "Neutral Gas",   particleColor(ParticleType::GAS));
-        renderType(ParticleType::PHOTON,        "CMB Photons",   particleColor(ParticleType::PHOTON));
+        renderType(ParticleType::DARK_MATTER,   "Dark Matter");
+        renderType(ParticleType::GAS,           "Neutral Gas");
+        renderType(ParticleType::PHOTON,        "CMB Photons");
     } else if (regime == 5) {
-        renderType(ParticleType::DARK_MATTER,   "Dark Matter",   particleColor(ParticleType::DARK_MATTER));
-        renderType(ParticleType::GAS,           "Ionized Gas",   particleColor(ParticleType::GAS));
-        renderType(ParticleType::STAR,          "First Stars",   particleColor(ParticleType::STAR));
-        renderType(ParticleType::BLACKHOLE,     "Seed BH",       particleColor(ParticleType::BLACKHOLE));
+        renderType(ParticleType::DARK_MATTER,   "Dark Matter");
+        renderType(ParticleType::GAS,           "Ionized Gas");
+        renderType(ParticleType::STAR,          "First Stars");
+        renderType(ParticleType::BLACKHOLE,     "Seed BH");
     } else if (regime == 6) {
-        renderType(ParticleType::DARK_MATTER,   "Dark Matter",   particleColor(ParticleType::DARK_MATTER));
-        renderType(ParticleType::GAS,           "Gas",           particleColor(ParticleType::GAS));
-        renderType(ParticleType::STAR,          "Stars",         particleColor(ParticleType::STAR));
-        renderType(ParticleType::BLACKHOLE,     "Black Holes",   particleColor(ParticleType::BLACKHOLE));
+        renderType(ParticleType::DARK_MATTER,   "Dark Matter");
+        renderType(ParticleType::GAS,           "Gas");
+        renderType(ParticleType::STAR,          "Stars");
+        renderType(ParticleType::BLACKHOLE,     "Black Holes");
     }
 }
 
 void RegimeOverlay::drawPerformanceStats(const Universe& universe) {
+    auto coloredStat = [&](ImVec4 color, const char* fmt, auto... args) {
+        ImGui::TextColored(color, fmt, args...);
+    };
+
     ImGui::Text("FPS: %.1f", universe.fps);
     ImGui::Text("GPU: %.2f ms", universe.gpu_time_ms);
 
@@ -376,32 +476,55 @@ void RegimeOverlay::drawPerformanceStats(const Universe& universe) {
         int qu_u = counts[ParticleType::QUARK_U];
         int qu_d = counts[ParticleType::QUARK_D];
         int qu_s = counts[ParticleType::QUARK_S];
-        int gluons_est = (qu_u + qu_d + qu_s) / std::max(1, RegimeConfig::QGP_GLUON_RATIO_DIVISOR);
+        int gluons = counts[ParticleType::GLUON];
+        int red = 0, green = 0, blue = 0;
+        for (size_t i = 0; i < pp.x.size(); ++i) {
+            if (!(pp.flags[i] & PF_ACTIVE)) continue;
+            if (pp.type[i] != ParticleType::QUARK_U && pp.type[i] != ParticleType::QUARK_D &&
+                pp.type[i] != ParticleType::QUARK_S && pp.type[i] != ParticleType::ANTIQUARK) continue;
+            switch (pp.qcd_color[i]) {
+                case QcdColor::RED: ++red; break;
+                case QcdColor::GREEN: ++green; break;
+                case QcdColor::BLUE: ++blue; break;
+                default: break;
+            }
+        }
         ImGui::Text("Active particles: %d", total_active);
-        ImGui::Text("Quarks U/D/S: %d/%d/%d", qu_u, qu_d, qu_s);
-        ImGui::Text("Estimated Gluons: %d", gluons_est);
+        coloredStat(particleColor(ParticleType::QUARK_U), "Quark Up: %d", qu_u);
+        coloredStat(particleColor(ParticleType::QUARK_D), "Quark Down: %d", qu_d);
+        coloredStat(particleColor(ParticleType::QUARK_S), "Quark Strange: %d", qu_s);
+        coloredStat(particleColor(ParticleType::GLUON), "Gluons: %d", gluons);
+        ImGui::TextColored(qcdColorSwatch(QcdColor::RED), "Red: %d", red);
+        ImGui::SameLine();
+        ImGui::TextColored(qcdColorSwatch(QcdColor::GREEN), "Green: %d", green);
+        ImGui::SameLine();
+        ImGui::TextColored(qcdColorSwatch(QcdColor::BLUE), "Blue: %d", blue);
     } else if (universe.regime_index == 2) {
         int protons = counts[ParticleType::PROTON];
         int neutrons = counts[ParticleType::NEUTRON];
         ImGui::Text("Active particles: %d", total_active);
-        ImGui::Text("Protons: %d Neutrons: %d", protons, neutrons);
+        coloredStat(particleColor(ParticleType::PROTON), "Protons: %d", protons);
+        coloredStat(particleColor(ParticleType::NEUTRON), "Neutrons: %d", neutrons);
         ImGui::Text("Abundances Xp: %.3f Xn: %.3f", universe.abundances.Xp, universe.abundances.Xn);
     } else if (universe.regime_index == 3) {
         ImGui::Text("Active particles: %d", total_active);
-        ImGui::Text("Photons: %d", counts[ParticleType::PHOTON]);
-        ImGui::Text("Protons: %d Electrons: %d", counts[ParticleType::PROTON], counts[ParticleType::ELECTRON]);
+        coloredStat(particleColor(ParticleType::PHOTON), "Photons: %d", counts[ParticleType::PHOTON]);
+        coloredStat(particleColor(ParticleType::PROTON), "Protons: %d", counts[ParticleType::PROTON]);
+        coloredStat(particleColor(ParticleType::ELECTRON), "Electrons: %d", counts[ParticleType::ELECTRON]);
     } else if (universe.regime_index == 4) {
         ImGui::Text("Active particles: %d", total_active);
-        ImGui::Text("Dark Matter: %d", counts[ParticleType::DARK_MATTER]);
-        ImGui::Text("Neutral Gas: %d", counts[ParticleType::GAS]);
+        coloredStat(particleColor(ParticleType::DARK_MATTER), "Dark Matter: %d", counts[ParticleType::DARK_MATTER]);
+        coloredStat(particleColor(ParticleType::GAS), "Neutral Gas: %d", counts[ParticleType::GAS]);
     } else if (universe.regime_index == 5) {
         ImGui::Text("Active particles: %d", total_active);
-        ImGui::Text("First Stars: %d", counts[ParticleType::STAR]);
-        ImGui::Text("Ionized Gas: %d", counts[ParticleType::GAS]);
+        coloredStat(particleColor(ParticleType::STAR), "First Stars: %d", counts[ParticleType::STAR]);
+        coloredStat(particleColor(ParticleType::GAS), "Ionized Gas: %d", counts[ParticleType::GAS]);
     } else if (universe.regime_index == 6) {
         ImGui::Text("Active particles: %d", total_active);
-        ImGui::Text("Dark Matter: %d Gas: %d", counts[ParticleType::DARK_MATTER], counts[ParticleType::GAS]);
-        ImGui::Text("Stars: %d Black Holes: %d", counts[ParticleType::STAR], counts[ParticleType::BLACKHOLE]);
+        coloredStat(particleColor(ParticleType::DARK_MATTER), "Dark Matter: %d", counts[ParticleType::DARK_MATTER]);
+        coloredStat(particleColor(ParticleType::GAS), "Gas: %d", counts[ParticleType::GAS]);
+        coloredStat(particleColor(ParticleType::STAR), "Stars: %d", counts[ParticleType::STAR]);
+        coloredStat(particleColor(ParticleType::BLACKHOLE), "Black Holes: %d", counts[ParticleType::BLACKHOLE]);
     } else {
         ImGui::Text("Active particles: %d", total_active);
     }

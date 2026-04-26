@@ -37,6 +37,15 @@ size_t addParticleCopy(ParticlePool& dst, const ParticlePool& src, size_t i,
                            src.z[i] + offset(rng_copy),
                            src.vx[i], src.vy[i], src.vz[i],
                            src.mass[i], type, cr, cg, cb, charge);
+    dst.color_r[added] = src.color_r[i];
+    dst.color_g[added] = src.color_g[i];
+    dst.color_b[added] = src.color_b[i];
+    if (type == src.type[i]) {
+        dst.qcd_color[added] = src.qcd_color[i];
+        dst.qcd_anticolor[added] = src.qcd_anticolor[i];
+    } else {
+        dst.clearQcdCharge(added);
+    }
     dst.luminosity[added] = luminosity;
     dst.star_state[added] = src.star_state[i];
     dst.star_age[added] = src.star_age[i];
@@ -47,6 +56,36 @@ size_t addParticleCopy(ParticlePool& dst, const ParticlePool& src, size_t i,
 std::mt19937& initRng() {
     static std::mt19937 rng = simrng::makeStream("regime-init");
     return rng;
+}
+
+QcdColor randomQcdPrimary(std::mt19937& rng) {
+    switch (rng() % 3u) {
+        case 0: return QcdColor::RED;
+        case 1: return QcdColor::GREEN;
+        default:return QcdColor::BLUE;
+    }
+}
+
+void randomDirectionalGluon(std::mt19937& rng, QcdColor& color, QcdColor& anticolor) {
+    switch (rng() % 6u) {
+        case 0: color = QcdColor::RED;   anticolor = QcdColor::ANTI_GREEN; break;
+        case 1: color = QcdColor::RED;   anticolor = QcdColor::ANTI_BLUE;  break;
+        case 2: color = QcdColor::GREEN; anticolor = QcdColor::ANTI_RED;   break;
+        case 3: color = QcdColor::GREEN; anticolor = QcdColor::ANTI_BLUE;  break;
+        case 4: color = QcdColor::BLUE;  anticolor = QcdColor::ANTI_RED;   break;
+        default:color = QcdColor::BLUE;  anticolor = QcdColor::ANTI_GREEN; break;
+    }
+}
+
+double qgpRestMass(ParticleType type) {
+    constexpr double inv_c2 = 1.0 / (phys::c * phys::c);
+    switch (type) {
+        case ParticleType::QUARK_U: return 2.2 * phys::MeV * inv_c2;
+        case ParticleType::QUARK_D: return 4.7 * phys::MeV * inv_c2;
+        case ParticleType::QUARK_S: return 93.0 * phys::MeV * inv_c2;
+        case ParticleType::GLUON:   return 0.0;
+        default:                    return phys::m_p / 3.0;
+    }
 }
 
 size_t activeParticleCount(const ParticlePool& pool) {
@@ -146,6 +185,7 @@ void copyParticleState(ParticlePool& pool, size_t idx, ParticleType type,
     pool.mass[idx] = mass;
     pool.charge[idx] = charge;
     ParticlePool::defaultColor(type, pool.color_r[idx], pool.color_g[idx], pool.color_b[idx]);
+    pool.clearQcdCharge(idx);
     pool.luminosity[idx] = luminosity;
     pool.star_state[idx] = star_state;
     pool.star_age[idx] = 0.0;
@@ -387,6 +427,44 @@ static void randomPosInSphere(double r_max, double& px, double& py, double& pz) 
     } while (px*px + py*py + pz*pz > r_max*r_max);
 }
 
+static void randomPosInSphereWithClearance(double r_max, double min_distance,
+                                           const ParticlePool& pool,
+                                           double& px, double& py, double& pz)
+{
+    double min_distance2 = min_distance * min_distance;
+    for (int attempt = 0; attempt < 96; ++attempt) {
+        randomPosInSphere(r_max, px, py, pz);
+        bool overlaps = false;
+        for (size_t i = 0; i < pool.x.size(); ++i) {
+            if (!(pool.flags[i] & PF_ACTIVE)) continue;
+            double dx = pool.x[i] - px;
+            double dy = pool.y[i] - py;
+            double dz = pool.z[i] - pz;
+            if (dx * dx + dy * dy + dz * dz < min_distance2) {
+                overlaps = true;
+                break;
+            }
+        }
+        if (!overlaps) return;
+    }
+
+    randomPosInSphere(r_max, px, py, pz);
+}
+
+static void randomUnitDirection(double& dx, double& dy, double& dz) {
+    std::uniform_real_distribution<double> dist(-1.0, 1.0);
+    std::mt19937& rng_init = initRng();
+    do {
+        dx = dist(rng_init);
+        dy = dist(rng_init);
+        dz = dist(rng_init);
+    } while (dx * dx + dy * dy + dz * dz < 1e-6);
+    double inv_len = 1.0 / std::sqrt(dx * dx + dy * dy + dz * dz);
+    dx *= inv_len;
+    dy *= inv_len;
+    dz *= inv_len;
+}
+
 InitialState RegimeManager::buildInitialState(int regime_index) {
     InitialState st;
     std::mt19937& rng_init = initRng();
@@ -426,21 +504,28 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
             };
             for (int i = 0; i < N; ++i) {
                 double px, py, pz;
-                randomPosInSphere(0.5, px, py, pz);
+                randomPosInSphereWithClearance(0.5, RegimeConfig::QGP_INIT_MIN_SEPARATION,
+                                               st.particles, px, py, pz);
                 double vx = vel_dist(rng_init), vy = vel_dist(rng_init), vz = vel_dist(rng_init);
                 ParticleType t = quark_types[rng_init() % 3];
                 float cr, cg, cb; ParticlePool::defaultColor(t, cr, cg, cb);
-                size_t added = st.particles.add(px, py, pz, vx, vy, vz, phys::m_p / 3.0, t, cr, cg, cb,
+                size_t added = st.particles.add(px, py, pz, vx, vy, vz, qgpRestMass(t), t, cr, cg, cb,
                                                 (t == ParticleType::QUARK_U) ? 2.0f/3.0f : -1.0f/3.0f);
+                st.particles.setQcdCharge(added, randomQcdPrimary(rng_init));
                 st.particles.luminosity[added] = 2.2f;
             }
             // Glúons mediadores
             for (int i = 0; i < N / RegimeConfig::QGP_GLUON_RATIO_DIVISOR; ++i) {
                 double px, py, pz;
-                randomPosInSphere(0.5, px, py, pz);
+                randomPosInSphereWithClearance(0.5, RegimeConfig::QGP_INIT_MIN_SEPARATION * 0.75,
+                                               st.particles, px, py, pz);
                 size_t added = st.particles.add(px, py, pz,
                                                 vel_dist(rng_init), vel_dist(rng_init), vel_dist(rng_init),
-                                                phys::m_p * 0.01, ParticleType::GLUON, 1.0f, 0.8f, 0.2f, 0.0f);
+                                                qgpRestMass(ParticleType::GLUON), ParticleType::GLUON, 1.0f, 0.8f, 0.2f, 0.0f);
+                QcdColor color = QcdColor::NONE;
+                QcdColor anticolor = QcdColor::NONE;
+                randomDirectionalGluon(rng_init, color, anticolor);
+                st.particles.setQcdCharge(added, color, anticolor);
                 st.particles.luminosity[added] = 2.8f;
             }
             break;
@@ -455,7 +540,8 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
             std::normal_distribution<double> vel_dist(0.0, 0.01);
             for (int i = 0; i < N; ++i) {
                 double px, py, pz;
-                randomPosInSphere(0.5, px, py, pz);
+                randomPosInSphereWithClearance(0.5, RegimeConfig::BBN_INIT_MIN_SEPARATION,
+                                               st.particles, px, py, pz);
                 bool is_proton = (rng_init() % RegimeConfig::BBN_PROTON_RATIO != 0);
                 ParticleType t = is_proton ? ParticleType::PROTON : ParticleType::NEUTRON;
                 float cr, cg, cb; ParticlePool::defaultColor(t, cr, cg, cb);
@@ -478,7 +564,8 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
             std::normal_distribution<double> vel_dist(0.0, 0.06);
             for (int i = 0; i < RegimeConfig::PLASMA_BARYON_COUNT; ++i) {
                 double px, py, pz;
-                randomPosInSphere(2.5, px, py, pz);
+                randomPosInSphereWithClearance(2.5, RegimeConfig::PLASMA_INIT_BARYON_MIN_SEPARATION,
+                                               st.particles, px, py, pz);
                 bool is_helium = (i % RegimeConfig::PLASMA_HELIUM_RATIO_DIVISOR == 0);
                 ParticleType baryon = is_helium ? ParticleType::HELIUM4NUCLEI : ParticleType::PROTON;
                 float br, bg, bb;
@@ -489,10 +576,17 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
                                  baryon, br, bg, bb,
                                  is_helium ? 2.0f : 1.0f);
 
+                double ox, oy, oz;
+                randomUnitDirection(ox, oy, oz);
+                constexpr double electron_offset = 0.035;
                 float er, eg, eb;
                 ParticlePool::defaultColor(ParticleType::ELECTRON, er, eg, eb);
-                st.particles.add(px, py, pz,
-                                 vel_dist(rng_init), vel_dist(rng_init), vel_dist(rng_init),
+                st.particles.add(px + ox * electron_offset,
+                                 py + oy * electron_offset,
+                                 pz + oz * electron_offset,
+                                 vel_dist(rng_init) - ox * 0.02,
+                                 vel_dist(rng_init) - oy * 0.02,
+                                 vel_dist(rng_init) - oz * 0.02,
                                  phys::m_e, ParticleType::ELECTRON, er, eg, eb, -1.0f);
             }
             for (int i = 0; i < RegimeConfig::PLASMA_PHOTON_COUNT; ++i) {

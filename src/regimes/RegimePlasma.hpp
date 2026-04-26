@@ -22,5 +22,6 @@ private:
     float  cmb_flash_t_         = 0.0f;  // progresso da animação de flash 0→1
     double baryon_density_       = 0.0;
     double recombined_fraction_  = 0.0;
+    double prev_scale_factor_    = 0.0;
     float  wave_phase_           = 0.0f;
 };
