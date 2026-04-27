@@ -80,11 +80,11 @@ $(IMGUI_H):
 # ── compilação ───────────────────────────────────────────────────────────────
 build: setup
 	@mkdir -p $(BUILD)
-	@cd $(BUILD) && cmake .. -DQUALITY=$(QUALITY) -DCMAKE_BUILD_TYPE=Release
-	@$(MAKE) -C $(BUILD) -j$(JOBS)
+	@cmake -S . -B $(BUILD) -DQUALITY=$(QUALITY) -DCMAKE_BUILD_TYPE=Release
+	@cmake --build $(BUILD) --parallel $(JOBS)
 
 # ── execução ─────────────────────────────────────────────────────────────────
-run:
+run: build
 	./$(BUILD)/$(PROJECT)
 
 # ── limpeza ──────────────────────────────────────────────────────────────────

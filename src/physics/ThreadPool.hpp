@@ -9,6 +9,8 @@
 #include <vector>
 #include <future>
 #include <atomic>
+#include <algorithm>
+#include <type_traits>
 
 class ThreadPool {
 public:

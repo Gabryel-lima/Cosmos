@@ -36,9 +36,17 @@ static ImVec4 particleColor(ParticleType type, float alpha = 1.0f) {
     return {r, g, b, alpha};
 }
 
-static ImVec4 qcdColorSwatch(QcdColor color, QcdColor anticolor = QcdColor::NONE, float alpha = 1.0f) {
+static ImVec4 qcdColorSwatch(QcdColor color, float alpha = 1.0f) {
     float r = 1.0f, g = 1.0f, b = 1.0f;
-    ParticlePool::applyQcdTint(ParticleType::QUARK_U, color, anticolor, r, g, b);
+    qcd::rgb(color, r, g, b);
+    return {r, g, b, alpha};
+}
+
+static ImVec4 particleQcdSwatch(ParticleType type, QcdColor color,
+                                QcdColor anticolor = QcdColor::NONE,
+                                float alpha = 1.0f) {
+    float r = 1.0f, g = 1.0f, b = 1.0f;
+    ParticlePool::applyQcdTint(type, color, anticolor, r, g, b);
     return {r, g, b, alpha};
 }
 
@@ -383,6 +391,7 @@ void RegimeOverlay::drawCompositionTable(const RegimeManager& mgr, const Univers
                     ++colored_quarks;
                 }
             } else if (pp.type[i] == ParticleType::GLUON) {
+                if (pp.qcd_color[i] == QcdColor::NONE || pp.qcd_anticolor[i] == QcdColor::NONE) continue;
                 GluonKey key{pp.qcd_color[i], pp.qcd_anticolor[i]};
                 gluon_colors[key]++;
                 ++actual_gluons;
@@ -420,7 +429,7 @@ void RegimeOverlay::drawCompositionTable(const RegimeManager& mgr, const Univers
                 if (it == gluon_colors.end() || it->second <= 0) continue;
                 bar(directionalGluonLabel(key.color, key.anticolor),
                     static_cast<double>(it->second) / static_cast<double>(actual_gluons),
-                    qcdColorSwatch(key.color, key.anticolor));
+                    particleQcdSwatch(ParticleType::GLUON, key.color, key.anticolor));
             }
         }
     } else if (regime == 3) {

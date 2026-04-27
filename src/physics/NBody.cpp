@@ -1,10 +1,14 @@
 // src/physics/NBody.cpp — Solver N-corpos com octárvore Barnes-Hut.
 #include <cmath>
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
+#include <mutex>
 
 #include "NBody.hpp"
 #include "Constants.hpp"
+#include "ThreadPool.hpp"
 #include "../core/CpuFeatures.hpp"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -18,6 +22,46 @@
 // Instância interna do solver Barnes-Hut compartilhada pelas duas impls.
 // Thread-safety: NBody::step() não é reentrant; não há problema aqui.
 static NBodySolver g_solver;
+
+namespace {
+
+size_t configuredWorkerCount() {
+    static const size_t workers = [] {
+        const unsigned int hw = std::max(1u, std::thread::hardware_concurrency());
+        const char* env = std::getenv("COSMOS_THREADS");
+        if (!env || !*env) return static_cast<size_t>(hw);
+
+        char* end = nullptr;
+        const unsigned long parsed = std::strtoul(env, &end, 10);
+        if (end == env || parsed == 0ul) {
+            return static_cast<size_t>(hw);
+        }
+        return static_cast<size_t>(parsed);
+    }();
+    return workers;
+}
+
+ThreadPool& nbodyThreadPool() {
+    static ThreadPool pool(configuredWorkerCount());
+    return pool;
+}
+
+void logThreadUsageOnce(size_t worker_count) {
+    static std::once_flag once;
+    std::call_once(once, [worker_count] {
+        const char* env = std::getenv("COSMOS_THREADS");
+        if (env && *env) {
+            std::printf("[nbody] Force computation using %zu worker threads (COSMOS_THREADS=%s)\n",
+                        worker_count,
+                        env);
+        } else {
+            std::printf("[nbody] Force computation using %zu worker threads (hardware concurrency)\n",
+                        worker_count);
+        }
+    });
+}
+
+} // namespace
 
 // Assinaturas usam NBodySolver& explicitamente para evitar globals ocultos
 static void nbody_step_sse2(ParticlePool& pool, float dt);
@@ -104,8 +148,8 @@ void NBodySolver::insertParticle(OctreeNode& node, int idx,
 void NBodySolver::buildTree(const ParticlePool& pool) {
     if (pool.x.empty()) { root_.reset(); return; }
 
-    double xmin =  std::numeric_limits<double>::max();
-    double xmax =  std::numeric_limits<double>::lowest();
+    double xmin = std::numeric_limits<double>::max();
+    double xmax = std::numeric_limits<double>::lowest();
     double ymin = xmin, ymax = xmax, zmin = xmin, zmax = xmax;
 
     for (size_t i = 0; i < pool.x.size(); ++i) {
@@ -118,7 +162,7 @@ void NBodySolver::buildTree(const ParticlePool& pool) {
     double half = std::max({xmax - xmin, ymax - ymin, zmax - zmin}) * 0.5 * 1.01;
     if (half <= 0.0) half = 1.0;
 
-    root_     = std::make_unique<OctreeNode>();
+    root_ = std::make_unique<OctreeNode>();
     root_->cx = (xmin + xmax) * 0.5;
     root_->cy = (ymin + ymax) * 0.5;
     root_->cz = (zmin + zmax) * 0.5;
@@ -175,12 +219,51 @@ void NBodySolver::computeForces(const ParticlePool& pool,
     ay.assign(n, 0.0);
     az.assign(n, 0.0);
 
+    std::vector<size_t> active_indices;
+    active_indices.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        if (pool.flags[i] & PF_ACTIVE) {
+            active_indices.push_back(i);
+        }
+    }
+    if (active_indices.empty()) return;
+
     buildTree(pool);
     if (!root_) return;
 
-    for (size_t i = 0; i < n; ++i) {
-        if (!(pool.flags[i] & PF_ACTIVE)) continue;
-        computeForceFromNode(*root_, static_cast<int>(i), pool, ax[i], ay[i], az[i]);
+    constexpr size_t kMinParticlesPerTask = 512;
+    const size_t worker_budget = std::min(configuredWorkerCount(), active_indices.size());
+    const size_t suggested_tasks = (active_indices.size() + kMinParticlesPerTask - 1) / kMinParticlesPerTask;
+    const size_t task_count = std::min(worker_budget, std::max<size_t>(1, suggested_tasks));
+
+    if (task_count <= 1) {
+        for (size_t idx : active_indices) {
+            computeForceFromNode(*root_, static_cast<int>(idx), pool, ax[idx], ay[idx], az[idx]);
+        }
+        return;
+    }
+
+    logThreadUsageOnce(task_count);
+
+    const size_t chunk_size = (active_indices.size() + task_count - 1) / task_count;
+    auto& thread_pool = nbodyThreadPool();
+    std::vector<std::future<void>> futures;
+    futures.reserve(task_count);
+
+    for (size_t task = 0; task < task_count; ++task) {
+        const size_t begin = task * chunk_size;
+        if (begin >= active_indices.size()) break;
+        const size_t end = std::min(begin + chunk_size, active_indices.size());
+        futures.push_back(thread_pool.submit([this, &pool, &ax, &ay, &az, &active_indices, begin, end] {
+            for (size_t pos = begin; pos < end; ++pos) {
+                const size_t idx = active_indices[pos];
+                computeForceFromNode(*root_, static_cast<int>(idx), pool, ax[idx], ay[idx], az[idx]);
+            }
+        }));
+    }
+
+    for (auto& future : futures) {
+        future.get();
     }
 }
 

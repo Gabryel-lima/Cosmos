@@ -73,11 +73,11 @@ struct Universe {
     GridData        velocity_z;
     NuclearAbundances abundances;
 
-    // Perfil de qualidade (definido pelo sinalizador --quality)
+    // Perfil de qualidade efetivo definido no build (QUALITY=...)
     struct QualityProfile {
-        int   N_particles    = RegimeConfig::STRUCT_ZELDOVICH_N_CBRT * RegimeConfig::STRUCT_ZELDOVICH_N_CBRT * RegimeConfig::STRUCT_ZELDOVICH_N_CBRT;
-        int   grid_res       = RegimeConfig::STRUCT_GRID_SIZE;
-        float barnes_hut_theta = 0.5f;
+        int   N_particles      = RegimeConfig::QualityProfile::N_particles;
+        int   grid_res         = RegimeConfig::QualityProfile::grid_res;
+        float barnes_hut_theta = RegimeConfig::QualityProfile::barnes_hut_theta;
     } quality;
 
     // Estado da simulação

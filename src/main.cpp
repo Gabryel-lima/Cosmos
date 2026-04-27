@@ -404,6 +404,12 @@ int main(int argc, char** argv) {
     // Enquadrar a cena inicial a partir do conteúdo real do regime.
     recenterCameraToScene(app, app.clock.getCurrentRegimeIndex());
 
+    std::printf("[main] Build quality=%s | structure particles=%d | plasma grid=%d^3 | Barnes-Hut theta=%.2f\n",
+                RegimeConfig::BUILD_QUALITY_NAME,
+                app.universe.quality.N_particles,
+                app.universe.quality.grid_res,
+                app.universe.quality.barnes_hut_theta);
+
     std::printf("[main] Starting simulation. Seed=%u. Keys: SPACE=play/pause, 1-7=jump, T=toggle track, C=recenter camera, R=reload shaders, H=HUD, F=fullscreen, ESC=release/quit, Ctrl+Q=quit\n",
                 simrng::globalSeed());
 

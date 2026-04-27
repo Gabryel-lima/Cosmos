@@ -8,6 +8,36 @@
 namespace RegimeConfig {
     constexpr std::uint32_t DEFAULT_RANDOM_SEED = 424242u;
 
+#if defined(QUALITY_LOW)
+    constexpr const char* BUILD_QUALITY_NAME = "LOW";
+    constexpr int    QGP_QUARK_COUNT = 1200;
+    constexpr int    PLASMA_GRID_SIZE = 40;
+    constexpr int    STRUCT_ZELDOVICH_N_CBRT = 18;
+    constexpr int    STRUCT_GRID_SIZE = 32;
+    constexpr float  STRUCT_BARNES_HUT_THETA = 0.75f;
+#elif defined(QUALITY_HIGH)
+    constexpr const char* BUILD_QUALITY_NAME = "HIGH";
+    constexpr int    QGP_QUARK_COUNT = 3200;
+    constexpr int    PLASMA_GRID_SIZE = 80;
+    constexpr int    STRUCT_ZELDOVICH_N_CBRT = 30;
+    constexpr int    STRUCT_GRID_SIZE = 80;
+    constexpr float  STRUCT_BARNES_HUT_THETA = 0.42f;
+#elif defined(QUALITY_ULTRA)
+    constexpr const char* BUILD_QUALITY_NAME = "ULTRA";
+    constexpr int    QGP_QUARK_COUNT = 4800;
+    constexpr int    PLASMA_GRID_SIZE = 96;
+    constexpr int    STRUCT_ZELDOVICH_N_CBRT = 34;
+    constexpr int    STRUCT_GRID_SIZE = 96;
+    constexpr float  STRUCT_BARNES_HUT_THETA = 0.35f;
+#else
+    constexpr const char* BUILD_QUALITY_NAME = "MEDIUM";
+    constexpr int    QGP_QUARK_COUNT = 2000;
+    constexpr int    PLASMA_GRID_SIZE = 64;
+    constexpr int    STRUCT_ZELDOVICH_N_CBRT = 25;
+    constexpr int    STRUCT_GRID_SIZE = 64;
+    constexpr float  STRUCT_BARNES_HUT_THETA = 0.5f;
+#endif
+
     constexpr int divideOrZero(int value, int divisor) {
         return (divisor > 0) ? (value / divisor) : 0;
     }
@@ -17,7 +47,6 @@ namespace RegimeConfig {
     }
 
     // ── Regime 1: Quark-Gluon Plasma (QGP) ──
-    constexpr int    QGP_QUARK_COUNT = 2000;
     constexpr int    QGP_GLUON_RATIO_DIVISOR = 5;      // 1 glúon para cada N quarks (ex: N / 5)
     constexpr double QGP_INIT_MIN_SEPARATION = 0.020;
     constexpr int    QGP_GLUON_COUNT = divideOrZero(QGP_QUARK_COUNT, QGP_GLUON_RATIO_DIVISOR);
@@ -37,7 +66,6 @@ namespace RegimeConfig {
     constexpr int    PLASMA_PHOTON_COUNT = divideOrZero(
         PLASMA_BARYON_COUNT * PLASMA_PHOTON_RATIO_NUMERATOR + (PLASMA_PHOTON_RATIO_DENOMINATOR / 2),
         PLASMA_PHOTON_RATIO_DENOMINATOR);
-    constexpr int    PLASMA_GRID_SIZE = 64;
     constexpr int    PLASMA_HELIUM_RATIO_DIVISOR = 7;  // Partículas alfa: 1 a cada 7 bárions
     constexpr double PLASMA_INIT_BARYON_MIN_SEPARATION = 0.070;
     constexpr double PLASMA_INTERACTION_RADIUS = 0.18;
@@ -49,9 +77,7 @@ namespace RegimeConfig {
     constexpr int    PLASMA_MAX_MICRO_DECAYS = 3;
 
     // ── Regime 4: Structure Formation ──
-    constexpr int    STRUCT_ZELDOVICH_N_CBRT = 25;      // 25³ (gerará ~15.625 partículas)
     constexpr double STRUCT_BOX_SIZE_MPC = 50.0;       // Tamanho cúbico da simulação inicial
-    constexpr int    STRUCT_GRID_SIZE = 64; 
     constexpr int    STRUCT_GAS_RATIO_DIVISOR = 5;     // 20% gás (i % 5 == 0), 80% DM
 
     // ── Massas e Constantes de Astro-formação Inicial ──
@@ -80,7 +106,7 @@ namespace RegimeConfig {
     struct QualityProfile {
         static constexpr int   N_particles = STRUCT_ZELDOVICH_N_CBRT * STRUCT_ZELDOVICH_N_CBRT * STRUCT_ZELDOVICH_N_CBRT;
         static constexpr int   grid_res    = STRUCT_GRID_SIZE;
-        static constexpr float barnes_hut_theta = 0.5f;
+        static constexpr float barnes_hut_theta = STRUCT_BARNES_HUT_THETA;
     };
 
     struct CameraState {
