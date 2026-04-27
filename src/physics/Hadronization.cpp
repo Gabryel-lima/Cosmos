@@ -48,6 +48,7 @@ size_t nearestCandidate(const ParticlePool& pool,
 
 size_t nearestGluon(const ParticlePool& pool,
                     const std::vector<size_t>& gluons,
+                    const std::vector<uint8_t>& used,
                     double px,
                     double py,
                     double pz,
@@ -56,6 +57,7 @@ size_t nearestGluon(const ParticlePool& pool,
     size_t best = kInvalidIndex;
     double best_distance = max_distance_sq;
     for (size_t idx : gluons) {
+        if (used[idx]) continue;
         if (!(pool.flags[idx] & PF_ACTIVE)) continue;
         const double d2 = distanceSquaredPoint(pool, idx, px, py, pz);
         if (d2 < best_distance) {
@@ -112,7 +114,7 @@ TripletCandidate findBestTriplet(const ParticlePool& pool,
         const double cx = (pool.x[seed] + pool.x[partner_same] + pool.x[partner_other]) / 3.0;
         const double cy = (pool.y[seed] + pool.y[partner_same] + pool.y[partner_other]) / 3.0;
         const double cz = (pool.z[seed] + pool.z[partner_same] + pool.z[partner_other]) / 3.0;
-        const size_t gluon = nearestGluon(pool, gluons, cx, cy, cz,
+        const size_t gluon = nearestGluon(pool, gluons, used, cx, cy, cz,
                                           std::isfinite(max_radius) ? max_distance_sq * 2.25
                                                                     : std::numeric_limits<double>::infinity());
 
@@ -273,11 +275,12 @@ HadronizationStats hadronizeQgp(ParticlePool& pool, double binding_radius) {
     }
 
     const int baryon_budget = static_cast<int>((up_like.size() + down_like.size()) / 3);
-    const int target_neutrons = static_cast<int>(std::lround(baryon_budget * NuclearAbundances::DEFAULT_Xn));
-    const int min_neutrons = std::max(0, 2 * baryon_budget - static_cast<int>(up_like.size()));
-    const int max_neutrons = std::min(baryon_budget, static_cast<int>(down_like.size()) - baryon_budget);
+    const int hadronization_budget = std::min(baryon_budget, static_cast<int>(gluons.size()));
+    const int target_neutrons = static_cast<int>(std::lround(hadronization_budget * NuclearAbundances::DEFAULT_Xn));
+    const int min_neutrons = std::max(0, 2 * hadronization_budget - static_cast<int>(up_like.size()));
+    const int max_neutrons = std::min(hadronization_budget, static_cast<int>(down_like.size()) - hadronization_budget);
     const int neutron_quota = std::clamp(target_neutrons, min_neutrons, std::max(min_neutrons, max_neutrons));
-    const int proton_quota = std::max(0, baryon_budget - neutron_quota);
+    const int proton_quota = std::max(0, hadronization_budget - neutron_quota);
 
     std::vector<uint8_t> used(n, 0);
     const std::array<double, 4> radius_passes = {
@@ -297,7 +300,7 @@ HadronizationStats hadronizeQgp(ParticlePool& pool, double binding_radius) {
         for (double radius : radius_passes) {
             while (static_cast<int>(formed_counter) < quota) {
                 const TripletCandidate candidate = findBestTriplet(pool, primary, same_kind, other_kind, gluons, used, radius);
-                if (!candidate.valid) break;
+                if (!candidate.valid || candidate.gluon == kInvalidIndex) break;
 
                 const double cx = (pool.x[candidate.first] + pool.x[candidate.second] + pool.x[candidate.third]) / 3.0;
                 const double cy = (pool.y[candidate.first] + pool.y[candidate.second] + pool.y[candidate.third]) / 3.0;
@@ -307,9 +310,12 @@ HadronizationStats hadronizeQgp(ParticlePool& pool, double binding_radius) {
                 const double cvz = (pool.vz[candidate.first] + pool.vz[candidate.second] + pool.vz[candidate.third]) / 3.0;
 
                 used[candidate.first] = used[candidate.second] = used[candidate.third] = 1;
+                used[candidate.gluon] = 1;
                 pool.deactivate(candidate.first);
                 pool.deactivate(candidate.second);
                 pool.deactivate(candidate.third);
+                pool.deactivate(candidate.gluon);
+                ++stats.confined_gluons;
 
                 float r, g, b;
                 ParticlePool::defaultColor(type, r, g, b);

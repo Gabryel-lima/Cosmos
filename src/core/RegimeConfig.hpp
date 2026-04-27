@@ -8,21 +8,35 @@
 namespace RegimeConfig {
     constexpr std::uint32_t DEFAULT_RANDOM_SEED = 424242u;
 
+    constexpr int divideOrZero(int value, int divisor) {
+        return (divisor > 0) ? (value / divisor) : 0;
+    }
+
+    constexpr int minInt(int a, int b) {
+        return (a < b) ? a : b;
+    }
+
     // ── Regime 1: Quark-Gluon Plasma (QGP) ──
     constexpr int    QGP_QUARK_COUNT = 2000;
     constexpr int    QGP_GLUON_RATIO_DIVISOR = 5;      // 1 glúon para cada N quarks (ex: N / 5)
     constexpr double QGP_INIT_MIN_SEPARATION = 0.020;
+    constexpr int    QGP_GLUON_COUNT = divideOrZero(QGP_QUARK_COUNT, QGP_GLUON_RATIO_DIVISOR);
+    constexpr int    QGP_MAX_HADRONIZABLE_BARYONS = minInt(divideOrZero(QGP_QUARK_COUNT, 3), QGP_GLUON_COUNT);
 
     // ── Regime 2: Big Bang Nucleosynthesis (BBN) ──
-    constexpr int    BBN_NUCLEON_COUNT = 10000;
+    constexpr int    BBN_NUCLEON_COUNT = QGP_MAX_HADRONIZABLE_BARYONS;
     constexpr int    BBN_PROTON_RATIO = 8;             // 1 nêutron para cada 7 prótons (i % 8 == 0 -> de um tipo)
     constexpr double BBN_INIT_XP = 0.875;
     constexpr double BBN_INIT_XN = 0.125;
     constexpr double BBN_INIT_MIN_SEPARATION = 0.016;
 
     // ── Regime 3: Photon Plasma / Recombination ──
-    constexpr int    PLASMA_BARYON_COUNT = 1800;
-    constexpr int    PLASMA_PHOTON_COUNT = 3200;
+    constexpr int    PLASMA_BARYON_COUNT = BBN_NUCLEON_COUNT;
+    constexpr int    PLASMA_PHOTON_RATIO_NUMERATOR = 16;   // legado: 3200 / 1800 ≈ 16 / 9
+    constexpr int    PLASMA_PHOTON_RATIO_DENOMINATOR = 9;
+    constexpr int    PLASMA_PHOTON_COUNT = divideOrZero(
+        PLASMA_BARYON_COUNT * PLASMA_PHOTON_RATIO_NUMERATOR + (PLASMA_PHOTON_RATIO_DENOMINATOR / 2),
+        PLASMA_PHOTON_RATIO_DENOMINATOR);
     constexpr int    PLASMA_GRID_SIZE = 64;
     constexpr int    PLASMA_HELIUM_RATIO_DIVISOR = 7;  // Partículas alfa: 1 a cada 7 bárions
     constexpr double PLASMA_INIT_BARYON_MIN_SEPARATION = 0.070;

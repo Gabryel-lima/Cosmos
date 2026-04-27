@@ -113,6 +113,9 @@ void exchangeColorThroughGluons(ParticlePool& p,
         p.vx[gi] += (mx - p.x[gi]) * dt * 2.2;
         p.vy[gi] += (my - p.y[gi]) * dt * 2.2;
         p.vz[gi] += (mz - p.z[gi]) * dt * 2.2;
+        // Gluon is absorbed by the exchange: clear its QCD charges
+        // so it doesn't repeatedly mediate further unrealistic swaps.
+        p.clearQcdCharge(gi);
     }
 }
 

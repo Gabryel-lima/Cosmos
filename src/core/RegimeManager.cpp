@@ -346,8 +346,9 @@ void inheritStateAcrossTransition(int from, int to, const Universe& previous, In
     ParticlePool remapped = remapParticlesForRegime(to, previous);
     if (!remapped.x.empty()) {
         size_t target_size = next.particles.x.size();
+        const bool preserve_derived_counts = (to == 2 || to == 3);
 
-        if (to < 4 && target_size > 0 && target_size != activeParticleCount(remapped)) {
+        if (to < 4 && !preserve_derived_counts && target_size > 0 && target_size != activeParticleCount(remapped)) {
             remapped = resampleParticlePoolLOD(remapped, target_size);
         }
 
@@ -515,7 +516,7 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
                 st.particles.luminosity[added] = 2.2f;
             }
             // Glúons mediadores
-            for (int i = 0; i < N / RegimeConfig::QGP_GLUON_RATIO_DIVISOR; ++i) {
+            for (int i = 0; i < RegimeConfig::QGP_GLUON_COUNT; ++i) {
                 double px, py, pz;
                 randomPosInSphereWithClearance(0.5, RegimeConfig::QGP_INIT_MIN_SEPARATION * 0.75,
                                                st.particles, px, py, pz);
@@ -538,11 +539,12 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
             st.abundances.Xn = RegimeConfig::BBN_INIT_XN;
             int N = RegimeConfig::BBN_NUCLEON_COUNT;
             std::normal_distribution<double> vel_dist(0.0, 0.01);
+            std::bernoulli_distribution proton_dist(RegimeConfig::BBN_INIT_XP);
             for (int i = 0; i < N; ++i) {
                 double px, py, pz;
                 randomPosInSphereWithClearance(0.5, RegimeConfig::BBN_INIT_MIN_SEPARATION,
                                                st.particles, px, py, pz);
-                bool is_proton = (rng_init() % RegimeConfig::BBN_PROTON_RATIO != 0);
+                bool is_proton = proton_dist(rng_init);
                 ParticleType t = is_proton ? ParticleType::PROTON : ParticleType::NEUTRON;
                 float cr, cg, cb; ParticlePool::defaultColor(t, cr, cg, cb);
                 size_t added = st.particles.add(px, py, pz,
