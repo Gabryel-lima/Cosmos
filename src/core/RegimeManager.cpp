@@ -238,6 +238,216 @@ void imprintStructureTemplate(ParticlePool& dst, const ParticlePool& inherited, 
 ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
     ParticlePool next;
     ParticlePool source = previous.particles;
+    // Inflation is intentionally visualized in 2D. When it transitions into
+    // the QGP, reinterpret that 2D scalar map as an angular chart of a 3D
+    // sphere, preserving density contrast and fluctuations while gaining the
+    // missing spatial dimension for the next regime.
+    if (to == 1 && previous.phi_NX > 0 && previous.phi_NY > 0 && !previous.phi_field.empty()) {
+        const size_t Nquarks = static_cast<size_t>(RegimeConfig::QGP_QUARK_COUNT);
+        const size_t Ngluons = static_cast<size_t>(RegimeConfig::QGP_GLUON_COUNT);
+        const int NX = previous.phi_NX;
+        const int NY = previous.phi_NY;
+        const size_t Ncells = previous.phi_field.size();
+        constexpr double qgp_radius = 0.5;
+
+        auto clampIndex = [](int value, int upper) {
+            return std::clamp(value, 0, std::max(upper - 1, 0));
+        };
+
+        auto phiAt = [&](int x, int y) {
+            const int sx = clampIndex(x, NX);
+            const int sy = clampIndex(y, NY);
+            return static_cast<double>(previous.phi_field[static_cast<size_t>(sx + NX * sy)]);
+        };
+
+        auto phiDotAt = [&](int x, int y) {
+            if (previous.phi_dot_field.size() != Ncells) return 0.0;
+            const int sx = clampIndex(x, NX);
+            const int sy = clampIndex(y, NY);
+            return static_cast<double>(previous.phi_dot_field[static_cast<size_t>(sx + NX * sy)]);
+        };
+
+        double mean_phi = 0.0;
+        for (float value : previous.phi_field) {
+            mean_phi += static_cast<double>(value);
+        }
+        mean_phi /= static_cast<double>(Ncells);
+
+        double variance_phi = 0.0;
+        for (float value : previous.phi_field) {
+            double centered = static_cast<double>(value) - mean_phi;
+            variance_phi += centered * centered;
+        }
+        variance_phi /= static_cast<double>(Ncells);
+        const double rms_phi = std::sqrt(std::max(variance_phi, 1e-12));
+
+        // Weight angular regions by overdensity and 2D field variation, so the
+        // QGP inherits the inflation map as a spherical chart rather than as a
+        // literal 3D extrusion.
+        std::vector<double> weights;
+        weights.reserve(Ncells);
+        double total = 0.0;
+        for (int y = 0; y < NY; ++y) {
+            for (int x = 0; x < NX; ++x) {
+                const double phi = phiAt(x, y);
+                const double contrast = (phi - mean_phi) / rms_phi;
+                const double grad_x = 0.5 * (phiAt(x + 1, y) - phiAt(x - 1, y));
+                const double grad_y = 0.5 * (phiAt(x, y + 1) - phiAt(x, y - 1));
+                const double gradient_mag = std::sqrt(grad_x * grad_x + grad_y * grad_y) / rms_phi;
+                const double momentum_mag = std::abs(phiDotAt(x, y)) / rms_phi;
+                double w = 0.08 + std::max(0.0, contrast) + 0.35 * gradient_mag + 0.15 * momentum_mag;
+                weights.push_back(w);
+                total += w;
+            }
+        }
+        if (total <= 0.0) {
+            // Let the existing buildInitialState() fallback stand if the field is degenerate.
+            source = previous.particles;
+        } else {
+            std::vector<double> cdf(weights.size());
+            double c = 0.0;
+            for (size_t i = 0; i < weights.size(); ++i) { c += weights[i]; cdf[i] = c; }
+
+            std::mt19937 rng = simrng::makeStream("inflation-to-qgp");
+            std::uniform_real_distribution<double> uni(0.0, cdf.back());
+            std::normal_distribution<double> thermal_vel(0.0, 0.025);
+            std::uniform_real_distribution<double> jitteru(-0.4, 0.4);
+
+            auto sampleCellIndex = [&](size_t attempts = 4) -> size_t {
+                for (size_t a = 0; a < attempts; ++a) {
+                    double r = uni(rng);
+                    auto it = std::lower_bound(cdf.begin(), cdf.end(), r);
+                    size_t idx = static_cast<size_t>(std::distance(cdf.begin(), it));
+                    if (idx < cdf.size()) return idx;
+                }
+                return static_cast<size_t>(std::min<size_t>(cdf.size() - 1, static_cast<size_t>(std::floor((uni(rng) / cdf.back()) * cdf.size()))));
+            };
+
+            auto cellToPosAndVelocity = [&](size_t idx,
+                                            double& px, double& py, double& pz,
+                                            double& vx, double& vy, double& vz) {
+                const int j = static_cast<int>(idx / NX);
+                const int i = static_cast<int>(idx % NX);
+                const double u = (static_cast<double>(i) + 0.5) / static_cast<double>(NX);
+                const double v = (static_cast<double>(j) + 0.5) / static_cast<double>(NY);
+                const double theta = 2.0 * M_PI * (u - 0.5);
+                const double latitude = M_PI * (0.5 - v);
+                const double cos_lat = std::cos(latitude);
+                const double dir_x = cos_lat * std::cos(theta);
+                const double dir_y = std::sin(latitude);
+                const double dir_z = cos_lat * std::sin(theta);
+
+                const double phi = phiAt(i, j);
+                const double contrast = (phi - mean_phi) / rms_phi;
+                const double grad_x = 0.5 * (phiAt(i + 1, j) - phiAt(i - 1, j));
+                const double grad_y = 0.5 * (phiAt(i, j + 1) - phiAt(i, j - 1));
+                const double grad_len = std::sqrt(grad_x * grad_x + grad_y * grad_y);
+                const double flow_u = (grad_len > 1e-8) ? (grad_x / grad_len) : 0.0;
+                const double flow_v = (grad_len > 1e-8) ? (grad_y / grad_len) : 0.0;
+
+                const double radial_random = std::cbrt(std::clamp(uni(rng) / cdf.back(), 0.0, 1.0));
+                const double radial_bias = std::clamp(contrast * 0.08, -0.10, 0.10);
+                const double radius = qgp_radius * std::clamp(0.22 + 0.72 * radial_random - radial_bias, 0.05, 1.0);
+                const double tangent_theta_x = -dir_z;
+                const double tangent_theta_y = 0.0;
+                const double tangent_theta_z = dir_x;
+                const double tangent_phi_x = -std::sin(latitude) * std::cos(theta);
+                const double tangent_phi_y = cos_lat;
+                const double tangent_phi_z = -std::sin(latitude) * std::sin(theta);
+
+                const double cell_jitter = qgp_radius * 0.014;
+                px = dir_x * radius + cell_jitter * jitteru(rng);
+                py = dir_y * radius + cell_jitter * jitteru(rng);
+                pz = dir_z * radius + cell_jitter * jitteru(rng);
+
+                const double inflow = std::clamp(contrast, -2.5, 2.5) * 0.010;
+                const double phi_momentum = std::clamp(phiDotAt(i, j) / rms_phi, -2.0, 2.0) * 0.008;
+                vx = thermal_vel(rng) - dir_x * inflow + tangent_theta_x * (0.016 * flow_u) + tangent_phi_x * (0.016 * flow_v) + dir_x * phi_momentum;
+                vy = thermal_vel(rng) - dir_y * inflow + tangent_theta_y * (0.016 * flow_u) + tangent_phi_y * (0.016 * flow_v) + dir_y * phi_momentum;
+                vz = thermal_vel(rng) - dir_z * inflow + tangent_theta_z * (0.016 * flow_u) + tangent_phi_z * (0.016 * flow_v) + dir_z * phi_momentum;
+            };
+
+            auto randomPosInQgpSphere = [&](double& px, double& py, double& pz) {
+                std::uniform_real_distribution<double> dist(-qgp_radius, qgp_radius);
+                do {
+                    px = dist(rng);
+                    py = dist(rng);
+                    pz = dist(rng);
+                } while (px * px + py * py + pz * pz > qgp_radius * qgp_radius);
+            };
+
+            auto randomPosInQgpSphereWithClearance = [&](double min_distance,
+                                                         double& px, double& py, double& pz) {
+                const double min_distance2 = min_distance * min_distance;
+                for (int attempt = 0; attempt < 96; ++attempt) {
+                    randomPosInQgpSphere(px, py, pz);
+                    bool overlaps = false;
+                    for (size_t i = 0; i < next.x.size(); ++i) {
+                        if (!(next.flags[i] & PF_ACTIVE)) continue;
+                        double dx = next.x[i] - px;
+                        double dy = next.y[i] - py;
+                        double dz = next.z[i] - pz;
+                        if (dx * dx + dy * dy + dz * dz < min_distance2) {
+                            overlaps = true;
+                            break;
+                        }
+                    }
+                    if (!overlaps) return;
+                }
+                randomPosInQgpSphere(px, py, pz);
+            };
+
+            const double min_dist2 = RegimeConfig::QGP_INIT_MIN_SEPARATION * RegimeConfig::QGP_INIT_MIN_SEPARATION;
+            static const ParticleType quark_types[3] = { ParticleType::QUARK_U, ParticleType::QUARK_D, ParticleType::QUARK_S };
+            for (size_t qi = 0; qi < Nquarks; ++qi) {
+                double px, py, pz, vx, vy, vz;
+                bool placed = false;
+                for (int attempt = 0; attempt < 32 && !placed; ++attempt) {
+                    size_t cidx = sampleCellIndex();
+                    cellToPosAndVelocity(cidx, px, py, pz, vx, vy, vz);
+                    bool overlap = false;
+                    for (size_t e = 0; e < next.x.size(); ++e) {
+                        if (!(next.flags[e] & PF_ACTIVE)) continue;
+                        double dx = next.x[e] - px;
+                        double dy = next.y[e] - py;
+                        double dz = next.z[e] - pz;
+                        if (dx*dx + dy*dy + dz*dz < min_dist2) { overlap = true; break; }
+                    }
+                    if (!overlap) placed = true;
+                }
+                if (!placed) {
+                    randomPosInQgpSphereWithClearance(RegimeConfig::QGP_INIT_MIN_SEPARATION, px, py, pz);
+                    vx = thermal_vel(rng);
+                    vy = thermal_vel(rng);
+                    vz = thermal_vel(rng);
+                }
+                ParticleType t = quark_types[rng() % 3u];
+                float cr, cg, cb; ParticlePool::defaultColor(t, cr, cg, cb);
+                size_t added = next.add(px, py, pz, vx, vy, vz, qgpRestMass(t), t, cr, cg, cb,
+                                        (t == ParticleType::QUARK_U) ? 2.0f/3.0f : -1.0f/3.0f);
+                next.setQcdCharge(added, randomQcdPrimary(rng));
+                next.luminosity[added] = 2.2f;
+            }
+
+            for (size_t gi = 0; gi < Ngluons; ++gi) {
+                double px, py, pz, vx, vy, vz;
+                size_t cidx = sampleCellIndex();
+                cellToPosAndVelocity(cidx, px, py, pz, vx, vy, vz);
+                px += 1e-3 * jitteru(rng);
+                py += 1e-3 * jitteru(rng);
+                pz += 1e-3 * jitteru(rng);
+                size_t added = next.add(px, py, pz, vx, vy, vz,
+                                        qgpRestMass(ParticleType::GLUON), ParticleType::GLUON, 1.0f, 0.8f, 0.2f, 0.0f);
+                QcdColor color = QcdColor::NONE;
+                QcdColor anticolor = QcdColor::NONE;
+                randomDirectionalGluon(rng, color, anticolor);
+                next.setQcdCharge(added, color, anticolor);
+                next.luminosity[added] = 2.8f;
+            }
+
+            return next;
+        }
+    }
     if (to == 2) {
         chemistry::hadronizeQgp(source);
     }

@@ -143,9 +143,6 @@ static void on_key(GLFWwindow* /*w*/, int key, int /*sc*/, int action, int mods)
             else                         g_app->clock.pause();
             break;
 
-        case GLFW_KEY_PERIOD:  // > avançar um passo
-            g_app->clock.stepSingleFrame(); break;
-
         case GLFW_KEY_H:
             g_show_hud = !g_show_hud;
             g_app->overlay.visible = g_show_hud;
@@ -171,21 +168,6 @@ static void on_key(GLFWwindow* /*w*/, int key, int /*sc*/, int action, int mods)
             break;
         }
 
-        case GLFW_KEY_LEFT_BRACKET:
-        case GLFW_KEY_COMMA: {
-            // Desacelerar
-            double s = g_app->clock.getTimeScale();
-            g_app->clock.setTimeScale(s * 0.5);
-            break;
-        }
-        case GLFW_KEY_RIGHT_BRACKET:
-        case GLFW_KEY_SEMICOLON: {
-            // Acelerar
-            double s = g_app->clock.getTimeScale();
-            g_app->clock.setTimeScale(s * 2.0);
-            break;
-        }
-
         case GLFW_KEY_1: jumpToRegimeAndFrame(*g_app, 0); break;
         case GLFW_KEY_2: jumpToRegimeAndFrame(*g_app, 1); break;
         case GLFW_KEY_3: jumpToRegimeAndFrame(*g_app, 2); break;
@@ -208,6 +190,39 @@ static void on_key(GLFWwindow* /*w*/, int key, int /*sc*/, int action, int mods)
         if (key == GLFW_KEY_TAB && (mods & GLFW_MOD_SHIFT) == 0) {
             g_app->camera.updateMode();
         }
+    }
+}
+
+static void on_char(GLFWwindow* /*w*/, unsigned int codepoint) {
+    if (!g_app) return;
+    if (ImGui::GetIO().WantCaptureKeyboard) return;
+
+    switch (codepoint) {
+    case '.':
+    case '>':
+        g_app->clock.stepSingleFrame();
+        break;
+
+    case ',':
+    case '<':
+    case '[':
+    case '{': {
+        double scale = g_app->clock.getTimeScale();
+        g_app->clock.setTimeScale(scale * 2.0);
+        break;
+    }
+
+    case ';':
+    case ':':
+    case ']':
+    case '}': {
+        double scale = g_app->clock.getTimeScale();
+        g_app->clock.setTimeScale(scale * 0.5);
+        break;
+    }
+
+    default:
+        break;
     }
 }
 
@@ -345,6 +360,7 @@ static bool initGLFW(AppState& app) {
     // Registrar callbacks
     glfwSetFramebufferSizeCallback(app.window, on_framebuffer_resize);
     glfwSetKeyCallback(app.window, on_key);
+    glfwSetCharCallback(app.window, on_char);
     glfwSetScrollCallback(app.window, on_scroll);
     glfwSetCursorPosCallback(app.window, on_cursor_pos);
 

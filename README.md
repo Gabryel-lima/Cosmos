@@ -5,6 +5,8 @@ present day.  Each cosmological epoch is modelled as a distinct physics
 regime that transitions smoothly into the next, rendered live with OpenGL 4.3,
 Dear ImGui, and GLFW.
 
+- Português (pt-BR): [README.pt-BR.md](README.pt-BR.md)
+
 ## What's New
 
 - Expanded timeline to 7 playable regimes (Dark Ages and Reionization are now distinct stages).
@@ -136,6 +138,72 @@ Cosmos/
 ├── CMakeLists.txt
 └── Makefile
 ```
+
+## Quick Start
+
+Follow these steps to get the project running locally:
+
+```bash
+# 1. Download libs/glad and libs/imgui (safe to re-run — skips if present)
+make setup
+
+# 2. Compile
+make
+
+# 3. Launch (example)
+make run
+```
+
+Manual run (equivalent):
+
+```bash
+./build/cosmos
+```
+
+## Run Examples
+
+```bash
+./build/cosmos --width 1280 --height 720 --seed 42
+./build/cosmos --fullscreen
+```
+
+## Troubleshooting
+
+- Application crashes on start / blank window: verify GPU drivers and OpenGL 4.3 support. On Debian/Ubuntu, ensure `libgl1-mesa-dri` and `libglfw3` are installed.
+- Low FPS / UI choppiness: try `make QUALITY=LOW` to reduce particle counts and grid resolution.
+- SIGILL (illegal instruction) after building with native optimizations: you probably built with `-DNATIVE_OPT=ON`. Rebuild without native optimizations or use a portable build:
+
+```bash
+cd build && cmake .. -DNATIVE_OPT=OFF
+make clean && make
+```
+
+- Shader compile errors: press `R` in the running app to reload shaders and check the console/log for compilation messages.
+
+If a problem persists, open an issue with a short description and your GPU/driver information.
+
+## Contributing
+
+Contributions are welcome — fork the repo, create a topic branch, and submit a pull request with a clear description of changes. A good PR includes:
+
+- a short summary of the change
+- how to reproduce or test it locally
+- screenshots or GIFs for visual changes
+
+Run `make setup` and `make` before opening a PR to ensure external libs are present and the project builds locally.
+
+## Credits & Acknowledgements
+
+- Dear ImGui — immediate-mode GUI used for the in-game HUD and tools.
+- GLAD — OpenGL function loader.
+- GLFW — window and input management.
+- stb and tiny helper headers used across the codebase.
+
+If you use assets or fonts with their own licenses, please respect those licenses when redistributing builds.
+
+## Contact / Issues
+
+Please file bugs or feature requests using the repository Issues page. Include reproduction steps and environment details (OS, GPU, driver versions) for faster triage.
 
 ## License
 
