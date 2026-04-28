@@ -1,10 +1,18 @@
 # Cosmos — Simulação Cosmológica
 
-Uma simulação cosmológica em tempo real em C++17, executada do Big Bang até o
-presente. Cada época cosmológica é modelada como um regime físico distinto que
-faz a transição suavemente para o seguinte, com renderização ao vivo usando
-OpenGL 4.3, Dear ImGui e GLFW.
+<p align="center">
+	<img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg" />
+	<img alt="C++17" src="https://img.shields.io/badge/C%2B%2B-17-blue.svg" />
+	<img alt="OpenGL 4.3" src="https://img.shields.io/badge/OpenGL-4.3-brightgreen.svg" />
+	<img alt="ffmpeg" src="https://img.shields.io/badge/ffmpeg-required-red.svg" />
+	<img alt="quality" src="https://img.shields.io/badge/quality-MEDIUM-orange.svg" />
+	<img alt="build" src="https://img.shields.io/badge/build-local-lightgrey.svg" />
+</p>
 
+Uma simulação cosmológica compacta e visual (C++17) que cobre desde o Big Bang
+até a formação de estruturas. Cada época é modelada como um regime físico
+independente com render em tempo real (OpenGL 4.3), HUD em Dear ImGui e
+controles simples para exploração e diagnósticos reproduzíveis.
 ## Novidades
 
 - Linha do tempo expandida para 7 regimes jogáveis (Idades Escuras e Reionização agora são estágios distintos).
@@ -31,7 +39,7 @@ OpenGL 4.3, Dear ImGui e GLFW.
 
 **Pacotes de sistema** (Ubuntu / Debian):
 ```bash
-sudo apt install build-essential cmake libglfw3-dev libglm-dev libgl-dev git curl unzip
+sudo apt install build-essential cmake ffmpeg libglfw3-dev libglm-dev libgl-dev git curl unzip
 ```
 
 **Toolchain**: GCC 13+ (ou Clang 16+), CMake 3.20+ e uma GPU compatível com OpenGL 4.3.
@@ -81,12 +89,15 @@ cd build && cmake .. -DNATIVE_OPT=ON
 ## Argumentos de Execução
 
 ```bash
-./build/cosmos [--fullscreen|-f] [--width W] [--height H] [--seed N]
+./build/cosmos [--fullscreen|-f] [--width W] [--height H] [--seed N] [--video [ARQUIVO.mp4]] [--video-capture-fps N] [--video-fps N]
 ```
 
 - `--fullscreen`, `-f`: inicia em tela cheia.
 - `--width`, `--height`: sobrescrevem o tamanho inicial da janela.
 - `--seed`: define uma semente determinística para a simulação.
+- `--video [ARQUIVO.mp4]`: ativa a exportação determinística de vídeo via `ffmpeg`. A simulação passa a avançar um quadro fixo de captura por vez, então FPS baixo na execução ao vivo não distorce o diagnóstico gravado. Se omitido, o arquivo de saída padrão é `cosmos_video.mp4`.
+- `--video-capture-fps`: cadência de captura usada no render offline. Padrão: `30`.
+- `--video-fps`: taxa final do vídeo codificado. Quando maior que a cadência de captura, o `ffmpeg` aplica interpolação de movimento (`minterpolate`). Padrão: `60`.
 
 ## Controles
 
@@ -165,12 +176,32 @@ Execução manual (equivalente):
 ```bash
 ./build/cosmos --width 1280 --height 720 --seed 42
 ./build/cosmos --fullscreen
+./build/cosmos --video diagnostico.mp4
+./build/cosmos --video diagnostico.mp4 --video-capture-fps 30 --video-fps 60
 ```
+
+## Video De Demonstração
+
+<video controls loop muted width="640">
+	<source src="assets/videos/demo.mp4" type="video/mp4">
+	Seu navegador não suporta a tag de vídeo. Abra `assets/videos/demo.mp4` localmente.
+</video>
+
+Para abrir o vídeo localmente a partir do clone do repositório, use um destes comandos:
+
+```bash
+xdg-open assets/videos/demo.mp4   # Linux desktop
+mpv assets/videos/demo.mp4        # Player leve (mpv)
+ffplay -autoexit assets/videos/demo.mp4  # verificação rápida com ffmpeg
+```
+
+Observação: algumas plataformas de hospedagem (incluindo o GitHub) podem restringir autoplay ou certas funcionalidades HTML; se a incorporação não reproduzir automaticamente, baixe ou abra o arquivo localmente.
 
 ## Solução de Problemas
 
 - Aplicação trava ao iniciar / janela em branco: verifique drivers da GPU e suporte a OpenGL 4.3. No Debian/Ubuntu, confirme que `libgl1-mesa-dri` e `libglfw3` estão instalados.
 - FPS baixo / interface travando: tente `make QUALITY=LOW` para reduzir contagem de partículas e resolução da grade.
+- Exportação de vídeo falha logo ao iniciar: confirme que `ffmpeg` está instalado e acessível no `PATH`.
 - SIGILL (instrução ilegal) após compilar com otimizações nativas: provavelmente você compilou com `-DNATIVE_OPT=ON`. Recompile sem otimizações nativas:
 
 ```bash

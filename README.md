@@ -1,9 +1,18 @@
 # Cosmos — Cosmological Simulation
 
-A real-time C++17 cosmological simulation running from the Big Bang to the
-present day.  Each cosmological epoch is modelled as a distinct physics
-regime that transitions smoothly into the next, rendered live with OpenGL 4.3,
-Dear ImGui, and GLFW.
+<p align="center">
+	<img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg" />
+	<img alt="C++17" src="https://img.shields.io/badge/C%2B%2B-17-blue.svg" />
+	<img alt="OpenGL 4.3" src="https://img.shields.io/badge/OpenGL-4.3-brightgreen.svg" />
+	<img alt="ffmpeg" src="https://img.shields.io/badge/ffmpeg-required-red.svg" />
+	<img alt="quality" src="https://img.shields.io/badge/quality-MEDIUM-orange.svg" />
+	<img alt="build" src="https://img.shields.io/badge/build-local-lightgrey.svg" />
+</p>
+
+A compact, visual cosmological simulation (C++17) that runs from the Big Bang
+to later structure formation. Each epoch is modelled as a focused physics
+regime with real-time rendering (OpenGL 4.3), a Dear ImGui HUD and a small
+set of user controls for fast exploration and reproducible diagnostics.
 
 - Português (pt-BR): [README.pt-BR.md](README.pt-BR.md)
 
@@ -33,7 +42,7 @@ Dear ImGui, and GLFW.
 
 **System packages** (Ubuntu / Debian):
 ```bash
-sudo apt install build-essential cmake libglfw3-dev libglm-dev libgl-dev git curl unzip
+sudo apt install build-essential cmake ffmpeg libglfw3-dev libglm-dev libgl-dev git curl unzip
 ```
 
 **Toolchain**: GCC 13+ (or Clang 16+), CMake 3.20+, an OpenGL 4.3 capable GPU.
@@ -83,12 +92,15 @@ cd build && cmake .. -DNATIVE_OPT=ON
 ## Run Arguments
 
 ```bash
-./build/cosmos [--fullscreen|-f] [--width W] [--height H] [--seed N]
+./build/cosmos [--fullscreen -f] [--width W] [--height H] [--seed N] [--video [FILE.mp4]] [--video-capture-fps N] [--video-fps N]
 ```
 
 - `--fullscreen`, `-f`: start in fullscreen.
 - `--width`, `--height`: override initial window size.
 - `--seed`: set deterministic simulation seed.
+- `--video [FILE.mp4]`: enable deterministic video export through `ffmpeg`. The simulation advances one fixed capture frame at a time, so slow live rendering does not distort the diagnostic output. If omitted, the output file defaults to `cosmos_video.mp4`.
+- `--video-capture-fps`: capture cadence used for the offline render. Default: `30`.
+- `--video-fps`: final encoded frame rate. When greater than the capture cadence, `ffmpeg` applies motion interpolation (`minterpolate`). Default: `60`.
 
 ## Controls
 
@@ -165,12 +177,32 @@ Manual run (equivalent):
 ```bash
 ./build/cosmos --width 1280 --height 720 --seed 42
 ./build/cosmos --fullscreen
+./build/cosmos --video diagnostics.mp4
+./build/cosmos --video diagnostics.mp4 --video-capture-fps 30 --video-fps 60
 ```
+
+## Video Demo
+
+<video controls loop muted width="640">
+	<source src="assets/videos/demo.mp4" type="video/mp4">
+	Your browser does not support the video tag. You can open `assets/videos/demo.mp4` locally.
+</video>
+
+If you prefer to open the video locally or from the repo clone, use one of these commands:
+
+```bash
+xdg-open assets/videos/demo.mp4   # Linux desktop
+mpv assets/videos/demo.mp4        # Lightweight player (mpv)
+ffplay -autoexit assets/videos/demo.mp4  # quick check with ffmpeg tools
+```
+
+Note: some hosting platforms (including GitHub) may restrict autoplay and certain HTML features; if embedding does not autoplay, download or open the file locally.
 
 ## Troubleshooting
 
 - Application crashes on start / blank window: verify GPU drivers and OpenGL 4.3 support. On Debian/Ubuntu, ensure `libgl1-mesa-dri` and `libglfw3` are installed.
 - Low FPS / UI choppiness: try `make QUALITY=LOW` to reduce particle counts and grid resolution.
+- Video export fails immediately: confirm that `ffmpeg` is installed and available on `PATH`.
 - SIGILL (illegal instruction) after building with native optimizations: you probably built with `-DNATIVE_OPT=ON`. Rebuild without native optimizations or use a portable build:
 
 ```bash

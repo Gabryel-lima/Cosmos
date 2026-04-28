@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <limits>
 #include <stdexcept>
@@ -43,6 +44,127 @@ static bool g_fullscreen    = false;
 static bool g_show_hud      = true;
 static bool g_reload_shaders = false;
 static std::string g_imgui_ini_path = "imgui.ini";
+
+struct VideoExportConfig {
+    bool enabled = false;
+    int capture_fps = 30;
+    int output_fps = 60;
+    std::filesystem::path output_path = "cosmos_video.mp4";
+};
+
+static VideoExportConfig g_video_export;
+
+static std::string shellQuote(const std::string& value) {
+    std::string quoted = "'";
+    for (char ch : value) {
+        if (ch == '\'') {
+            quoted += "'\\''";
+        } else {
+            quoted.push_back(ch);
+        }
+    }
+    quoted.push_back('\'');
+    return quoted;
+}
+
+class VideoExporter {
+public:
+    bool start(const VideoExportConfig& config, int width, int height) {
+        if (!config.enabled) {
+            return true;
+        }
+        if (width <= 0 || height <= 0 || config.capture_fps <= 0 || config.output_fps <= 0) {
+            std::fprintf(stderr, "[video] Invalid export settings. width=%d height=%d capture_fps=%d output_fps=%d\n",
+                         width, height, config.capture_fps, config.output_fps);
+            return false;
+        }
+
+        width_ = width;
+        height_ = height;
+        capture_fps_ = config.capture_fps;
+        output_fps_ = config.output_fps;
+        output_path_ = config.output_path;
+        frame_bytes_.resize(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_) * 3u);
+
+        std::string filter = "vflip";
+        if (output_fps_ > capture_fps_) {
+            filter += ",minterpolate=fps=" + std::to_string(output_fps_) + ":mi_mode=mci:mc_mode=aobmc:vsbmc=1";
+        } else if (output_fps_ != capture_fps_) {
+            filter += ",fps=" + std::to_string(output_fps_);
+        }
+
+        const std::string command =
+            "ffmpeg -y -loglevel error -f rawvideo -pixel_format rgb24 -video_size "
+            + std::to_string(width_) + "x" + std::to_string(height_)
+            + " -framerate " + std::to_string(capture_fps_)
+            + " -i - -an -vf " + shellQuote(filter)
+            + " -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p "
+            + shellQuote(output_path_.string());
+
+        pipe_ = popen(command.c_str(), "w");
+        if (!pipe_) {
+            std::fprintf(stderr, "[video] Failed to start ffmpeg. Is it installed and on PATH?\n");
+            return false;
+        }
+
+        std::printf("[video] Recording %dx%d at %d fps -> %d fps interpolated output: %s\n",
+                    width_, height_, capture_fps_, output_fps_, output_path_.string().c_str());
+        return true;
+    }
+
+    bool isActive() const {
+        return pipe_ != nullptr;
+    }
+
+    bool captureFrame() {
+        if (!pipe_) {
+            return true;
+        }
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        glReadBuffer(GL_BACK);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(0, 0, width_, height_, GL_RGB, GL_UNSIGNED_BYTE, frame_bytes_.data());
+
+        const std::size_t expected = frame_bytes_.size();
+        const std::size_t written = std::fwrite(frame_bytes_.data(), 1, expected, pipe_);
+        if (written != expected) {
+            std::fprintf(stderr, "[video] Failed to write frame %zu to ffmpeg pipe.\n", frame_index_);
+            return false;
+        }
+
+        ++frame_index_;
+        return true;
+    }
+
+    bool finish() {
+        if (!pipe_) {
+            return true;
+        }
+
+        const int status = pclose(pipe_);
+        pipe_ = nullptr;
+        if (status != 0) {
+            std::fprintf(stderr, "[video] ffmpeg exited with status %d while finalizing %s\n",
+                         status, output_path_.string().c_str());
+            return false;
+        }
+
+        std::printf("[video] Export finished: %s (%zu frames captured)\n",
+                    output_path_.string().c_str(), frame_index_);
+        return true;
+    }
+
+private:
+    FILE* pipe_ = nullptr;
+    int width_ = 0;
+    int height_ = 0;
+    int capture_fps_ = 0;
+    int output_fps_ = 0;
+    std::size_t frame_index_ = 0;
+    std::filesystem::path output_path_;
+    std::vector<unsigned char> frame_bytes_;
+};
 
 struct AppState {
     GLFWwindow*    window   = nullptr;
@@ -270,6 +392,20 @@ static bool parseArgs(int argc, char** argv) {
             unsigned long parsed_seed = std::strtoul(argv[++i], nullptr, 10);
             simrng::setGlobalSeed(static_cast<std::uint32_t>(parsed_seed));
         }
+        if (arg == "--video") {
+            g_video_export.enabled = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                g_video_export.output_path = argv[++i];
+            }
+        }
+        if (arg == "--video-capture-fps" && i + 1 < argc) {
+            g_video_export.enabled = true;
+            g_video_export.capture_fps = std::max(1, std::atoi(argv[++i]));
+        }
+        if (arg == "--video-fps" && i + 1 < argc) {
+            g_video_export.enabled = true;
+            g_video_export.output_fps = std::max(1, std::atoi(argv[++i]));
+        }
     }
     return true;
 }
@@ -346,7 +482,7 @@ static bool initGLFW(AppState& app) {
     }
 
     glfwMakeContextCurrent(app.window);
-    glfwSwapInterval(1);  // V-Sync ativado
+    glfwSwapInterval(g_video_export.enabled ? 0 : 1);  // Exportação não deve esperar V-Sync
 
     // Carregar OpenGL
     if (!gladLoadGL(glfwGetProcAddress)) {
@@ -399,6 +535,14 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    VideoExporter video_exporter;
+    if (!video_exporter.start(g_video_export, g_width, g_height)) {
+        app.renderer.shutdown();
+        glfwDestroyWindow(app.window);
+        glfwTerminate();
+        return 1;
+    }
+
     // Inicializar simulação
     app.clock.initializeToDefaultState();
     app.mgr.jumpToRegime(app.clock.getCurrentRegimeIndex(), app.clock, app.universe);
@@ -414,6 +558,10 @@ int main(int argc, char** argv) {
 
     std::printf("[main] Starting simulation. Seed=%u. Keys: SPACE=play/pause, 1-9=jump, T=toggle track, C=recenter camera, R=reload shaders, H=HUD, F=fullscreen, ESC=release/quit, Ctrl+Q=quit\n",
                 simrng::globalSeed());
+    if (g_video_export.enabled) {
+        std::printf("[main] Video mode enabled. Simulation advances deterministically at %d capture fps and exports with ffmpeg to %d fps.\n",
+                    g_video_export.capture_fps, g_video_export.output_fps);
+    }
 
     // ── Loop principal ──────────────────────────────────────────────────────────────
     using Clock = std::chrono::steady_clock;
@@ -425,11 +573,15 @@ int main(int argc, char** argv) {
     constexpr int kMaxSimStepsPerFrame = 3;
 
     while (!glfwWindowShouldClose(app.window) && app.running) {
-        // Tempo delta real
-        auto now = Clock::now();
-        float real_dt = std::chrono::duration<float>(now - last_time).count();
-        last_time = now;
-        real_dt = std::min(real_dt, 0.1f);  // limitar para evitar espiral da morte
+        float real_dt = 0.0f;
+        if (g_video_export.enabled) {
+            real_dt = 1.0f / static_cast<float>(g_video_export.capture_fps);
+        } else {
+            auto now = Clock::now();
+            real_dt = std::chrono::duration<float>(now - last_time).count();
+            last_time = now;
+            real_dt = std::min(real_dt, 0.1f);  // limitar para evitar espiral da morte
+        }
 
         // Contador de FPS
         fps_acc += real_dt; fps_frames++;
@@ -467,11 +619,20 @@ int main(int argc, char** argv) {
             }
         }
 
-        sim_accumulator = std::min(sim_accumulator + static_cast<double>(real_dt),
-                                   kFixedSimDt * static_cast<double>(kMaxSimStepsPerFrame));
+        const int max_sim_steps_per_frame = g_video_export.enabled
+            ? std::max(kMaxSimStepsPerFrame,
+                       static_cast<int>(std::ceil(static_cast<double>(real_dt) / kFixedSimDt)) + 1)
+            : kMaxSimStepsPerFrame;
+
+        if (g_video_export.enabled) {
+            sim_accumulator += static_cast<double>(real_dt);
+        } else {
+            sim_accumulator = std::min(sim_accumulator + static_cast<double>(real_dt),
+                                       kFixedSimDt * static_cast<double>(max_sim_steps_per_frame));
+        }
 
         int sim_steps = 0;
-        while (sim_accumulator >= kFixedSimDt && sim_steps < kMaxSimStepsPerFrame) {
+        while (sim_accumulator >= kFixedSimDt && sim_steps < max_sim_steps_per_frame) {
             // Avançar simulação em passo fixo para evitar que FPS baixo altere a dinâmica.
             app.clock.step(kFixedSimDt);
 
@@ -505,7 +666,7 @@ int main(int argc, char** argv) {
             ++sim_steps;
         }
 
-        if (sim_steps == kMaxSimStepsPerFrame) {
+        if (!g_video_export.enabled && sim_steps == max_sim_steps_per_frame) {
             sim_accumulator = 0.0;
         }
 
@@ -544,6 +705,10 @@ int main(int argc, char** argv) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
+        if (!video_exporter.captureFrame()) {
+            app.running = false;
+        }
+
         glfwSwapBuffers(app.window);
     }
 
@@ -551,8 +716,9 @@ int main(int argc, char** argv) {
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
+    const bool video_ok = video_exporter.finish();
     app.renderer.shutdown();
     glfwDestroyWindow(app.window);
     glfwTerminate();
-    return 0;
+    return video_ok ? 0 : 1;
 }
