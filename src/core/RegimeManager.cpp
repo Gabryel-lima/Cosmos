@@ -312,6 +312,7 @@ ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
             std::uniform_real_distribution<double> uni(0.0, cdf.back());
             std::normal_distribution<double> thermal_vel(0.0, 0.025);
             std::uniform_real_distribution<double> jitteru(-0.4, 0.4);
+            std::uniform_real_distribution<double> signed_unit(-1.0, 1.0);
 
             auto sampleCellIndex = [&](size_t attempts = 4) -> size_t {
                 for (size_t a = 0; a < attempts; ++a) {
@@ -330,12 +331,12 @@ ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
                 const int i = static_cast<int>(idx % NX);
                 const double u = (static_cast<double>(i) + 0.5) / static_cast<double>(NX);
                 const double v = (static_cast<double>(j) + 0.5) / static_cast<double>(NY);
-                const double theta = 2.0 * M_PI * (u - 0.5);
-                const double latitude = M_PI * (0.5 - v);
-                const double cos_lat = std::cos(latitude);
-                const double dir_x = cos_lat * std::cos(theta);
-                const double dir_y = std::sin(latitude);
-                const double dir_z = cos_lat * std::sin(theta);
+                     const double theta = 2.0 * M_PI * u;
+                     const double dir_y_chart = 1.0 - 2.0 * v;
+                     const double radial_xy = std::sqrt(std::max(0.0, 1.0 - dir_y_chart * dir_y_chart));
+                     const double chart_x = radial_xy * std::cos(theta);
+                     const double chart_y = dir_y_chart;
+                     const double chart_z = radial_xy * std::sin(theta);
 
                 const double phi = phiAt(i, j);
                 const double contrast = (phi - mean_phi) / rms_phi;
@@ -344,10 +345,32 @@ ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
                 const double grad_len = std::sqrt(grad_x * grad_x + grad_y * grad_y);
                 const double flow_u = (grad_len > 1e-8) ? (grad_x / grad_len) : 0.0;
                 const double flow_v = (grad_len > 1e-8) ? (grad_y / grad_len) : 0.0;
+                     const double flow_strength = grad_len / rms_phi;
+
+                     const double rand_theta = 2.0 * M_PI * std::clamp(uni(rng) / cdf.back(), 0.0, 1.0);
+                     const double rand_y = signed_unit(rng);
+                     const double rand_xy = std::sqrt(std::max(0.0, 1.0 - rand_y * rand_y));
+                     const double rand_x = rand_xy * std::cos(rand_theta);
+                     const double rand_z = rand_xy * std::sin(rand_theta);
+                     const double angular_mix = std::clamp(0.24 + 0.09 * flow_strength - 0.04 * contrast, 0.18, 0.45);
+
+                     double dir_x = chart_x * (1.0 - angular_mix) + rand_x * angular_mix;
+                     double dir_y = chart_y * (1.0 - angular_mix) + rand_y * angular_mix;
+                     double dir_z = chart_z * (1.0 - angular_mix) + rand_z * angular_mix;
+                     const double dir_norm = std::sqrt(std::max(1e-12, dir_x * dir_x + dir_y * dir_y + dir_z * dir_z));
+                     dir_x /= dir_norm;
+                     dir_y /= dir_norm;
+                     dir_z /= dir_norm;
+
+                     const double latitude = std::asin(std::clamp(dir_y, -1.0, 1.0));
+                     const double cos_lat = std::sqrt(std::max(0.0, 1.0 - dir_y * dir_y));
 
                 const double radial_random = std::cbrt(std::clamp(uni(rng) / cdf.back(), 0.0, 1.0));
-                const double radial_bias = std::clamp(contrast * 0.08, -0.10, 0.10);
-                const double radius = qgp_radius * std::clamp(0.22 + 0.72 * radial_random - radial_bias, 0.05, 1.0);
+                     const double radial_bias = std::clamp(contrast * 0.14, -0.10, 0.18);
+                     const double radial_turbulence = 0.04 * jitteru(rng) * std::clamp(flow_strength, 0.0, 2.0);
+                     const double radius = qgp_radius * std::clamp(0.10 + 0.72 * std::pow(radial_random, 1.45) - radial_bias + radial_turbulence,
+                                                                                  0.03,
+                                                                                  0.92);
                 const double tangent_theta_x = -dir_z;
                 const double tangent_theta_y = 0.0;
                 const double tangent_theta_z = dir_x;
@@ -355,16 +378,20 @@ ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
                 const double tangent_phi_y = cos_lat;
                 const double tangent_phi_z = -std::sin(latitude) * std::sin(theta);
 
-                const double cell_jitter = qgp_radius * 0.014;
-                px = dir_x * radius + cell_jitter * jitteru(rng);
-                py = dir_y * radius + cell_jitter * jitteru(rng);
-                pz = dir_z * radius + cell_jitter * jitteru(rng);
+                     const double cell_jitter = qgp_radius * (0.014 + 0.010 * std::clamp(flow_strength, 0.0, 1.6));
+                     px = dir_x * radius + rand_x * qgp_radius * 0.010 + cell_jitter * jitteru(rng);
+                     py = dir_y * radius + rand_y * qgp_radius * 0.010 + cell_jitter * jitteru(rng);
+                     pz = dir_z * radius + rand_z * qgp_radius * 0.010 + cell_jitter * jitteru(rng);
 
-                const double inflow = std::clamp(contrast, -2.5, 2.5) * 0.010;
-                const double phi_momentum = std::clamp(phiDotAt(i, j) / rms_phi, -2.0, 2.0) * 0.008;
-                vx = thermal_vel(rng) - dir_x * inflow + tangent_theta_x * (0.016 * flow_u) + tangent_phi_x * (0.016 * flow_v) + dir_x * phi_momentum;
-                vy = thermal_vel(rng) - dir_y * inflow + tangent_theta_y * (0.016 * flow_u) + tangent_phi_y * (0.016 * flow_v) + dir_y * phi_momentum;
-                vz = thermal_vel(rng) - dir_z * inflow + tangent_theta_z * (0.016 * flow_u) + tangent_phi_z * (0.016 * flow_v) + dir_z * phi_momentum;
+                     const double inflow = std::clamp(contrast, -2.5, 3.0) * 0.016;
+                     const double phi_momentum = std::clamp(phiDotAt(i, j) / rms_phi, -2.5, 2.5) * 0.010;
+                     const double turbulent_kick = 0.010 * std::clamp(flow_strength, 0.0, 2.5);
+                     vx = thermal_vel(rng) - dir_x * inflow + tangent_theta_x * (0.017 * flow_u) + tangent_phi_x * (0.017 * flow_v)
+                         + rand_x * turbulent_kick + dir_x * phi_momentum;
+                     vy = thermal_vel(rng) - dir_y * inflow + tangent_theta_y * (0.017 * flow_u) + tangent_phi_y * (0.017 * flow_v)
+                         + rand_y * turbulent_kick + dir_y * phi_momentum;
+                     vz = thermal_vel(rng) - dir_z * inflow + tangent_theta_z * (0.017 * flow_u) + tangent_phi_z * (0.017 * flow_v)
+                         + rand_z * turbulent_kick + dir_z * phi_momentum;
             };
 
             auto randomPosInQgpSphere = [&](double& px, double& py, double& pz) {

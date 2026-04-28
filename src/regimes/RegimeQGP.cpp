@@ -1,6 +1,7 @@
 // src/regimes/RegimeQGP.cpp — Regime 1: Plasma Quark-Glúon
 #include "RegimeQGP.hpp"
 #include "../core/CosmicClock.hpp"
+#include "../core/SimulationRandom.hpp"
 #include "../core/Universe.hpp"
 #include "../render/Renderer.hpp"
 #include "../physics/Constants.hpp"
@@ -13,6 +14,22 @@
 #include <unordered_map>
 
 namespace {
+
+std::mt19937& qgpRng() {
+    static std::mt19937 rng = simrng::makeStream("qgp-regime");
+    return rng;
+}
+
+void randomDirectionalGluonCharge(std::mt19937& rng, QcdColor& color, QcdColor& anticolor) {
+    switch (rng() % 6u) {
+        case 0: color = QcdColor::RED;   anticolor = QcdColor::ANTI_GREEN; break;
+        case 1: color = QcdColor::RED;   anticolor = QcdColor::ANTI_BLUE;  break;
+        case 2: color = QcdColor::GREEN; anticolor = QcdColor::ANTI_RED;   break;
+        case 3: color = QcdColor::GREEN; anticolor = QcdColor::ANTI_BLUE;  break;
+        case 4: color = QcdColor::BLUE;  anticolor = QcdColor::ANTI_RED;   break;
+        default:color = QcdColor::BLUE;  anticolor = QcdColor::ANTI_GREEN; break;
+    }
+}
 
 int computeSubsteps(double total_visual_dt, double target_visual_dt, int max_substeps) {
     if (total_visual_dt <= 0.0) return 1;
@@ -39,6 +56,14 @@ bool isQgpQuark(ParticleType type) {
            type == ParticleType::QUARK_S || type == ParticleType::ANTIQUARK;
 }
 
+double pairCouplingScale(ParticleType a, ParticleType b) {
+    const bool a_gluon = (a == ParticleType::GLUON);
+    const bool b_gluon = (b == ParticleType::GLUON);
+    if (a_gluon && b_gluon) return 1.35;
+    if (a_gluon || b_gluon) return 1.12;
+    return 1.0;
+}
+
 long long encodeCell(int x, int y, int z) {
     constexpr long long bias = 2048;
     return ((static_cast<long long>(x) + bias) << 42)
@@ -56,6 +81,7 @@ void exchangeColorThroughGluons(ParticlePool& p,
                                 double exchange_radius,
                                 double dt)
 {
+    std::mt19937& rng = qgpRng();
     const double exchange_r2 = exchange_radius * exchange_radius;
     for (size_t gi = 0; gi < p.x.size(); ++gi) {
         if (!(p.flags[gi] & PF_ACTIVE) || p.type[gi] != ParticleType::GLUON) continue;
@@ -113,9 +139,13 @@ void exchangeColorThroughGluons(ParticlePool& p,
         p.vx[gi] += (mx - p.x[gi]) * dt * 2.2;
         p.vy[gi] += (my - p.y[gi]) * dt * 2.2;
         p.vz[gi] += (mz - p.z[gi]) * dt * 2.2;
-        // Gluon is absorbed by the exchange: clear its QCD charges
-        // so it doesn't repeatedly mediate further unrealistic swaps.
-        p.clearQcdCharge(gi);
+        //p.clearQcdCharge(gi); 
+        // Keep gluons active after an exchange by re-emitting them with a new
+        // directional color pair instead of turning them inert.
+        QcdColor color = QcdColor::NONE;
+        QcdColor anticolor = QcdColor::NONE;
+        randomDirectionalGluonCharge(rng, color, anticolor);
+        p.setQcdCharge(gi, color, anticolor);
     }
 }
 
@@ -154,7 +184,7 @@ void RegimeQGP::applyScreenedCornellForces(Universe& universe, double temp_keV, 
     }
 
     for (size_t i = 0; i < n; ++i) {
-        if (!(p.flags[i] & PF_ACTIVE) || !isQgpQuark(p.type[i])) continue;
+        if (!(p.flags[i] & PF_ACTIVE) || !isQgpCarrier(p.type[i])) continue;
         double fx = 0, fy = 0, fz = 0;
 
         int cx = static_cast<int>(std::floor(p.x[i] / cutoff));
@@ -168,7 +198,7 @@ void RegimeQGP::applyScreenedCornellForces(Universe& universe, double temp_keV, 
             if (it == cells.end()) continue;
 
             for (size_t j : it->second) {
-                if (j <= i || !(p.flags[j] & PF_ACTIVE) || !isQgpQuark(p.type[j])) continue;
+                if (j <= i || !(p.flags[j] & PF_ACTIVE) || !isQgpCarrier(p.type[j])) continue;
                 double dxp = p.x[j] - p.x[i];
                 double dyp = p.y[j] - p.y[i];
                 double dzp = p.z[j] - p.z[i];
@@ -183,7 +213,7 @@ void RegimeQGP::applyScreenedCornellForces(Universe& universe, double temp_keV, 
                 double screen = std::exp(-r / std::max(rD, 1e-3));
                 double coulomb = alpha_s * screen / (r2 + softening2);
                 double confinement = sigma * (1.0 - t) * std::exp(-r / std::max(rD * 1.5, 1e-3));
-                double kernel = coulomb + confinement;
+                double kernel = (coulomb + confinement) * pairCouplingScale(p.type[i], p.type[j]);
                 double scalar = -static_cast<double>(factor) * kernel;
 
                 fx += scalar * dxp;
