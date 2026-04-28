@@ -22,12 +22,12 @@ float stellarGlowFromMass(double m_ratio) {
 double phaseDurationSeconds(StructurePhase phase) {
     switch (phase) {
         case StructurePhase::DARK_AGES:
-            return CosmicClock::REGIME_START_TIMES[5] - CosmicClock::REGIME_START_TIMES[4];
+            return CosmicClock::REGIME_START_TIMES[7] - CosmicClock::REGIME_START_TIMES[6];
         case StructurePhase::REIONIZATION:
-            return CosmicClock::REGIME_START_TIMES[6] - CosmicClock::REGIME_START_TIMES[5];
+            return CosmicClock::REGIME_START_TIMES[8] - CosmicClock::REGIME_START_TIMES[7];
         case StructurePhase::MATURE:
         default:
-            return phys::t_today - CosmicClock::REGIME_START_TIMES[6];
+            return phys::t_today - CosmicClock::REGIME_START_TIMES[8];
     }
 }
 
@@ -62,10 +62,10 @@ std::string RegimeStructure::getName() const {
 
 int RegimeStructure::regimeIndex() const {
     switch (phase_) {
-        case StructurePhase::DARK_AGES: return 4;
-        case StructurePhase::REIONIZATION: return 5;
-        case StructurePhase::MATURE: return 6;
-        default: return 6;
+        case StructurePhase::DARK_AGES: return 6;
+        case StructurePhase::REIONIZATION: return 7;
+        case StructurePhase::MATURE: return 8;
+        default: return 8;
     }
 }
 

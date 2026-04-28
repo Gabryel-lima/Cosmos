@@ -71,7 +71,7 @@ private:
     float  regime_elapsed_real_ = 0.0f;   // tempo real acumulado no regime ativo
     // Permanência mínima por regime antes de permitir a próxima transição automática.
     // Evita pular rápido demais sem dar tempo de aparecer visualmente.
-    std::array<float, CosmicClock::REGIME_COUNT> min_regime_dwell_s_ = {0.0f, 2.0f, 1.0f, 1.0f, 1.2f, 1.2f, 0.0f};
+    std::array<float, CosmicClock::REGIME_COUNT> min_regime_dwell_s_ = {0.0f, 1.2f, 1.2f, 2.0f, 1.0f, 1.0f, 1.2f, 1.2f, 0.0f};
     double speed_mult_at_start_ = 1.0; // multiplicador de velocidade capturado ao início da transição
     Universe transition_from_universe_;
 };

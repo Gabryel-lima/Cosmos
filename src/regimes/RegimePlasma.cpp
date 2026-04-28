@@ -46,11 +46,13 @@ glm::dvec3 safeNormalize(const glm::dvec3& v, const glm::dvec3& fallback) {
 
 glm::dvec3 orthogonalTangent(const glm::dvec3& dir, double phase) {
     glm::dvec3 ref = safeNormalize(
-        glm::dvec3(std::sin(phase * 0.73 + 0.2),
-                   std::cos(phase * 1.11 + 1.3),
-                   std::sin(phase * 1.41 + 2.1)),
-        glm::dvec3(0.577, 0.577, 0.577));
-    if (std::abs(glm::dot(ref, dir)) > 0.92) {
+        glm::dvec3(std::sin(phase * RegimeConfig::PLASMA_WAVE_TANGENT_PHASE_A + RegimeConfig::PLASMA_WAVE_TANGENT_OFFSET_A),
+                   std::cos(phase * RegimeConfig::PLASMA_WAVE_TANGENT_PHASE_B + RegimeConfig::PLASMA_WAVE_TANGENT_OFFSET_B),
+                   std::sin(phase * RegimeConfig::PLASMA_WAVE_TANGENT_PHASE_C + RegimeConfig::PLASMA_WAVE_TANGENT_OFFSET_C)),
+        glm::dvec3(RegimeConfig::PLASMA_WAVE_FALLBACK_AXIS,
+                   RegimeConfig::PLASMA_WAVE_FALLBACK_AXIS,
+                   RegimeConfig::PLASMA_WAVE_FALLBACK_AXIS));
+    if (std::abs(glm::dot(ref, dir)) > RegimeConfig::PLASMA_WAVE_REORTHOGONALIZE_DOT) {
         ref = safeNormalize(glm::dvec3(-dir.z, dir.x, dir.y), glm::dvec3(0.0, 0.0, 1.0));
     }
     return safeNormalize(glm::cross(dir, ref), glm::dvec3(0.0, 0.0, 1.0));
@@ -188,11 +190,11 @@ void emitElectron(ParticlePool& particles, size_t source_index, std::mt19937& rn
     size_t electron = particles.add(particles.x[source_index] + jitter(rng),
                                     particles.y[source_index] + jitter(rng),
                                     particles.z[source_index] + jitter(rng),
-                                    particles.vx[source_index] + dx * 0.18,
-                                    particles.vy[source_index] + dy * 0.18,
-                                    particles.vz[source_index] + dz * 0.18,
+                                    particles.vx[source_index] + dx * RegimeConfig::PLASMA_ELECTRON_EMISSION_SPEED,
+                                    particles.vy[source_index] + dy * RegimeConfig::PLASMA_ELECTRON_EMISSION_SPEED,
+                                    particles.vz[source_index] + dz * RegimeConfig::PLASMA_ELECTRON_EMISSION_SPEED,
                                     phys::m_e, ParticleType::ELECTRON, r, g, b, -1.0f);
-    particles.luminosity[electron] = 0.85f;
+    particles.luminosity[electron] = RegimeConfig::PLASMA_ELECTRON_EMISSION_LUMINOSITY;
     --electron_budget;
 }
 
@@ -205,11 +207,11 @@ void emitNeutrino(ParticlePool& particles, size_t source_index, std::mt19937& rn
     size_t neutrino = particles.add(particles.x[source_index] + jitter(rng),
                                     particles.y[source_index] + jitter(rng),
                                     particles.z[source_index] + jitter(rng),
-                                    particles.vx[source_index] + dx * 0.28,
-                                    particles.vy[source_index] + dy * 0.28,
-                                    particles.vz[source_index] + dz * 0.28,
+                                    particles.vx[source_index] + dx * RegimeConfig::PLASMA_NEUTRINO_EMISSION_SPEED,
+                                    particles.vy[source_index] + dy * RegimeConfig::PLASMA_NEUTRINO_EMISSION_SPEED,
+                                    particles.vz[source_index] + dz * RegimeConfig::PLASMA_NEUTRINO_EMISSION_SPEED,
                                     0.0, ParticleType::NEUTRINO, r, g, b, 0.0f);
-    particles.luminosity[neutrino] = 0.22f;
+    particles.luminosity[neutrino] = RegimeConfig::PLASMA_NEUTRINO_EMISSION_LUMINOSITY;
 }
 
 ParticleType fusionProduct(ParticleType a, ParticleType b) {
@@ -233,14 +235,8 @@ ParticleType fusionProduct(ParticleType a, ParticleType b) {
 
 double fusionProbability(ParticleType product, double temp_keV, double dt) {
     const double thermal = std::clamp(temp_keV / 0.07, 0.02, 1.0);
-    double base = 0.0;
-    switch (product) {
-        case ParticleType::DEUTERIUM:     base = 0.08; break;
-        case ParticleType::HELIUM3:       base = 0.045; break;
-        case ParticleType::HELIUM4NUCLEI: base = 0.025; break;
-        case ParticleType::LITHIUM7:      base = 0.010; break;
-        default: return 0.0;
-    }
+    double base = RegimeConfig::plasmaFusionBaseProbability(product);
+    if (base <= 0.0) return 0.0;
     return std::clamp(base * dt * (0.5 + thermal), 0.0, 0.35);
 }
 
@@ -261,16 +257,18 @@ void fuseParticles(ParticlePool& particles, size_t keep, size_t consume,
                                particles.color_r[keep],
                                particles.color_g[keep],
                                particles.color_b[keep]);
-    particles.luminosity[keep] = std::min(2.4f, particles.luminosity[keep] + 0.6f);
-    particles.temp_particle[keep] += 0.6f;
+    particles.luminosity[keep] = std::min(RegimeConfig::PLASMA_FUSION_LUMINOSITY_MAX,
+                                          particles.luminosity[keep] + RegimeConfig::PLASMA_FUSION_LUMINOSITY_BOOST);
+    particles.temp_particle[keep] += RegimeConfig::PLASMA_FUSION_TEMP_BOOST;
     particles.deactivate(consume);
-    emitPhoton(particles, keep, plasmaRng(), 2.0f, 0.16, photons_left);
+    emitPhoton(particles, keep, plasmaRng(), RegimeConfig::PLASMA_FUSION_PHOTON_LUMINOSITY,
+               RegimeConfig::PLASMA_FUSION_PHOTON_SPEED, photons_left);
 }
 
 void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, double neutral_fraction) {
     ParticlePool& particles = universe.particles;
     const size_t initial_count = particles.x.size();
-    if (visual_dt <= 0.0 || initial_count == 0 || initial_count > 9000) return;
+    if (visual_dt <= 0.0 || initial_count == 0 || initial_count > RegimeConfig::PLASMA_MICROPHYSICS_MAX_PARTICLES) return;
 
     std::mt19937& rng = plasmaRng();
     std::uniform_real_distribution<double> chance(0.0, 1.0);
@@ -284,7 +282,7 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
     const double capture_r2 = RegimeConfig::PLASMA_CAPTURE_RADIUS * RegimeConfig::PLASMA_CAPTURE_RADIUS;
     const double fusion_r2 = RegimeConfig::PLASMA_FUSION_RADIUS * RegimeConfig::PLASMA_FUSION_RADIUS;
     const double photon_scatter_r2 = RegimeConfig::PLASMA_PHOTON_SCATTER_RADIUS * RegimeConfig::PLASMA_PHOTON_SCATTER_RADIUS;
-    const double cell_size = RegimeConfig::PLASMA_INTERACTION_RADIUS * 1.4;
+    const double cell_size = RegimeConfig::PLASMA_INTERACTION_RADIUS * RegimeConfig::PLASMA_INTERACTION_CELL_SIZE_MULT;
 
     std::unordered_map<long long, std::vector<size_t>> cells;
     cells.reserve(initial_count);
@@ -299,7 +297,9 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
     for (size_t i = 0; i < initial_count && decay_budget > 0; ++i) {
         if (!(particles.flags[i] & PF_ACTIVE)) continue;
         if (particles.type[i] != ParticleType::NEUTRON) continue;
-        const double decay_probability = std::clamp(visual_dt * 0.05 * (1.0 - neutral_fraction * 0.5), 0.0, 0.08);
+        const double decay_probability = std::clamp(visual_dt * RegimeConfig::PLASMA_NEUTRON_DECAY_RATE
+                                * (1.0 - neutral_fraction * RegimeConfig::PLASMA_NEUTRON_DECAY_NEUTRAL_FACTOR),
+                                0.0, RegimeConfig::PLASMA_NEUTRON_DECAY_MAX_PROBABILITY);
         if (chance(rng) > decay_probability) continue;
 
         particles.type[i] = ParticleType::PROTON;
@@ -307,10 +307,11 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
         particles.charge[i] = 1.0f;
         particles.flags[i] &= ~PF_BOUND;
         setIonizedVisual(particles, i);
-        particles.temp_particle[i] += 0.35f;
+        particles.temp_particle[i] += RegimeConfig::PLASMA_NEUTRON_DECAY_TEMP_BOOST;
         emitElectron(particles, i, rng, electron_budget);
         emitNeutrino(particles, i, rng);
-        emitPhoton(particles, i, rng, 1.6f, 0.2, photon_budget);
+        emitPhoton(particles, i, rng, RegimeConfig::PLASMA_NEUTRON_DECAY_PHOTON_LUMINOSITY,
+               RegimeConfig::PLASMA_NEUTRON_DECAY_PHOTON_SPEED, photon_budget);
         --decay_budget;
     }
 
@@ -347,7 +348,9 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
                 const float qj = effectiveCharge(particles, j);
 
                 if (std::abs(qi) > 0.01f || std::abs(qj) > 0.01f) {
-                    const double scalar = (-static_cast<double>(qi) * static_cast<double>(qj)) * visual_dt * 0.025 / (r2 + 0.02);
+                    const double scalar = (-static_cast<double>(qi) * static_cast<double>(qj))
+                                        * visual_dt * RegimeConfig::PLASMA_ELECTROSTATIC_FORCE
+                                        / (r2 + RegimeConfig::PLASMA_ELECTROSTATIC_SOFTENING);
                     particles.vx[i] += scalar * dx;
                     particles.vy[i] += scalar * dy;
                     particles.vz[i] += scalar * dz;
@@ -357,7 +360,7 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
                 }
 
                 if (isNeutralAtom(particles, i) && isNeutralAtom(particles, j)) {
-                    const double attraction = visual_dt * 0.004 * inv_r;
+                    const double attraction = visual_dt * RegimeConfig::PLASMA_NEUTRAL_ATTRACTION_FORCE * inv_r;
                     particles.vx[i] += attraction * dx;
                     particles.vy[i] += attraction * dy;
                     particles.vz[i] += attraction * dz;
@@ -375,15 +378,16 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
                     if (r2 < pair_photon_scatter_r2) {
                         const size_t photon_idx = photon_i ? i : j;
                         const size_t electron_idx = photon_i ? j : i;
-                        const double scatter = visual_dt * 0.08 * inv_r;
+                        const double scatter = visual_dt * RegimeConfig::PLASMA_PHOTON_ELECTRON_SCATTER_FORCE * inv_r;
                         particles.vx[electron_idx] += scatter * dx;
                         particles.vy[electron_idx] += scatter * dy;
                         particles.vz[electron_idx] += scatter * dz;
-                        particles.vx[photon_idx] -= scatter * dx * 1.6;
-                        particles.vy[photon_idx] -= scatter * dy * 1.6;
-                        particles.vz[photon_idx] -= scatter * dz * 1.6;
-                        particles.temp_particle[electron_idx] += 0.05f;
-                        particles.luminosity[photon_idx] = std::max(0.4f, particles.luminosity[photon_idx] * 0.98f);
+                        particles.vx[photon_idx] -= scatter * dx * RegimeConfig::PLASMA_PHOTON_ELECTRON_RECOIL_MULT;
+                        particles.vy[photon_idx] -= scatter * dy * RegimeConfig::PLASMA_PHOTON_ELECTRON_RECOIL_MULT;
+                        particles.vz[photon_idx] -= scatter * dz * RegimeConfig::PLASMA_PHOTON_ELECTRON_RECOIL_MULT;
+                        particles.temp_particle[electron_idx] += RegimeConfig::PLASMA_PHOTON_ELECTRON_TEMP_BOOST;
+                        particles.luminosity[photon_idx] = std::max(RegimeConfig::PLASMA_PHOTON_SCATTER_LUMINOSITY_FLOOR,
+                                                                    particles.luminosity[photon_idx] * RegimeConfig::PLASMA_PHOTON_SCATTER_LUMINOSITY_RETAIN);
                     }
                     continue;
                 }
@@ -393,11 +397,14 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
                     if (r2 < pair_photon_scatter_r2) {
                         const size_t photon_idx = photon_i ? i : j;
                         const size_t matter_idx = photon_i ? j : i;
-                        const double ionize_probability = std::clamp(visual_dt * (0.10 + temp_keV * 1.2) * (1.0 - neutral_fraction * 0.35), 0.0, 0.22);
+                        const double ionize_probability = std::clamp(visual_dt * (RegimeConfig::PLASMA_IONIZATION_BASE_RATE
+                                                    + temp_keV * RegimeConfig::PLASMA_IONIZATION_TEMPERATURE_SCALE)
+                                                    * (1.0 - neutral_fraction * RegimeConfig::PLASMA_IONIZATION_NEUTRAL_FACTOR),
+                                                    0.0, RegimeConfig::PLASMA_IONIZATION_MAX_PROBABILITY);
                         if (chance(rng) < ionize_probability) {
                             particles.deactivate(photon_idx);
                             ionizeMatter(particles, matter_idx);
-                            particles.temp_particle[matter_idx] += 0.3f;
+                            particles.temp_particle[matter_idx] += RegimeConfig::PLASMA_IONIZATION_TEMP_BOOST;
                             emitElectron(particles, matter_idx, rng, electron_budget);
                         }
                     }
@@ -409,12 +416,17 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
                     if (r2 < pair_capture_r2) {
                         const size_t electron_idx = electron_i ? i : j;
                         const size_t nucleus_idx = electron_i ? j : i;
-                        const double capture_probability = std::clamp(visual_dt * (0.08 + neutral_fraction * 0.18) * (0.6 + particles.temp_particle[nucleus_idx] * 0.15), 0.0, 0.26);
+                                const double capture_probability = std::clamp(visual_dt * (RegimeConfig::PLASMA_CAPTURE_BASE_RATE
+                                                                          + neutral_fraction * RegimeConfig::PLASMA_CAPTURE_NEUTRAL_SCALE)
+                                                                          * (RegimeConfig::PLASMA_CAPTURE_TEMP_BASE
+                                                                              + particles.temp_particle[nucleus_idx] * RegimeConfig::PLASMA_CAPTURE_TEMP_SCALE),
+                                                                          0.0, RegimeConfig::PLASMA_CAPTURE_MAX_PROBABILITY);
                         if (chance(rng) < capture_probability) {
                             particles.deactivate(electron_idx);
                             makeNeutralAtom(particles, nucleus_idx);
-                            particles.temp_particle[nucleus_idx] += 0.22f;
-                            emitPhoton(particles, nucleus_idx, rng, 1.8f, 0.14, photon_budget);
+                            particles.temp_particle[nucleus_idx] += RegimeConfig::PLASMA_CAPTURE_TEMP_BOOST;
+                            emitPhoton(particles, nucleus_idx, rng, RegimeConfig::PLASMA_CAPTURE_PHOTON_LUMINOSITY,
+                                       RegimeConfig::PLASMA_CAPTURE_PHOTON_SPEED, photon_budget);
                         }
                     }
                     continue;
@@ -436,11 +448,13 @@ void applyMicrophysics(Universe& universe, double visual_dt, double temp_keV, do
     for (size_t i = 0; i < particles.x.size() && photon_budget > 0; ++i) {
         if (!(particles.flags[i] & PF_ACTIVE)) continue;
         if (!isNeutralAtom(particles, i)) continue;
-        if (particles.temp_particle[i] < 0.3f) continue;
-        const double emission_probability = std::clamp(visual_dt * particles.temp_particle[i] * 0.12, 0.0, 0.18);
+        if (particles.temp_particle[i] < RegimeConfig::PLASMA_NEUTRAL_EMISSION_TEMP_THRESHOLD) continue;
+        const double emission_probability = std::clamp(visual_dt * particles.temp_particle[i] * RegimeConfig::PLASMA_NEUTRAL_EMISSION_RATE,
+                                                       0.0, RegimeConfig::PLASMA_NEUTRAL_EMISSION_MAX_PROBABILITY);
         if (chance(rng) < emission_probability) {
-            particles.temp_particle[i] *= 0.6f;
-            emitPhoton(particles, i, rng, 1.4f, 0.12, photon_budget);
+            particles.temp_particle[i] *= RegimeConfig::PLASMA_NEUTRAL_EMISSION_TEMP_RETAIN;
+            emitPhoton(particles, i, rng, RegimeConfig::PLASMA_NEUTRAL_EMISSION_PHOTON_LUMINOSITY,
+                       RegimeConfig::PLASMA_NEUTRAL_EMISSION_PHOTON_SPEED, photon_budget);
         }
     }
 }
@@ -465,7 +479,8 @@ void RegimePlasma::onEnter(Universe& state) {
 
         // Semeia com perturbações BAO do campo de densidade do Regime 2/3 ou aleatório
         // Usa flutuações de pequena amplitude como sementes
-        std::uniform_real_distribution<float> noise(-0.005f, 0.005f);
+        std::uniform_real_distribution<float> noise(-RegimeConfig::PLASMA_BAO_NOISE_AMPLITUDE,
+                                RegimeConfig::PLASMA_BAO_NOISE_AMPLITUDE);
         std::mt19937& rng = plasmaRng();
         for (int k = 0; k < N; ++k)
         for (int j = 0; j < N; ++j)
@@ -494,12 +509,15 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
 {
     double a_prev_frame = std::max(prev_scale_factor_, 1e-60);
     double a_new = std::max(scale_factor, 1e-60);
-    constexpr double regime_duration = CosmicClock::REGIME_START_TIMES[4] - CosmicClock::REGIME_START_TIMES[3];
+    constexpr double regime_duration = CosmicClock::REGIME_START_TIMES[6] - CosmicClock::REGIME_START_TIMES[5];
     double progress_dt = (regime_duration > 0.0) ? cosmic_dt / regime_duration : 0.0;
     ParticlePool& particles = universe.particles;
     double total_visual_dt = cosmic_dt <= 0.0 ? 0.0
-                                               : std::clamp(progress_dt * 24.0, 0.001, 0.04);
-    int substeps = computeSubsteps(total_visual_dt, 0.006, 8);
+                                               : std::clamp(progress_dt * RegimeConfig::PLASMA_VISUAL_GAIN,
+                                                            RegimeConfig::PLASMA_VISUAL_DT_MIN,
+                                                            RegimeConfig::PLASMA_VISUAL_DT_MAX);
+    int substeps = computeSubsteps(total_visual_dt, RegimeConfig::PLASMA_SUBSTEP_TARGET_DT,
+                                   RegimeConfig::PLASMA_MAX_SUBSTEPS);
     double sub_visual_dt = total_visual_dt / static_cast<double>(substeps);
 
     for (int step = 0; step < substeps; ++step) {
@@ -517,7 +535,7 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
             applyMicrophysics(universe, sub_visual_dt, sub_temp_keV, neutral_fraction);
         }
 
-        wave_phase_ += static_cast<float>(sub_visual_dt * 4.0);
+        wave_phase_ += static_cast<float>(sub_visual_dt * RegimeConfig::PLASMA_WAVE_PHASE_SPEED);
 
         glm::dvec3 active_center(0.0);
         size_t active_count = 0;
@@ -535,23 +553,32 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
 
             glm::dvec3 delta = glm::dvec3(particles.x[i], particles.y[i], particles.z[i]) - active_center;
             double radius = std::sqrt(glm::dot(delta, delta));
-            double phase = static_cast<double>(wave_phase_) + radius * 0.9 + static_cast<double>(i) * 0.017;
+            double phase = static_cast<double>(wave_phase_)
+                         + radius * RegimeConfig::PLASMA_WAVE_RADIUS_PHASE_SCALE
+                         + static_cast<double>(i) * RegimeConfig::PLASMA_WAVE_INDEX_PHASE_SCALE;
             glm::dvec3 radial = safeNormalize(delta,
                 glm::dvec3(std::cos(phase), std::sin(phase * 0.7), std::cos(phase * 1.3)));
             glm::dvec3 tangent = orthogonalTangent(radial, phase);
             double swirl = std::sin(phase);
-            double pulse = std::cos(phase * 0.63);
+            double pulse = std::cos(phase * RegimeConfig::PLASMA_WAVE_PULSE_FREQUENCY);
             switch (particles.type[i]) {
                 case ParticleType::PHOTON:
-                    particles.vx[i] += (tangent.x * swirl * 0.35 + radial.x * pulse * 0.18) * sub_visual_dt;
-                    particles.vy[i] += (tangent.y * swirl * 0.35 + radial.y * pulse * 0.18) * sub_visual_dt;
-                    particles.vz[i] += (tangent.z * swirl * 0.35 + radial.z * pulse * 0.18) * sub_visual_dt;
-                    particles.luminosity[i] = 1.8f + 0.9f * static_cast<float>(0.5 + 0.5 * swirl);
+                    particles.vx[i] += (tangent.x * swirl * RegimeConfig::PLASMA_PHOTON_SWIRL_FORCE
+                                      + radial.x * pulse * RegimeConfig::PLASMA_PHOTON_PULSE_FORCE) * sub_visual_dt;
+                    particles.vy[i] += (tangent.y * swirl * RegimeConfig::PLASMA_PHOTON_SWIRL_FORCE
+                                      + radial.y * pulse * RegimeConfig::PLASMA_PHOTON_PULSE_FORCE) * sub_visual_dt;
+                    particles.vz[i] += (tangent.z * swirl * RegimeConfig::PLASMA_PHOTON_SWIRL_FORCE
+                                      + radial.z * pulse * RegimeConfig::PLASMA_PHOTON_PULSE_FORCE) * sub_visual_dt;
+                    particles.luminosity[i] = RegimeConfig::PLASMA_PHOTON_LUMINOSITY_BASE
+                                            + RegimeConfig::PLASMA_PHOTON_LUMINOSITY_SWIRL * static_cast<float>(0.5 + 0.5 * swirl);
                     break;
                 case ParticleType::ELECTRON:
-                    particles.vx[i] += (-tangent.x * swirl * 0.18 + radial.x * pulse * 0.12) * sub_visual_dt;
-                    particles.vy[i] += (-tangent.y * swirl * 0.18 + radial.y * pulse * 0.12) * sub_visual_dt;
-                    particles.vz[i] += (-tangent.z * swirl * 0.18 + radial.z * pulse * 0.12) * sub_visual_dt;
+                    particles.vx[i] += (-tangent.x * swirl * RegimeConfig::PLASMA_ELECTRON_SWIRL_FORCE
+                                      + radial.x * pulse * RegimeConfig::PLASMA_ELECTRON_PULSE_FORCE) * sub_visual_dt;
+                    particles.vy[i] += (-tangent.y * swirl * RegimeConfig::PLASMA_ELECTRON_SWIRL_FORCE
+                                      + radial.y * pulse * RegimeConfig::PLASMA_ELECTRON_PULSE_FORCE) * sub_visual_dt;
+                    particles.vz[i] += (-tangent.z * swirl * RegimeConfig::PLASMA_ELECTRON_SWIRL_FORCE
+                                      + radial.z * pulse * RegimeConfig::PLASMA_ELECTRON_PULSE_FORCE) * sub_visual_dt;
                     break;
                 case ParticleType::PROTON:
                 case ParticleType::DEUTERIUM:
@@ -559,9 +586,9 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
                 case ParticleType::HELIUM4NUCLEI:
                 case ParticleType::LITHIUM7:
                 case ParticleType::GAS:
-                    particles.vx[i] += radial.x * swirl * sub_visual_dt * 0.05;
-                    particles.vy[i] += radial.y * swirl * sub_visual_dt * 0.05;
-                    particles.vz[i] += radial.z * swirl * sub_visual_dt * 0.05;
+                    particles.vx[i] += radial.x * swirl * sub_visual_dt * RegimeConfig::PLASMA_BARYON_SWIRL_FORCE;
+                    particles.vy[i] += radial.y * swirl * sub_visual_dt * RegimeConfig::PLASMA_BARYON_SWIRL_FORCE;
+                    particles.vz[i] += radial.z * swirl * sub_visual_dt * RegimeConfig::PLASMA_BARYON_SWIRL_FORCE;
                     break;
                 default:
                     break;
@@ -570,13 +597,13 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
             particles.x[i] += particles.vx[i] * sub_visual_dt;
             particles.y[i] += particles.vy[i] * sub_visual_dt;
             particles.z[i] += particles.vz[i] * sub_visual_dt;
-            particles.vx[i] *= 0.998;
-            particles.vy[i] *= 0.998;
-            particles.vz[i] *= 0.998;
+            particles.vx[i] *= RegimeConfig::PLASMA_PARTICLE_VELOCITY_DAMPING;
+            particles.vy[i] *= RegimeConfig::PLASMA_PARTICLE_VELOCITY_DAMPING;
+            particles.vz[i] *= RegimeConfig::PLASMA_PARTICLE_VELOCITY_DAMPING;
         }
 
         // Verifica recombinação via equação de Saha
-        if (X_e < 0.1 && !cmb_flash_triggered_) {
+        if (X_e < RegimeConfig::PLASMA_RECOMBINATION_TRIGGER_XE && !cmb_flash_triggered_) {
             cmb_flash_triggered_ = true;
             cmb_flash_t_         = 0.0f;
         }
@@ -591,7 +618,7 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
             size_t to_convert = static_cast<size_t>((neutral_fraction - recombined_fraction_) * static_cast<double>(charged_nuclei));
             size_t converted = 0;
             size_t electrons_to_hide = 0;
-            int photon_budget = RegimeConfig::PLASMA_MAX_MICRO_PHOTONS / 2;
+            int photon_budget = RegimeConfig::PLASMA_MAX_MICRO_PHOTONS / RegimeConfig::PLASMA_RECOMBINATION_PHOTON_BUDGET_DIVISOR;
             std::mt19937& rng = plasmaRng();
             for (size_t i = 0; i < particles.x.size() && converted < to_convert; ++i) {
                 if (!(particles.flags[i] & PF_ACTIVE)) continue;
@@ -599,8 +626,9 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
                 if (!isLightReactiveMatter(particles.type[i]) || charge <= 0) continue;
                 electrons_to_hide += static_cast<size_t>(charge);
                 makeNeutralAtom(particles, i);
-                particles.temp_particle[i] += 0.18f;
-                emitPhoton(particles, i, rng, 1.5f, 0.10, photon_budget);
+                particles.temp_particle[i] += RegimeConfig::PLASMA_RECOMBINATION_TEMP_BOOST;
+                emitPhoton(particles, i, rng, RegimeConfig::PLASMA_RECOMBINATION_PHOTON_LUMINOSITY,
+                           RegimeConfig::PLASMA_RECOMBINATION_PHOTON_SPEED, photon_budget);
                 ++converted;
             }
 
@@ -615,7 +643,7 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
         }
 
         if (cmb_flash_triggered_ && cmb_flash_t_ < 1.0f) {
-            cmb_flash_t_ += static_cast<float>(sub_visual_dt * 0.5);
+            cmb_flash_t_ += static_cast<float>(sub_visual_dt * RegimeConfig::PLASMA_CMB_FLASH_RATE);
             cmb_flash_t_  = std::min(cmb_flash_t_, 1.0f);
         }
     }

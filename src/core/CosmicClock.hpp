@@ -6,16 +6,18 @@
 
 class CosmicClock {
 public:
-    static constexpr int REGIME_COUNT = 7;
+    static constexpr int REGIME_COUNT = 9;
     static constexpr int LAST_REGIME_INDEX = REGIME_COUNT - 1;
 
     // ── Limiares de transição de regime [keV] ──────────────────────────────
     static constexpr double T_INFLATION_END = 1e16;   // regime 0→1
-    static constexpr double T_QGP_END       = 150.0;  // regime 1→2
-    static constexpr double T_BBN_END       = 0.07;   // regime 2→3
-    static constexpr double T_RECOMBINATION = 2.6e-4; // regime 3→4 (0.26 eV)
-    static constexpr double T_DARK_AGES     = 2.4e-5; // regime 4→5 (~z 100)
-    static constexpr double T_REIONIZATION  = 6.0e-6; // regime 5→6 (~z 25)
+    static constexpr double T_REHEATING_END = 1.0e10; // regime 1→2
+    static constexpr double T_LEPTON_END    = 2.0e6;  // regime 2→3
+    static constexpr double T_QGP_END       = 1.5e5;  // regime 3→4 (150 MeV)
+    static constexpr double T_BBN_END       = 70.0;   // regime 4→5 (70 keV)
+    static constexpr double T_RECOMBINATION = 2.6e-4; // regime 5→6 (0.26 eV)
+    static constexpr double T_DARK_AGES     = 2.4e-5; // regime 6→7 (~z 100)
+    static constexpr double T_REIONIZATION  = 6.0e-6; // regime 7→8 (~z 25)
 
     // ── Escalas de tempo padrão por regime (cosmic_dt / real_dt) ─────────────────
     // Calibradas para que cada regime seja atravessado em ~90 segundos reais,
@@ -23,12 +25,14 @@ public:
     // scale = duração_cósmica_do_regime / 90 segundos
     static constexpr std::array<double, REGIME_COUNT> DEFAULT_SCALE = {
         1.0e-37,   // Regime 0: Inflação
-        1.5e-8,    // Regime 1: QGP
-        15.0,      // Regime 2: Nucleossíntese
-        3.0e10,    // Regime 3: Plasma (Lentificado para melhor visualização e acompanhamento)
-        6.0e12,    // Regime 4: Idades Escuras
-        8.0e13,    // Regime 5: Reionização / primeiras estrelas
-        5.0e14,    // Regime 6: Estruturas maduras
+        1.0e-14,   // Regime 1: Reaquecimento
+        2.0e-10,   // Regime 2: Plasma leptônico / eletrofraco
+        1.5e-2,    // Regime 3: QGP
+        15.0,      // Regime 4: Nucleossíntese
+        1.2e11,    // Regime 5: Plasma / recombinação
+        3.5e13,    // Regime 6: Idades escuras
+        1.4e14,    // Regime 7: Reionização / primeiras estrelas
+        5.0e14,    // Regime 8: Estruturas maduras
     };
 
     /// Multiplicadores de preset de velocidade relativos ao DEFAULT_SCALE.
@@ -84,12 +88,14 @@ public:
     // ── Tempos de início dos regimes (segundos desde o Big Bang) ───────────────────────
     static constexpr std::array<double, REGIME_COUNT> REGIME_START_TIMES = {
         1e-43,   // Regime 0: Tempo de Planck
-        1e-35,   // Regime 1: após inflação
-        1e-6,    // Regime 2: após PQG
-        1200.0,  // Regime 3: após NBB
-        1.2e13,  // Regime 4: após recombinação
-        3.2e15,  // Regime 5: colapso inicial / idades escuras tardias (~100 Myr)
-        1.6e16,  // Regime 6: reionização e estruturas maduras (~500 Myr)
+        1e-35,   // Regime 1: reaquecimento pós-inflação
+        1e-12,   // Regime 2: plasma leptônico / eletrofraco
+        1e-6,    // Regime 3: plasma quark-glúon
+        1.0,     // Regime 4: início da nucleossíntese primordial
+        1200.0,  // Regime 5: plasma bariônico / recombinação
+        1.2e13,  // Regime 6: idades escuras
+        3.2e15,  // Regime 7: reionização (~100 Myr)
+        1.6e16,  // Regime 8: estruturas maduras (~500 Myr)
     };
 
 private:

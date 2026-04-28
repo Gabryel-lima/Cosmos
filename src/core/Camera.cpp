@@ -12,11 +12,13 @@ double regimeFramePadding(int regime_index) {
     switch (regime_index) {
         case 0: return 1.10;
         case 1:
-        case 2: return 1.12;
-        case 3: return 1.15;
-        case 4: return 1.18;
-        case 5:
-        case 6: return 1.20;
+        case 2:
+        case 3: return 1.12;
+        case 4: return 1.15;
+        case 5: return 1.18;
+        case 6:
+        case 7:
+        case 8: return 1.20;
         default: return 1.15;
     }
 }
@@ -162,11 +164,13 @@ SceneFrame Camera::estimateSceneFrame(const Universe& universe) {
         switch (universe.regime_index) {
             case 0: frame.radius = 1.0; break;
             case 1:
-            case 2: frame.radius = 1.5; break;
-            case 3: frame.radius = 4.0; break;
-            case 4: frame.radius = 22.0; break;
-            case 5: frame.radius = 30.0; break;
-            case 6: frame.radius = 36.0; break;
+            case 2:
+            case 3: frame.radius = 1.6; break;
+            case 4: frame.radius = 4.0; break;
+            case 5: frame.radius = 22.0; break;
+            case 6: frame.radius = 30.0; break;
+            case 7:
+            case 8: frame.radius = 36.0; break;
             default: frame.radius = 5.0; break;
         }
     }
@@ -268,10 +272,12 @@ Camera::State Camera::getRegimeDefaultState(int regime_index) const {
         case 0: return { {0,0,1},    {0,0,-1}, 1.0,  true  }; // ortho 2D
         case 1: return { {0,0,5},    {0,0,-1}, 3.0,  false };
         case 2: return { {0,0,5},    {0,0,-1}, 3.0,  false };
-        case 3: return { {0,0,7.5},  {0,0,-1}, 7.5, false };
-        case 4: return { {0,0,57.0}, {0,0,-1}, 38.0, false };
-        case 5: return { {0,0,67.5}, {0,0,-1}, 45.0, false };
-        case 6: return { {0,0,78.0}, {0,0,-1}, 52.0, false };
+        case 3: return { {0,0,5.5},  {0,0,-1}, 3.2, false };
+        case 4: return { {0,0,7.5},  {0,0,-1}, 7.5, false };
+        case 5: return { {0,0,57.0}, {0,0,-1}, 38.0, false };
+        case 6: return { {0,0,67.5}, {0,0,-1}, 45.0, false };
+        case 7: return { {0,0,78.0}, {0,0,-1}, 52.0, false };
+        case 8: return { {0,0,88.0}, {0,0,-1}, 58.0, false };
         default:return { {0,0,5},    {0,0,-1}, 5.0,  false };
     }
 }

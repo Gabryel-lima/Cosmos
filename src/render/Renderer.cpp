@@ -401,6 +401,17 @@ void Renderer::renderParticles(const Universe& universe) {
     float proj_scale = std::abs(proj_mat_[1][1]) > 1e-6f ? std::abs(proj_mat_[1][1]) : 1.0f;
     float min_screen_radius_ndc = 5.0f / static_cast<float>(std::max(height_, 1));
 
+    auto boostDimColor = [](float& r, float& g, float& b, float visibility) {
+        const float fade = std::clamp(1.0f - std::clamp(visibility, 0.0f, 1.0f), 0.0f, 1.0f);
+        if (fade <= 0.0f) return;
+        const float luma = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+        const float sat_boost = 0.36f * fade;
+        const float gain = 1.0f + 0.26f * fade;
+        r = std::clamp((r + (r - luma) * sat_boost) * gain, 0.0f, 3.0f);
+        g = std::clamp((g + (g - luma) * sat_boost) * gain, 0.0f, 3.0f);
+        b = std::clamp((b + (b - luma) * sat_boost) * gain, 0.0f, 3.0f);
+    };
+
     for (size_t i = 0; i < n; ++i) {
         if (!(p.flags[i] & PF_ACTIVE)) continue;
         float rx = static_cast<float>(p.x[i] - cam_world_pos_.x);
@@ -412,13 +423,16 @@ void Renderer::renderParticles(const Universe& universe) {
         float particle_sz = std::max(extent_size * visual_scale, screen_space_size * visual_scale);
         pos_data.push_back(rx); pos_data.push_back(ry);
         pos_data.push_back(rz); pos_data.push_back(particle_sz);
-        // Pack particle type into the alpha channel so the shader can
-        // render special shapes (e.g. gluons) without changing the
-        // RGB color which already contains QCD tint * luminosity.
-        col_data.push_back(p.color_r[i] * p.luminosity[i]);
-        col_data.push_back(p.color_g[i] * p.luminosity[i]);
-        col_data.push_back(p.color_b[i] * p.luminosity[i]);
-        col_data.push_back(static_cast<float>(static_cast<int>(p.type[i])));
+        // Use the alpha slot as a stable shader tag instead of the raw enum id,
+        // so special rendering survives enum expansions.
+        float color_r = p.color_r[i] * p.luminosity[i];
+        float color_g = p.color_g[i] * p.luminosity[i];
+        float color_b = p.color_b[i] * p.luminosity[i];
+        boostDimColor(color_r, color_g, color_b, std::min(p.luminosity[i], 1.0f));
+        col_data.push_back(color_r);
+        col_data.push_back(color_g);
+        col_data.push_back(color_b);
+        col_data.push_back((p.type[i] == ParticleType::GLUON) ? 1.0f : 0.0f);
     }
 
     if (pos_data.empty()) return;

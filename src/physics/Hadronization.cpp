@@ -10,6 +10,10 @@
 namespace chemistry {
 namespace {
 
+double massFromMeV(double mev) {
+    return mev * phys::MeV / (phys::c * phys::c);
+}
+
 constexpr size_t kInvalidIndex = std::numeric_limits<size_t>::max();
 
 double distanceSquared(const ParticlePool& pool, size_t a, size_t b) {
@@ -201,6 +205,22 @@ int baryonNumber(ParticleType type) {
 
 int atomicCharge(ParticleType type) {
     switch (type) {
+        case ParticleType::QUARK_U:
+        case ParticleType::QUARK_C:
+        case ParticleType::QUARK_T:
+            return 1;
+        case ParticleType::ANTIQUARK_U:
+        case ParticleType::ANTIQUARK_C:
+        case ParticleType::ANTIQUARK_T:
+            return -1;
+        case ParticleType::QUARK_D:
+        case ParticleType::QUARK_S:
+        case ParticleType::QUARK_B:
+            return 0;
+        case ParticleType::ANTIQUARK_D:
+        case ParticleType::ANTIQUARK_S:
+        case ParticleType::ANTIQUARK_B:
+            return 0;
         case ParticleType::PROTON:
         case ParticleType::DEUTERIUM:
             return 1;
@@ -209,6 +229,16 @@ int atomicCharge(ParticleType type) {
             return 2;
         case ParticleType::LITHIUM7:
             return 3;
+        case ParticleType::POSITRON:
+        case ParticleType::ANTIMUON:
+        case ParticleType::ANTITAU:
+        case ParticleType::W_BOSON_POS:
+            return 1;
+        case ParticleType::ELECTRON:
+        case ParticleType::MUON:
+        case ParticleType::TAU:
+        case ParticleType::W_BOSON_NEG:
+            return -1;
         default:
             return 0;
     }
@@ -216,9 +246,30 @@ int atomicCharge(ParticleType type) {
 
 double restMass(ParticleType type) {
     switch (type) {
+        case ParticleType::QUARK_U:
+        case ParticleType::ANTIQUARK_U:
+            return massFromMeV(2.2);
+        case ParticleType::QUARK_D:
+        case ParticleType::ANTIQUARK_D:
+            return massFromMeV(4.7);
+        case ParticleType::QUARK_S:
+        case ParticleType::ANTIQUARK_S:
+            return massFromMeV(93.0);
+        case ParticleType::QUARK_C:
+        case ParticleType::ANTIQUARK_C:
+            return massFromMeV(1270.0);
+        case ParticleType::QUARK_B:
+        case ParticleType::ANTIQUARK_B:
+            return massFromMeV(4180.0);
+        case ParticleType::QUARK_T:
+        case ParticleType::ANTIQUARK_T:
+            return massFromMeV(172760.0);
+        case ParticleType::ANTIQUARK:
+            return massFromMeV(4.7);
         case ParticleType::PROTON:
-        case ParticleType::NEUTRON:
             return phys::m_p;
+        case ParticleType::NEUTRON:
+            return phys::m_n;
         case ParticleType::DEUTERIUM:
             return phys::m_p * 2.0;
         case ParticleType::HELIUM3:
@@ -228,9 +279,30 @@ double restMass(ParticleType type) {
         case ParticleType::LITHIUM7:
             return phys::m_p * 7.0;
         case ParticleType::ELECTRON:
+        case ParticleType::POSITRON:
             return phys::m_e;
+        case ParticleType::MUON:
+        case ParticleType::ANTIMUON:
+            return massFromMeV(105.658);
+        case ParticleType::TAU:
+        case ParticleType::ANTITAU:
+            return massFromMeV(1776.86);
+        case ParticleType::W_BOSON_POS:
+        case ParticleType::W_BOSON_NEG:
+            return massFromMeV(80379.0);
+        case ParticleType::Z_BOSON:
+            return massFromMeV(91187.6);
+        case ParticleType::HIGGS_BOSON:
+            return massFromMeV(125250.0);
         case ParticleType::PHOTON:
         case ParticleType::GLUON:
+        case ParticleType::NEUTRINO:
+        case ParticleType::NEUTRINO_E:
+        case ParticleType::ANTINEUTRINO_E:
+        case ParticleType::NEUTRINO_MU:
+        case ParticleType::ANTINEUTRINO_MU:
+        case ParticleType::NEUTRINO_TAU:
+        case ParticleType::ANTINEUTRINO_TAU:
             return 0.0;
         default:
             return phys::m_p;

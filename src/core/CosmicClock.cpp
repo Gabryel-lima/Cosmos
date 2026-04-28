@@ -11,12 +11,14 @@ namespace {
 double targetTemperatureForRegime(int regime_index) {
     switch (regime_index) {
         case 0: return CosmicClock::T_INFLATION_END * 10.0;
-        case 1: return std::sqrt(CosmicClock::T_INFLATION_END * CosmicClock::T_QGP_END);
-        case 2: return std::sqrt(CosmicClock::T_QGP_END * CosmicClock::T_BBN_END);
-        case 3: return std::sqrt(CosmicClock::T_BBN_END * CosmicClock::T_RECOMBINATION);
-        case 4: return std::sqrt(CosmicClock::T_RECOMBINATION * CosmicClock::T_DARK_AGES);
-        case 5: return std::sqrt(CosmicClock::T_DARK_AGES * CosmicClock::T_REIONIZATION);
-        case 6: return CosmicClock::T_REIONIZATION * 0.15;
+        case 1: return std::sqrt(CosmicClock::T_INFLATION_END * CosmicClock::T_REHEATING_END);
+        case 2: return std::sqrt(CosmicClock::T_REHEATING_END * CosmicClock::T_LEPTON_END);
+        case 3: return std::sqrt(CosmicClock::T_LEPTON_END * CosmicClock::T_QGP_END);
+        case 4: return std::sqrt(CosmicClock::T_QGP_END * CosmicClock::T_BBN_END);
+        case 5: return std::sqrt(CosmicClock::T_BBN_END * CosmicClock::T_RECOMBINATION);
+        case 6: return std::sqrt(CosmicClock::T_RECOMBINATION * CosmicClock::T_DARK_AGES);
+        case 7: return std::sqrt(CosmicClock::T_DARK_AGES * CosmicClock::T_REIONIZATION);
+        case 8: return CosmicClock::T_REIONIZATION * 0.15;
         default: return CosmicClock::T_INFLATION_END;
     }
 }
@@ -213,7 +215,9 @@ void CosmicClock::recomputeDerivedQuantities() {
 
 void CosmicClock::updateRegimeIndex() {
     int new_regime;
-    if (cosmic_time_ >= REGIME_START_TIMES[6])      new_regime = 6;
+    if (cosmic_time_ >= REGIME_START_TIMES[8])      new_regime = 8;
+    else if (cosmic_time_ >= REGIME_START_TIMES[7]) new_regime = 7;
+    else if (cosmic_time_ >= REGIME_START_TIMES[6]) new_regime = 6;
     else if (cosmic_time_ >= REGIME_START_TIMES[5]) new_regime = 5;
     else if (cosmic_time_ >= REGIME_START_TIMES[4]) new_regime = 4;
     else if (cosmic_time_ >= REGIME_START_TIMES[3]) new_regime = 3;

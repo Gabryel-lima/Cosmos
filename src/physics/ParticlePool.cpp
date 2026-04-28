@@ -1,5 +1,6 @@
 // src/physics/ParticlePool.cpp
 #include "ParticlePool.hpp"
+#include "Constants.hpp"
 #include <algorithm>
 
 void ParticlePool::resize(size_t n) {
@@ -111,20 +112,45 @@ void ParticlePool::defaultColor(ParticleType t, float& r, float& g, float& b) {
         case ParticleType::QUARK_U:    r=1.0f;  g=0.0f;  b=0.0f; break;
         case ParticleType::QUARK_D:    r=0.0f;  g=1.0f;  b=0.0f; break;
         case ParticleType::QUARK_S:    r=0.50f; g=0.90f; b=1.0f; break;
+        case ParticleType::QUARK_C:    r=0.78f; g=0.36f; b=1.0f; break;
+        case ParticleType::QUARK_B:    r=0.62f; g=0.16f; b=0.86f; break;
+        case ParticleType::QUARK_T:    r=1.00f; g=0.35f; b=0.86f; break;
+        case ParticleType::ANTIQUARK_U:r=1.00f; g=0.48f; b=0.35f; break;
+        case ParticleType::ANTIQUARK_D:r=0.42f; g=1.00f; b=0.55f; break;
+        case ParticleType::ANTIQUARK_S:r=0.68f; g=1.00f; b=1.00f; break;
+        case ParticleType::ANTIQUARK_C:r=0.90f; g=0.58f; b=1.00f; break;
+        case ParticleType::ANTIQUARK_B:r=0.82f; g=0.40f; b=1.00f; break;
+        case ParticleType::ANTIQUARK_T:r=1.00f; g=0.55f; b=0.96f; break;
         case ParticleType::ANTIQUARK:  r=1.00f; g=0.58f; b=0.18f; break;
         case ParticleType::GLUON:      r=1.00f; g=0.84f; b=0.28f; break;
         case ParticleType::PROTON:     r=1.00f; g=0.32f; b=0.28f; break;
         case ParticleType::NEUTRON:    r=0.36f; g=0.52f; b=1.00f; break;
         case ParticleType::ELECTRON:   r=0.10f; g=0.88f; b=1.00f; break;
+        case ParticleType::POSITRON:   r=1.00f; g=0.62f; b=0.78f; break;
+        case ParticleType::MUON:       r=0.18f; g=1.00f; b=0.86f; break;
+        case ParticleType::ANTIMUON:   r=0.82f; g=1.00f; b=0.92f; break;
+        case ParticleType::TAU:        r=0.30f; g=0.82f; b=1.00f; break;
+        case ParticleType::ANTITAU:    r=0.82f; g=0.72f; b=1.00f; break;
         case ParticleType::PHOTON:     r=1.00f; g=0.97f; b=0.62f; break;
+        case ParticleType::NEUTRINO_E: r=0.70f; g=0.92f; b=1.00f; break;
+        case ParticleType::ANTINEUTRINO_E: r=0.88f; g=0.95f; b=1.00f; break;
+        case ParticleType::NEUTRINO_MU: r=0.62f; g=0.85f; b=1.00f; break;
+        case ParticleType::ANTINEUTRINO_MU: r=0.80f; g=0.90f; b=1.00f; break;
+        case ParticleType::NEUTRINO_TAU: r=0.56f; g=0.78f; b=1.00f; break;
+        case ParticleType::ANTINEUTRINO_TAU: r=0.74f; g=0.84f; b=1.00f; break;
         case ParticleType::DEUTERIUM:  r=0.76f; g=0.20f; b=1.00f; break;
         case ParticleType::HELIUM3:    r=1.00f; g=0.55f; b=0.18f; break;
         case ParticleType::HELIUM4NUCLEI:    r=1.00f; g=0.72f; b=0.08f; break;
         case ParticleType::LITHIUM7:   r=0.28f; g=1.00f; b=0.52f; break;
+        case ParticleType::W_BOSON_POS:r=1.00f; g=0.76f; b=0.26f; break;
+        case ParticleType::W_BOSON_NEG:r=0.92f; g=0.48f; b=0.16f; break;
+        case ParticleType::Z_BOSON:    r=0.94f; g=0.92f; b=0.78f; break;
+        case ParticleType::HIGGS_BOSON:r=1.00f; g=0.34f; b=0.62f; break;
         case ParticleType::DARK_MATTER:r=0.45f; g=0.18f; b=0.78f; break;
         case ParticleType::STAR:       r=1.00f; g=0.93f; b=0.76f; break;
         case ParticleType::GAS:        r=0.34f; g=0.78f; b=1.00f; break;
         case ParticleType::BLACKHOLE:  r=0.55f; g=0.05f; b=0.05f; break;
+        case ParticleType::NEUTRINO:   r=0.76f; g=0.90f; b=1.00f; break;
         default:                       r=1.0f; g=1.0f; b=1.0f; break;
     }
 }
@@ -170,15 +196,40 @@ float ParticlePool::defaultVisualScale(ParticleType t, uint32_t flags) {
         case ParticleType::QUARK_U:
         case ParticleType::QUARK_D:
         case ParticleType::QUARK_S:
+        case ParticleType::QUARK_C:
+        case ParticleType::QUARK_B:
+        case ParticleType::QUARK_T:
+        case ParticleType::ANTIQUARK_U:
+        case ParticleType::ANTIQUARK_D:
+        case ParticleType::ANTIQUARK_S:
+        case ParticleType::ANTIQUARK_C:
+        case ParticleType::ANTIQUARK_B:
+        case ParticleType::ANTIQUARK_T:
         case ParticleType::ANTIQUARK:
             scale = 0.55f; break;
         case ParticleType::GLUON:
             scale = 0.65f; break;
         case ParticleType::ELECTRON:
+        case ParticleType::POSITRON:
+        case ParticleType::MUON:
+        case ParticleType::ANTIMUON:
+        case ParticleType::TAU:
+        case ParticleType::ANTITAU:
         case ParticleType::NEUTRINO:
+        case ParticleType::NEUTRINO_E:
+        case ParticleType::ANTINEUTRINO_E:
+        case ParticleType::NEUTRINO_MU:
+        case ParticleType::ANTINEUTRINO_MU:
+        case ParticleType::NEUTRINO_TAU:
+        case ParticleType::ANTINEUTRINO_TAU:
             scale = 0.50f; break;
         case ParticleType::PHOTON:
+        case ParticleType::W_BOSON_POS:
+        case ParticleType::W_BOSON_NEG:
+        case ParticleType::Z_BOSON:
             scale = 0.70f; break;
+        case ParticleType::HIGGS_BOSON:
+            scale = 0.85f; break;
         case ParticleType::PROTON:
         case ParticleType::NEUTRON:
             scale = 0.95f; break;

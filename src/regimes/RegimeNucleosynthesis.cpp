@@ -138,7 +138,7 @@ void RegimeNucleosynthesis::update(double cosmic_dt, double scale_factor, double
 {
     double a_prev_frame = std::max(prev_scale_factor_, 1e-60);
     double a_new = std::max(scale_factor, 1e-60);
-    constexpr double regime_duration = CosmicClock::REGIME_START_TIMES[3] - CosmicClock::REGIME_START_TIMES[2];
+    constexpr double regime_duration = CosmicClock::REGIME_START_TIMES[5] - CosmicClock::REGIME_START_TIMES[4];
     double progress_dt = (regime_duration > 0.0) ? cosmic_dt / regime_duration : 0.0;
     double total_visual_dt = cosmic_dt <= 0.0 ? 0.0
                                                : std::clamp(progress_dt * 24.0, 0.001, 0.04);

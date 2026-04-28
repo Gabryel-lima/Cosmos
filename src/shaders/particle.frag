@@ -2,7 +2,7 @@
 // particle.frag — Billboard brilhante com bordas suaves para partículas.
 
 in vec2  v_uv;
-in vec4  v_color; // rgb = color, a = particle type id (as float)
+in vec4  v_color; // rgb = color, a = shader tag (1.0 = gluon)
 in float v_size;
 
 out vec4 frag_color;
@@ -21,11 +21,13 @@ void main() {
     // Núcleo interno brilhante
     float core = exp(-12.0 * d * d);
 
-    // Determine particle type (alpha channel encodes integer id)
-    int ptype = int(v_color.a + 0.5);
-    bool isGluon = (ptype == 4);
+    bool isGluon = (v_color.a > 0.5);
 
     vec3 color = v_color.rgb;
+    float vivid = 1.0 - smoothstep(0.18, 0.72, alpha);
+    float maxc = max(max(color.r, color.g), color.b);
+    vec3 hue_preserved = (maxc > 1e-4) ? (color / maxc) * max(maxc, 0.22) : color;
+    color = mix(color, hue_preserved * (1.0 + 0.18 * vivid), 0.28 * vivid);
 
     // Default glow/bright for quarks/others
     vec3 glow = color * alpha;

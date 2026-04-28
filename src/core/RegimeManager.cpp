@@ -77,14 +77,261 @@ void randomDirectionalGluon(std::mt19937& rng, QcdColor& color, QcdColor& antico
     }
 }
 
-double qgpRestMass(ParticleType type) {
-    constexpr double inv_c2 = 1.0 / (phys::c * phys::c);
+bool isQuarkFlavor(ParticleType type) {
     switch (type) {
-        case ParticleType::QUARK_U: return 2.2 * phys::MeV * inv_c2;
-        case ParticleType::QUARK_D: return 4.7 * phys::MeV * inv_c2;
-        case ParticleType::QUARK_S: return 93.0 * phys::MeV * inv_c2;
-        case ParticleType::GLUON:   return 0.0;
-        default:                    return phys::m_p / 3.0;
+        case ParticleType::QUARK_U:
+        case ParticleType::QUARK_D:
+        case ParticleType::QUARK_S:
+        case ParticleType::QUARK_C:
+        case ParticleType::QUARK_B:
+        case ParticleType::QUARK_T:
+        case ParticleType::ANTIQUARK_U:
+        case ParticleType::ANTIQUARK_D:
+        case ParticleType::ANTIQUARK_S:
+        case ParticleType::ANTIQUARK_C:
+        case ParticleType::ANTIQUARK_B:
+        case ParticleType::ANTIQUARK_T:
+        case ParticleType::ANTIQUARK:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool isAntiquarkFlavor(ParticleType type) {
+    switch (type) {
+        case ParticleType::ANTIQUARK_U:
+        case ParticleType::ANTIQUARK_D:
+        case ParticleType::ANTIQUARK_S:
+        case ParticleType::ANTIQUARK_C:
+        case ParticleType::ANTIQUARK_B:
+        case ParticleType::ANTIQUARK_T:
+        case ParticleType::ANTIQUARK:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool isLightQgpFlavor(ParticleType type) {
+    switch (type) {
+        case ParticleType::QUARK_U:
+        case ParticleType::QUARK_D:
+        case ParticleType::QUARK_S:
+        case ParticleType::ANTIQUARK_U:
+        case ParticleType::ANTIQUARK_D:
+        case ParticleType::ANTIQUARK_S:
+        case ParticleType::ANTIQUARK:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool isChargedLeptonType(ParticleType type) {
+    switch (type) {
+        case ParticleType::ELECTRON:
+        case ParticleType::POSITRON:
+        case ParticleType::MUON:
+        case ParticleType::ANTIMUON:
+        case ParticleType::TAU:
+        case ParticleType::ANTITAU:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool isNeutrinoFlavor(ParticleType type) {
+    switch (type) {
+        case ParticleType::NEUTRINO:
+        case ParticleType::NEUTRINO_E:
+        case ParticleType::ANTINEUTRINO_E:
+        case ParticleType::NEUTRINO_MU:
+        case ParticleType::ANTINEUTRINO_MU:
+        case ParticleType::NEUTRINO_TAU:
+        case ParticleType::ANTINEUTRINO_TAU:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool isElectroweakBoson(ParticleType type) {
+    return type == ParticleType::PHOTON || type == ParticleType::W_BOSON_POS ||
+           type == ParticleType::W_BOSON_NEG || type == ParticleType::Z_BOSON ||
+           type == ParticleType::HIGGS_BOSON;
+}
+
+float particleChargeValue(ParticleType type) {
+    switch (type) {
+        case ParticleType::QUARK_U:
+        case ParticleType::QUARK_C:
+        case ParticleType::QUARK_T:
+            return 2.0f / 3.0f;
+        case ParticleType::QUARK_D:
+        case ParticleType::QUARK_S:
+        case ParticleType::QUARK_B:
+            return -1.0f / 3.0f;
+        case ParticleType::ANTIQUARK_U:
+        case ParticleType::ANTIQUARK_C:
+        case ParticleType::ANTIQUARK_T:
+            return -2.0f / 3.0f;
+        case ParticleType::ANTIQUARK_D:
+        case ParticleType::ANTIQUARK_S:
+        case ParticleType::ANTIQUARK_B:
+        case ParticleType::ANTIQUARK:
+            return 1.0f / 3.0f;
+        case ParticleType::PROTON:
+        case ParticleType::POSITRON:
+        case ParticleType::ANTIMUON:
+        case ParticleType::ANTITAU:
+        case ParticleType::W_BOSON_POS:
+            return 1.0f;
+        case ParticleType::ELECTRON:
+        case ParticleType::MUON:
+        case ParticleType::TAU:
+        case ParticleType::W_BOSON_NEG:
+            return -1.0f;
+        default:
+            return 0.0f;
+    }
+}
+
+void seedRelativisticQcdCharge(ParticlePool& pool, size_t idx, ParticleType type,
+                               bool neutral_gluons, std::mt19937& rng)
+{
+    if (type == ParticleType::GLUON) {
+        if (neutral_gluons) {
+            pool.clearQcdCharge(idx);
+        } else {
+            QcdColor color = QcdColor::NONE;
+            QcdColor anticolor = QcdColor::NONE;
+            randomDirectionalGluon(rng, color, anticolor);
+            pool.setQcdCharge(idx, color, anticolor);
+        }
+        return;
+    }
+    if (!isQuarkFlavor(type)) {
+        pool.clearQcdCharge(idx);
+        return;
+    }
+    QcdColor primary = randomQcdPrimary(rng);
+    if (isAntiquarkFlavor(type)) {
+        pool.setQcdCharge(idx, QcdColor::NONE, qcd::antiColor(primary));
+    } else {
+        pool.setQcdCharge(idx, primary);
+    }
+}
+
+ParticleType collapseToQgpFlavor(ParticleType type, std::mt19937& rng) {
+    if (isLightQgpFlavor(type) || type == ParticleType::GLUON || type == ParticleType::PHOTON ||
+        isChargedLeptonType(type) || isNeutrinoFlavor(type)) {
+        return type;
+    }
+
+    if (isQuarkFlavor(type)) {
+        const bool anti = isAntiquarkFlavor(type);
+        switch (rng() % 3u) {
+            case 0: return anti ? ParticleType::ANTIQUARK_U : ParticleType::QUARK_U;
+            case 1: return anti ? ParticleType::ANTIQUARK_D : ParticleType::QUARK_D;
+            default:return anti ? ParticleType::ANTIQUARK_S : ParticleType::QUARK_S;
+        }
+    }
+
+    if (type == ParticleType::MUON || type == ParticleType::TAU) return ParticleType::ELECTRON;
+    if (type == ParticleType::ANTIMUON || type == ParticleType::ANTITAU) return ParticleType::POSITRON;
+    if (type == ParticleType::W_BOSON_POS || type == ParticleType::W_BOSON_NEG ||
+        type == ParticleType::Z_BOSON || type == ParticleType::HIGGS_BOSON) {
+        return (rng() % 2u == 0u) ? ParticleType::PHOTON : ParticleType::GLUON;
+    }
+    return ParticleType::PHOTON;
+}
+
+ParticleType coolToLeptonicFlavor(ParticleType type, std::mt19937& rng) {
+    switch (type) {
+        case ParticleType::QUARK_T:
+        case ParticleType::QUARK_B:
+            return (rng() % 2u == 0u) ? ParticleType::QUARK_C : ParticleType::QUARK_S;
+        case ParticleType::ANTIQUARK_T:
+        case ParticleType::ANTIQUARK_B:
+            return (rng() % 2u == 0u) ? ParticleType::ANTIQUARK_C : ParticleType::ANTIQUARK_S;
+        case ParticleType::W_BOSON_POS:
+            return (rng() % 2u == 0u) ? ParticleType::POSITRON : ParticleType::ANTIMUON;
+        case ParticleType::W_BOSON_NEG:
+            return (rng() % 2u == 0u) ? ParticleType::ELECTRON : ParticleType::MUON;
+        case ParticleType::Z_BOSON:
+            return (rng() % 2u == 0u) ? ParticleType::PHOTON : ParticleType::NEUTRINO_E;
+        case ParticleType::HIGGS_BOSON:
+            return (rng() % 2u == 0u) ? ParticleType::PHOTON : ParticleType::TAU;
+        default:
+            return type;
+    }
+}
+
+void seedRelativisticSphere(ParticlePool& pool, int regime_index, double radius,
+                            double min_separation, double velocity_sigma,
+                            std::mt19937& rng)
+{
+    const RegimeConfig::RelativisticRecipeView recipe = RegimeConfig::relativisticRecipeForRegime(regime_index);
+    const int total_target = RegimeConfig::relativisticTargetCount(regime_index);
+    if (total_target <= 0 || recipe.data == nullptr || recipe.size == 0) return;
+
+    std::normal_distribution<double> vel_dist(0.0, velocity_sigma);
+    std::vector<int> quotas(recipe.size, 0);
+    double total_weight = 0.0;
+    for (std::size_t i = 0; i < recipe.size; ++i) total_weight += recipe.data[i].weight;
+    int allocated = 0;
+    for (std::size_t i = 0; i < recipe.size; ++i) {
+        quotas[i] = static_cast<int>(std::floor((recipe.data[i].weight / total_weight) * total_target));
+        allocated += quotas[i];
+    }
+    for (std::size_t i = 0; allocated < total_target; ++i, ++allocated) {
+        quotas[i % quotas.size()] += 1;
+    }
+
+    auto randomPosInRelativisticSphere = [&](double& px, double& py, double& pz) {
+        std::uniform_real_distribution<double> dist(-radius, radius);
+        do {
+            px = dist(rng);
+            py = dist(rng);
+            pz = dist(rng);
+        } while (px * px + py * py + pz * pz > radius * radius);
+    };
+
+    auto randomPosWithClearance = [&](double& px, double& py, double& pz) {
+        const double min_dist2 = min_separation * min_separation;
+        for (int attempt = 0; attempt < 80; ++attempt) {
+            randomPosInRelativisticSphere(px, py, pz);
+            bool overlap = false;
+            for (size_t i = 0; i < pool.x.size(); ++i) {
+                if (!(pool.flags[i] & PF_ACTIVE)) continue;
+                const double dx = pool.x[i] - px;
+                const double dy = pool.y[i] - py;
+                const double dz = pool.z[i] - pz;
+                if (dx * dx + dy * dy + dz * dz < min_dist2) {
+                    overlap = true;
+                    break;
+                }
+            }
+            if (!overlap) return;
+        }
+        randomPosInRelativisticSphere(px, py, pz);
+    };
+
+    for (std::size_t i = 0; i < recipe.size; ++i) {
+        for (int count = 0; count < quotas[i]; ++count) {
+            double px, py, pz;
+            randomPosWithClearance(px, py, pz);
+            float cr, cg, cb;
+            ParticlePool::defaultColor(recipe.data[i].type, cr, cg, cb);
+            size_t added = pool.add(px, py, pz,
+                                    vel_dist(rng), vel_dist(rng), vel_dist(rng),
+                                    chemistry::restMass(recipe.data[i].type), recipe.data[i].type,
+                                    cr, cg, cb, particleChargeValue(recipe.data[i].type));
+            seedRelativisticQcdCharge(pool, added, recipe.data[i].type, regime_index == 3, rng);
+            pool.luminosity[added] = recipe.data[i].luminosity;
+        }
     }
 }
 
@@ -167,12 +414,14 @@ ParticlePool resampleParticlePoolLOD(const ParticlePool& src, size_t target_size
 double targetTemperatureForRegime(int regime_index) {
     switch (regime_index) {
         case 0: return CosmicClock::T_INFLATION_END * 10.0;
-        case 1: return std::sqrt(CosmicClock::T_INFLATION_END * CosmicClock::T_QGP_END);
-        case 2: return std::sqrt(CosmicClock::T_QGP_END * CosmicClock::T_BBN_END);
-        case 3: return std::sqrt(CosmicClock::T_BBN_END * CosmicClock::T_RECOMBINATION);
-        case 4: return std::sqrt(CosmicClock::T_RECOMBINATION * CosmicClock::T_DARK_AGES);
-        case 5: return std::sqrt(CosmicClock::T_DARK_AGES * CosmicClock::T_REIONIZATION);
-        case 6: return CosmicClock::T_REIONIZATION * 0.15;
+        case 1: return std::sqrt(CosmicClock::T_INFLATION_END * CosmicClock::T_REHEATING_END);
+        case 2: return std::sqrt(CosmicClock::T_REHEATING_END * CosmicClock::T_LEPTON_END);
+        case 3: return std::sqrt(CosmicClock::T_LEPTON_END * CosmicClock::T_QGP_END);
+        case 4: return std::sqrt(CosmicClock::T_QGP_END * CosmicClock::T_BBN_END);
+        case 5: return std::sqrt(CosmicClock::T_BBN_END * CosmicClock::T_RECOMBINATION);
+        case 6: return std::sqrt(CosmicClock::T_RECOMBINATION * CosmicClock::T_DARK_AGES);
+        case 7: return std::sqrt(CosmicClock::T_DARK_AGES * CosmicClock::T_REIONIZATION);
+        case 8: return CosmicClock::T_REIONIZATION * 0.15;
         default: return CosmicClock::T_INFLATION_END;
     }
 }
@@ -242,13 +491,11 @@ ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
     // the QGP, reinterpret that 2D scalar map as an angular chart of a 3D
     // sphere, preserving density contrast and fluctuations while gaining the
     // missing spatial dimension for the next regime.
-    if (to == 1 && previous.phi_NX > 0 && previous.phi_NY > 0 && !previous.phi_field.empty()) {
-        const size_t Nquarks = static_cast<size_t>(RegimeConfig::QGP_QUARK_COUNT);
-        const size_t Ngluons = static_cast<size_t>(RegimeConfig::QGP_GLUON_COUNT);
+    if (to >= 1 && to <= 3 && previous.phi_NX > 0 && previous.phi_NY > 0 && !previous.phi_field.empty()) {
         const int NX = previous.phi_NX;
         const int NY = previous.phi_NY;
         const size_t Ncells = previous.phi_field.size();
-        constexpr double qgp_radius = 0.5;
+        const double qgp_radius = RegimeConfig::relativisticSeedConfigForRegime(to).radius;
 
         auto clampIndex = [](int value, int upper) {
             return std::clamp(value, 0, std::max(upper - 1, 0));
@@ -345,53 +592,69 @@ ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
                 const double grad_len = std::sqrt(grad_x * grad_x + grad_y * grad_y);
                 const double flow_u = (grad_len > 1e-8) ? (grad_x / grad_len) : 0.0;
                 const double flow_v = (grad_len > 1e-8) ? (grad_y / grad_len) : 0.0;
-                     const double flow_strength = grad_len / rms_phi;
+                const double flow_strength = std::clamp(grad_len / rms_phi, 0.0, 3.0);
 
-                     const double rand_theta = 2.0 * M_PI * std::clamp(uni(rng) / cdf.back(), 0.0, 1.0);
-                     const double rand_y = signed_unit(rng);
-                     const double rand_xy = std::sqrt(std::max(0.0, 1.0 - rand_y * rand_y));
-                     const double rand_x = rand_xy * std::cos(rand_theta);
-                     const double rand_z = rand_xy * std::sin(rand_theta);
-                     const double angular_mix = std::clamp(0.24 + 0.09 * flow_strength - 0.04 * contrast, 0.18, 0.45);
+                const double rand_theta = 2.0 * M_PI * std::clamp(uni(rng) / cdf.back(), 0.0, 1.0);
+                const double rand_y = signed_unit(rng);
+                const double rand_xy = std::sqrt(std::max(0.0, 1.0 - rand_y * rand_y));
+                const double rand_x = rand_xy * std::cos(rand_theta);
+                const double rand_z = rand_xy * std::sin(rand_theta);
+                const double random_mix = std::clamp(0.34 + 0.10 * flow_strength - 0.03 * contrast, 0.32, 0.58);
+                const double chart_mix = 1.0 - random_mix;
 
-                     double dir_x = chart_x * (1.0 - angular_mix) + rand_x * angular_mix;
-                     double dir_y = chart_y * (1.0 - angular_mix) + rand_y * angular_mix;
-                     double dir_z = chart_z * (1.0 - angular_mix) + rand_z * angular_mix;
-                     const double dir_norm = std::sqrt(std::max(1e-12, dir_x * dir_x + dir_y * dir_y + dir_z * dir_z));
-                     dir_x /= dir_norm;
-                     dir_y /= dir_norm;
-                     dir_z /= dir_norm;
-
-                     const double latitude = std::asin(std::clamp(dir_y, -1.0, 1.0));
-                     const double cos_lat = std::sqrt(std::max(0.0, 1.0 - dir_y * dir_y));
+                double dir_x = chart_x * chart_mix + rand_x * random_mix;
+                double dir_y = chart_y * chart_mix + rand_y * random_mix;
+                double dir_z = chart_z * chart_mix + rand_z * random_mix;
+                const double dir_norm = std::sqrt(std::max(1e-12, dir_x * dir_x + dir_y * dir_y + dir_z * dir_z));
+                dir_x /= dir_norm;
+                dir_y /= dir_norm;
+                dir_z /= dir_norm;
 
                 const double radial_random = std::cbrt(std::clamp(uni(rng) / cdf.back(), 0.0, 1.0));
-                     const double radial_bias = std::clamp(contrast * 0.14, -0.10, 0.18);
-                     const double radial_turbulence = 0.04 * jitteru(rng) * std::clamp(flow_strength, 0.0, 2.0);
-                     const double radius = qgp_radius * std::clamp(0.10 + 0.72 * std::pow(radial_random, 1.45) - radial_bias + radial_turbulence,
-                                                                                  0.03,
-                                                                                  0.92);
-                const double tangent_theta_x = -dir_z;
-                const double tangent_theta_y = 0.0;
-                const double tangent_theta_z = dir_x;
-                const double tangent_phi_x = -std::sin(latitude) * std::cos(theta);
-                const double tangent_phi_y = cos_lat;
-                const double tangent_phi_z = -std::sin(latitude) * std::sin(theta);
+                const double radial_bias = std::clamp(contrast * 0.12, -0.08, 0.16);
+                const double radial_turbulence = 0.025 * jitteru(rng) * std::clamp(flow_strength, 0.0, 2.0);
+                const double radius = qgp_radius * std::clamp(0.12 + 0.70 * std::pow(radial_random, 1.35) - radial_bias + radial_turbulence,
+                                                              0.05,
+                                                              0.90);
 
-                     const double cell_jitter = qgp_radius * (0.014 + 0.010 * std::clamp(flow_strength, 0.0, 1.6));
-                     px = dir_x * radius + rand_x * qgp_radius * 0.010 + cell_jitter * jitteru(rng);
-                     py = dir_y * radius + rand_y * qgp_radius * 0.010 + cell_jitter * jitteru(rng);
-                     pz = dir_z * radius + rand_z * qgp_radius * 0.010 + cell_jitter * jitteru(rng);
+                double ref_x = 0.0;
+                double ref_y = (std::abs(dir_y) < 0.92) ? 1.0 : 0.0;
+                double ref_z = (std::abs(dir_y) < 0.92) ? 0.0 : 1.0;
+                double tangent_u_x = ref_y * dir_z - ref_z * dir_y;
+                double tangent_u_y = ref_z * dir_x - ref_x * dir_z;
+                double tangent_u_z = ref_x * dir_y - ref_y * dir_x;
+                const double tangent_u_norm = std::sqrt(std::max(1e-12,
+                    tangent_u_x * tangent_u_x + tangent_u_y * tangent_u_y + tangent_u_z * tangent_u_z));
+                tangent_u_x /= tangent_u_norm;
+                tangent_u_y /= tangent_u_norm;
+                tangent_u_z /= tangent_u_norm;
+                const double tangent_v_x = dir_y * tangent_u_z - dir_z * tangent_u_y;
+                const double tangent_v_y = dir_z * tangent_u_x - dir_x * tangent_u_z;
+                const double tangent_v_z = dir_x * tangent_u_y - dir_y * tangent_u_x;
 
-                     const double inflow = std::clamp(contrast, -2.5, 3.0) * 0.016;
-                     const double phi_momentum = std::clamp(phiDotAt(i, j) / rms_phi, -2.5, 2.5) * 0.010;
-                     const double turbulent_kick = 0.010 * std::clamp(flow_strength, 0.0, 2.5);
-                     vx = thermal_vel(rng) - dir_x * inflow + tangent_theta_x * (0.017 * flow_u) + tangent_phi_x * (0.017 * flow_v)
-                         + rand_x * turbulent_kick + dir_x * phi_momentum;
-                     vy = thermal_vel(rng) - dir_y * inflow + tangent_theta_y * (0.017 * flow_u) + tangent_phi_y * (0.017 * flow_v)
-                         + rand_y * turbulent_kick + dir_y * phi_momentum;
-                     vz = thermal_vel(rng) - dir_z * inflow + tangent_theta_z * (0.017 * flow_u) + tangent_phi_z * (0.017 * flow_v)
-                         + rand_z * turbulent_kick + dir_z * phi_momentum;
+                const double cell_jitter = qgp_radius * (0.016 + 0.008 * std::clamp(flow_strength, 0.0, 1.4));
+                px = dir_x * radius + rand_x * qgp_radius * 0.016 + cell_jitter * jitteru(rng);
+                py = dir_y * radius + rand_y * qgp_radius * 0.016 + cell_jitter * jitteru(rng);
+                pz = dir_z * radius + rand_z * qgp_radius * 0.016 + cell_jitter * jitteru(rng);
+
+                const double inflow = std::clamp(contrast, -2.5, 3.0) * 0.014;
+                const double phi_momentum = std::clamp(phiDotAt(i, j) / rms_phi, -2.5, 2.5) * 0.008;
+                const double tangential_flow = std::clamp(0.0025 * flow_strength, 0.0, 0.0055);
+                const double turbulent_kick = 0.008 * std::clamp(0.55 + 0.35 * flow_strength, 0.0, 1.6);
+                const double ortho_noise_u = 0.0016 * jitteru(rng);
+                const double ortho_noise_v = 0.0016 * jitteru(rng);
+                vx = thermal_vel(rng) - dir_x * inflow + dir_x * phi_momentum
+                   + tangent_u_x * (tangential_flow * flow_u + ortho_noise_u)
+                   + tangent_v_x * (tangential_flow * flow_v + ortho_noise_v)
+                   + rand_x * turbulent_kick;
+                vy = thermal_vel(rng) - dir_y * inflow + dir_y * phi_momentum
+                   + tangent_u_y * (tangential_flow * flow_u + ortho_noise_u)
+                   + tangent_v_y * (tangential_flow * flow_v + ortho_noise_v)
+                   + rand_y * turbulent_kick;
+                vz = thermal_vel(rng) - dir_z * inflow + dir_z * phi_momentum
+                   + tangent_u_z * (tangential_flow * flow_u + ortho_noise_u)
+                   + tangent_v_z * (tangential_flow * flow_v + ortho_noise_v)
+                   + rand_z * turbulent_kick;
             };
 
             auto randomPosInQgpSphere = [&](double& px, double& py, double& pz) {
@@ -424,58 +687,73 @@ ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
                 randomPosInQgpSphere(px, py, pz);
             };
 
-            const double min_dist2 = RegimeConfig::QGP_INIT_MIN_SEPARATION * RegimeConfig::QGP_INIT_MIN_SEPARATION;
-            static const ParticleType quark_types[3] = { ParticleType::QUARK_U, ParticleType::QUARK_D, ParticleType::QUARK_S };
-            for (size_t qi = 0; qi < Nquarks; ++qi) {
-                double px, py, pz, vx, vy, vz;
-                bool placed = false;
-                for (int attempt = 0; attempt < 32 && !placed; ++attempt) {
-                    size_t cidx = sampleCellIndex();
-                    cellToPosAndVelocity(cidx, px, py, pz, vx, vy, vz);
-                    bool overlap = false;
-                    for (size_t e = 0; e < next.x.size(); ++e) {
-                        if (!(next.flags[e] & PF_ACTIVE)) continue;
-                        double dx = next.x[e] - px;
-                        double dy = next.y[e] - py;
-                        double dz = next.z[e] - pz;
-                        if (dx*dx + dy*dy + dz*dz < min_dist2) { overlap = true; break; }
-                    }
-                    if (!overlap) placed = true;
-                }
-                if (!placed) {
-                    randomPosInQgpSphereWithClearance(RegimeConfig::QGP_INIT_MIN_SEPARATION, px, py, pz);
-                    vx = thermal_vel(rng);
-                    vy = thermal_vel(rng);
-                    vz = thermal_vel(rng);
-                }
-                ParticleType t = quark_types[rng() % 3u];
-                float cr, cg, cb; ParticlePool::defaultColor(t, cr, cg, cb);
-                size_t added = next.add(px, py, pz, vx, vy, vz, qgpRestMass(t), t, cr, cg, cb,
-                                        (t == ParticleType::QUARK_U) ? 2.0f/3.0f : -1.0f/3.0f);
-                next.setQcdCharge(added, randomQcdPrimary(rng));
-                next.luminosity[added] = 2.2f;
+            const RegimeConfig::RelativisticRecipeView recipe = RegimeConfig::relativisticRecipeForRegime(to);
+            const int total_target = RegimeConfig::relativisticTargetCount(to);
+            std::vector<int> quotas(recipe.size, 0);
+            double total_weight = 0.0;
+            for (std::size_t i = 0; i < recipe.size; ++i) total_weight += recipe.data[i].weight;
+            int allocated = 0;
+            for (std::size_t i = 0; i < recipe.size; ++i) {
+                quotas[i] = static_cast<int>(std::floor((recipe.data[i].weight / total_weight) * total_target));
+                allocated += quotas[i];
+            }
+            for (std::size_t i = 0; allocated < total_target; ++i, ++allocated) {
+                quotas[i % quotas.size()] += 1;
             }
 
-            for (size_t gi = 0; gi < Ngluons; ++gi) {
-                double px, py, pz, vx, vy, vz;
-                size_t cidx = sampleCellIndex();
-                cellToPosAndVelocity(cidx, px, py, pz, vx, vy, vz);
-                px += 1e-3 * jitteru(rng);
-                py += 1e-3 * jitteru(rng);
-                pz += 1e-3 * jitteru(rng);
-                size_t added = next.add(px, py, pz, vx, vy, vz,
-                                        qgpRestMass(ParticleType::GLUON), ParticleType::GLUON, 1.0f, 0.8f, 0.2f, 0.0f);
-                QcdColor color = QcdColor::NONE;
-                QcdColor anticolor = QcdColor::NONE;
-                randomDirectionalGluon(rng, color, anticolor);
-                next.setQcdCharge(added, color, anticolor);
-                next.luminosity[added] = 2.8f;
+            const double min_dist2 = RegimeConfig::QGP_INIT_MIN_SEPARATION * RegimeConfig::QGP_INIT_MIN_SEPARATION;
+            for (std::size_t ri = 0; ri < recipe.size; ++ri) {
+                for (int count = 0; count < quotas[ri]; ++count) {
+                    double px, py, pz, vx, vy, vz;
+                    bool placed = false;
+                    for (int attempt = 0; attempt < 32 && !placed; ++attempt) {
+                        size_t cidx = sampleCellIndex();
+                        cellToPosAndVelocity(cidx, px, py, pz, vx, vy, vz);
+                        bool overlap = false;
+                        for (size_t e = 0; e < next.x.size(); ++e) {
+                            if (!(next.flags[e] & PF_ACTIVE)) continue;
+                            double dx = next.x[e] - px;
+                            double dy = next.y[e] - py;
+                            double dz = next.z[e] - pz;
+                            if (dx*dx + dy*dy + dz*dz < min_dist2) { overlap = true; break; }
+                        }
+                        if (!overlap) placed = true;
+                    }
+                    if (!placed) {
+                        randomPosInQgpSphereWithClearance(RegimeConfig::QGP_INIT_MIN_SEPARATION, px, py, pz);
+                        vx = thermal_vel(rng);
+                        vy = thermal_vel(rng);
+                        vz = thermal_vel(rng);
+                    }
+
+                    float cr, cg, cb;
+                    ParticlePool::defaultColor(recipe.data[ri].type, cr, cg, cb);
+                    size_t added = next.add(px, py, pz, vx, vy, vz,
+                                            chemistry::restMass(recipe.data[ri].type), recipe.data[ri].type,
+                                            cr, cg, cb, particleChargeValue(recipe.data[ri].type));
+                    seedRelativisticQcdCharge(next, added, recipe.data[ri].type, to == 3, rng);
+                    next.luminosity[added] = recipe.data[ri].luminosity;
+                }
             }
 
             return next;
         }
     }
-    if (to == 2) {
+    if (to == 4) {
+        for (size_t i = 0; i < source.x.size(); ++i) {
+            if (!(source.flags[i] & PF_ACTIVE)) continue;
+            if (isAntiquarkFlavor(source.type[i])) {
+                source.type[i] = ParticleType::PHOTON;
+                source.mass[i] = 0.0;
+                source.charge[i] = 0.0f;
+                source.clearQcdCharge(i);
+            } else if (isQuarkFlavor(source.type[i]) && !isLightQgpFlavor(source.type[i])) {
+                source.type[i] = collapseToQgpFlavor(source.type[i], initRng());
+                source.mass[i] = chemistry::restMass(source.type[i]);
+                source.charge[i] = particleChargeValue(source.type[i]);
+                seedRelativisticQcdCharge(source, i, source.type[i], true, initRng());
+            }
+        }
         chemistry::hadronizeQgp(source);
     }
     const ParticlePool& src = source;
@@ -487,13 +765,29 @@ ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
         if (!(src.flags[i] & PF_ACTIVE)) continue;
 
         switch (to) {
-            case 2: {
+            case 2:
+            case 3: {
+                ParticleType mapped = src.type[i];
+                if (to == 2) {
+                    mapped = coolToLeptonicFlavor(mapped, initRng());
+                } else {
+                    mapped = collapseToQgpFlavor(mapped, initRng());
+                }
+                if (mapped == ParticleType::HIGGS_BOSON) mapped = ParticleType::PHOTON;
+                size_t added = addParticleCopy(next, src, i, mapped, 0.0015f,
+                                               (to == 2) ? std::max(0.9f, src.luminosity[i]) : std::max(0.8f, src.luminosity[i]),
+                                               particleChargeValue(mapped));
+                seedRelativisticQcdCharge(next, added, mapped, to == 3, initRng());
+                break;
+            }
+
+            case 4: {
                 if (!chemistry::isLightNucleus(src.type[i])) continue;
                 addParticleCopy(next, src, i, src.type[i], 0.0f, src.luminosity[i], src.charge[i]);
                 break;
             }
 
-            case 3: {
+            case 5: {
                 if (!chemistry::isLightNucleus(src.type[i])) continue;
                 ParticleType nucleus = src.type[i];
                 plasma_baryons.push_back(i);
@@ -508,40 +802,45 @@ ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
                 break;
             }
 
-            case 4:
-            case 5:
-            case 6: {
+            case 6:
+            case 7:
+            case 8: {
                 ParticleType mapped = src.type[i];
                 if (mapped == ParticleType::PHOTON || mapped == ParticleType::NEUTRINO) continue;
+                if (isNeutrinoFlavor(mapped)) continue;
                 if (mapped == ParticleType::ELECTRON || isBaryonicType(mapped)) {
                     if (mapped != ParticleType::STAR && mapped != ParticleType::BLACKHOLE) {
                         mapped = ParticleType::GAS;
                     }
+                } else if (mapped == ParticleType::POSITRON || mapped == ParticleType::MUON || mapped == ParticleType::ANTIMUON ||
+                           mapped == ParticleType::TAU || mapped == ParticleType::ANTITAU || isQuarkFlavor(mapped) ||
+                           mapped == ParticleType::GLUON || isElectroweakBoson(mapped)) {
+                    mapped = ParticleType::GAS;
                 }
                 size_t added = addParticleCopy(next, src, i, mapped);
                 if (mapped == ParticleType::GAS || mapped == ParticleType::DARK_MATTER) {
                     next.mass[added] = (mapped == ParticleType::DARK_MATTER) ? RegimeConfig::MASS_DARK_MATTER : RegimeConfig::MASS_GAS;
                     if (mapped == ParticleType::GAS) {
                         next.charge[added] = 0.0f;
-                        next.luminosity[added] = (to == 4) ? 0.18f : (to == 5 ? 0.35f : 0.8f);
+                        next.luminosity[added] = (to == 6) ? 0.18f : (to == 7 ? 0.35f : 0.8f);
                     }
                 }
 
-                size_t star_step = (to == 5) ? RegimeConfig::TRANS_STRUCT_STAR_SPAWN_STEP * 2
+                size_t star_step = (to == 7) ? RegimeConfig::TRANS_STRUCT_STAR_SPAWN_STEP * 2
                                              : RegimeConfig::TRANS_STRUCT_STAR_SPAWN_STEP;
-                if (to >= 5 && mapped == ParticleType::GAS && i % std::max<size_t>(star_step, 1) == 0) {
+                if (to >= 7 && mapped == ParticleType::GAS && i % std::max<size_t>(star_step, 1) == 0) {
                     size_t star = next.add(src.x[i], src.y[i], src.z[i],
                                            src.vx[i], src.vy[i], src.vz[i],
                                            RegimeConfig::MASS_STAR, ParticleType::STAR,
-                                           (to == 5) ? 0.82f : 1.0f,
-                                           (to == 5) ? 0.9f  : 0.92f,
-                                           (to == 5) ? 1.0f  : 0.72f,
+                                           (to == 7) ? 0.82f : 1.0f,
+                                           (to == 7) ? 0.9f  : 0.92f,
+                                           (to == 7) ? 1.0f  : 0.72f,
                                            0.0f);
-                    next.star_state[star] = (to == 5) ? StarState::MAIN_SEQUENCE : StarState::PROTOSTAR;
-                    next.luminosity[star] = (to == 5) ? 4.8f : 4.0f;
+                    next.star_state[star] = (to == 7) ? StarState::MAIN_SEQUENCE : StarState::PROTOSTAR;
+                    next.luminosity[star] = (to == 7) ? 4.8f : 4.0f;
                     next.flags[star] |= PF_STAR_FORMED;
                 }
-                if (to == 6 && mapped == ParticleType::GAS && i % (RegimeConfig::TRANS_STRUCT_STAR_SPAWN_STEP * 12) == 0) {
+                if (to == 8 && mapped == ParticleType::GAS && i % (RegimeConfig::TRANS_STRUCT_STAR_SPAWN_STEP * 12) == 0) {
                     size_t bh = next.add(src.x[i], src.y[i], src.z[i],
                                          src.vx[i], src.vy[i], src.vz[i],
                                          RegimeConfig::MASS_BLACKHOLE, ParticleType::BLACKHOLE,
@@ -557,7 +856,7 @@ ParticlePool remapParticlesForRegime(int to, const Universe& previous) {
         }
     }
 
-    if (to == 3 && !plasma_baryons.empty()) {
+    if (to == 5 && !plasma_baryons.empty()) {
         const size_t photon_target = std::max<size_t>(1,
             static_cast<size_t>(std::lround(plasma_baryons.size() *
                 (static_cast<double>(RegimeConfig::PLASMA_PHOTON_COUNT) /
@@ -583,24 +882,24 @@ void inheritStateAcrossTransition(int from, int to, const Universe& previous, In
     ParticlePool remapped = remapParticlesForRegime(to, previous);
     if (!remapped.x.empty()) {
         size_t target_size = next.particles.x.size();
-        const bool preserve_derived_counts = (to == 2 || to == 3);
+        const bool preserve_derived_counts = (to == 4 || to == 5);
 
         if (to < 4 && !preserve_derived_counts && target_size > 0 && target_size != activeParticleCount(remapped)) {
             remapped = resampleParticlePoolLOD(remapped, target_size);
         }
 
-        if (to == 2 || to == 3) {
+        if (to == 4 || to == 5) {
             next.abundances = chemistry::inferAbundances(remapped);
         }
 
-        if (to >= 4) {
+        if (to >= 6) {
             imprintStructureTemplate(next.particles, remapped, to);
         } else if (activeParticleCount(remapped) > 0) {
             next.particles = std::move(remapped);
         }
     }
 
-    if (to >= 3 && previous.density_field.NX > 0 && previous.density_field.data.size() == next.field.data.size()) {
+    if (to >= 5 && previous.density_field.NX > 0 && previous.density_field.data.size() == next.field.data.size()) {
         next.field = previous.density_field;
     }
 }
@@ -612,11 +911,13 @@ void inheritStateAcrossTransition(int from, int to, const Universe& previous, In
 RegimeManager::RegimeManager() {
     regimes_[0] = std::make_unique<RegimeInflation>();
     regimes_[1] = std::make_unique<RegimeQGP>();
-    regimes_[2] = std::make_unique<RegimeNucleosynthesis>();
-    regimes_[3] = std::make_unique<RegimePlasma>();
-    regimes_[4] = std::make_unique<RegimeStructure>(StructurePhase::DARK_AGES);
-    regimes_[5] = std::make_unique<RegimeStructure>(StructurePhase::REIONIZATION);
-    regimes_[6] = std::make_unique<RegimeStructure>(StructurePhase::MATURE);
+    regimes_[2] = std::make_unique<RegimeQGP>();
+    regimes_[3] = std::make_unique<RegimeQGP>();
+    regimes_[4] = std::make_unique<RegimeNucleosynthesis>();
+    regimes_[5] = std::make_unique<RegimePlasma>();
+    regimes_[6] = std::make_unique<RegimeStructure>(StructurePhase::DARK_AGES);
+    regimes_[7] = std::make_unique<RegimeStructure>(StructurePhase::REIONIZATION);
+    regimes_[8] = std::make_unique<RegimeStructure>(StructurePhase::MATURE);
 }
 
 // ── Construtores de Estado Inicial ─────────────────────────────────────────────────────
@@ -719,10 +1020,12 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
         case 0: cam.ortho = true;  cam.zoom = 1.0; break;
         case 1: cam.ortho = false; cam.zoom = 3.0; break;
         case 2: cam.ortho = false; cam.zoom = 3.0; break;
-        case 3: cam.ortho = false; cam.zoom = 7.5; break;
-        case 4: cam.ortho = false; cam.zoom = 38.0; break;
-        case 5: cam.ortho = false; cam.zoom = 45.0; break;
-        case 6: cam.ortho = false; cam.zoom = 52.0; break;
+        case 3: cam.ortho = false; cam.zoom = 3.2; break;
+        case 4: cam.ortho = false; cam.zoom = 7.5; break;
+        case 5: cam.ortho = false; cam.zoom = 38.0; break;
+        case 6: cam.ortho = false; cam.zoom = 45.0; break;
+        case 7: cam.ortho = false; cam.zoom = 52.0; break;
+        case 8: cam.ortho = false; cam.zoom = 58.0; break;
     }
     cam.pos_z = static_cast<double>(cam.zoom) * 1.5;
     st.suggested_camera = cam;
@@ -734,42 +1037,30 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
             break;
 
         case 1: {
-            // PQG: 2000 quarks – pequeno o suficiente para Yukawa O(N²) rodar em tempo real
-            int N = RegimeConfig::QGP_QUARK_COUNT;
-            std::normal_distribution<double> vel_dist(0.0, 0.05);
-            static const ParticleType quark_types[3] = {
-                ParticleType::QUARK_U, ParticleType::QUARK_D, ParticleType::QUARK_S
-            };
-            for (int i = 0; i < N; ++i) {
-                double px, py, pz;
-                randomPosInSphereWithClearance(0.5, RegimeConfig::QGP_INIT_MIN_SEPARATION,
-                                               st.particles, px, py, pz);
-                double vx = vel_dist(rng_init), vy = vel_dist(rng_init), vz = vel_dist(rng_init);
-                ParticleType t = quark_types[rng_init() % 3];
-                float cr, cg, cb; ParticlePool::defaultColor(t, cr, cg, cb);
-                size_t added = st.particles.add(px, py, pz, vx, vy, vz, qgpRestMass(t), t, cr, cg, cb,
-                                                (t == ParticleType::QUARK_U) ? 2.0f/3.0f : -1.0f/3.0f);
-                st.particles.setQcdCharge(added, randomQcdPrimary(rng_init));
-                st.particles.luminosity[added] = 2.2f;
-            }
-            // Glúons mediadores
-            for (int i = 0; i < RegimeConfig::QGP_GLUON_COUNT; ++i) {
-                double px, py, pz;
-                randomPosInSphereWithClearance(0.5, RegimeConfig::QGP_INIT_MIN_SEPARATION * 0.75,
-                                               st.particles, px, py, pz);
-                size_t added = st.particles.add(px, py, pz,
-                                                vel_dist(rng_init), vel_dist(rng_init), vel_dist(rng_init),
-                                                qgpRestMass(ParticleType::GLUON), ParticleType::GLUON, 1.0f, 0.8f, 0.2f, 0.0f);
-                QcdColor color = QcdColor::NONE;
-                QcdColor anticolor = QcdColor::NONE;
-                randomDirectionalGluon(rng_init, color, anticolor);
-                st.particles.setQcdCharge(added, color, anticolor);
-                st.particles.luminosity[added] = 2.8f;
-            }
+            const auto cfg = RegimeConfig::relativisticSeedConfigForRegime(idx);
+            seedRelativisticSphere(st.particles, idx, cfg.radius,
+                                   RegimeConfig::QGP_INIT_MIN_SEPARATION * cfg.min_separation_scale,
+                                   cfg.velocity_sigma, rng_init);
             break;
         }
 
         case 2: {
+            const auto cfg = RegimeConfig::relativisticSeedConfigForRegime(idx);
+            seedRelativisticSphere(st.particles, idx, cfg.radius,
+                                   RegimeConfig::QGP_INIT_MIN_SEPARATION * cfg.min_separation_scale,
+                                   cfg.velocity_sigma, rng_init);
+            break;
+        }
+
+        case 3: {
+            const auto cfg = RegimeConfig::relativisticSeedConfigForRegime(idx);
+            seedRelativisticSphere(st.particles, idx, cfg.radius,
+                                   RegimeConfig::QGP_INIT_MIN_SEPARATION * cfg.min_separation_scale,
+                                   cfg.velocity_sigma, rng_init);
+            break;
+        }
+
+        case 4: {
             // NBB: prótons e nêutrons (da hadronização)
             st.abundances = NuclearAbundances{};
             st.abundances.Xp = RegimeConfig::BBN_INIT_XP; 
@@ -792,7 +1083,7 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
             break;
         }
 
-        case 3: {
+        case 5: {
             // Plasma: inicializar grade de fluido com amplitude visível de perturbações
             int N = RegimeConfig::PLASMA_GRID_SIZE;
             st.field.resize(N, N, N);
@@ -841,9 +1132,9 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
             break;
         }
 
-        case 4:
-        case 5:
-        case 6: {
+        case 6:
+        case 7:
+        case 8: {
             // Estruturas tardias: grade de Zel'dovich em z~20 — N_cbrt³ partículas
             int N_cbrt = RegimeConfig::STRUCT_ZELDOVICH_N_CBRT;  // ~15 625 partículas (gerenciável para formação estelar)
             double box = RegimeConfig::STRUCT_BOX_SIZE_MPC;  // Mpc comóvel (câmera vê melhor)
@@ -855,10 +1146,10 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
 
             for (size_t i = 0; i < st.particles.x.size(); ++i) {
                 if (st.particles.type[i] == ParticleType::GAS) {
-                    st.particles.luminosity[i] = (idx == 4) ? 0.18f : (idx == 5 ? 0.35f : 0.7f);
-                    if (idx == 4) {
+                    st.particles.luminosity[i] = (idx == 6) ? 0.18f : (idx == 7 ? 0.35f : 0.7f);
+                    if (idx == 6) {
                         st.particles.color_r[i] = 0.24f; st.particles.color_g[i] = 0.55f; st.particles.color_b[i] = 0.95f;
-                    } else if (idx == 5) {
+                    } else if (idx == 7) {
                         st.particles.color_r[i] = 0.34f; st.particles.color_g[i] = 0.78f; st.particles.color_b[i] = 1.0f;
                     }
                 } else if (st.particles.type[i] == ParticleType::DARK_MATTER) {
@@ -867,25 +1158,25 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
                 }
             }
 
-            if (idx >= 5) {
-                const size_t star_step = (idx == 5) ? RegimeConfig::STRUCT_STAR_SPAWN_STEP * 2
+            if (idx >= 7) {
+                const size_t star_step = (idx == 7) ? RegimeConfig::STRUCT_STAR_SPAWN_STEP * 2
                                                     : RegimeConfig::STRUCT_STAR_SPAWN_STEP;
                 for (size_t i = 0; i < st.particles.x.size(); i += star_step) {
                     if (st.particles.type[i] != ParticleType::GAS) continue;
                     size_t star = st.particles.add(st.particles.x[i], st.particles.y[i], st.particles.z[i],
                                                    st.particles.vx[i], st.particles.vy[i], st.particles.vz[i],
                                                    RegimeConfig::MASS_STAR, ParticleType::STAR,
-                                                   (idx == 5) ? 0.82f : 1.0f,
-                                                   (idx == 5) ? 0.9f  : 0.92f,
-                                                   (idx == 5) ? 1.0f  : 0.72f,
+                                                   (idx == 7) ? 0.82f : 1.0f,
+                                                   (idx == 7) ? 0.9f  : 0.92f,
+                                                   (idx == 7) ? 1.0f  : 0.72f,
                                                    0.0f);
-                    st.particles.star_state[star] = (idx == 5) ? StarState::MAIN_SEQUENCE : StarState::PROTOSTAR;
-                    st.particles.luminosity[star] = (idx == 5) ? 4.8f : 4.0f;
+                    st.particles.star_state[star] = (idx == 7) ? StarState::MAIN_SEQUENCE : StarState::PROTOSTAR;
+                    st.particles.luminosity[star] = (idx == 7) ? 4.8f : 4.0f;
                     st.particles.flags[star] |= PF_STAR_FORMED;
                 }
             }
 
-            if (idx == 6) {
+            if (idx == 8) {
                 for (size_t i = RegimeConfig::STRUCT_BH_SPAWN_OFFSET; i < st.particles.x.size(); i += RegimeConfig::STRUCT_BH_SPAWN_STEP) {
                     size_t bh = st.particles.add(st.particles.x[i], st.particles.y[i], st.particles.z[i],
                                                  0.0, 0.0, 0.0,

@@ -175,6 +175,8 @@ static void on_key(GLFWwindow* /*w*/, int key, int /*sc*/, int action, int mods)
         case GLFW_KEY_5: jumpToRegimeAndFrame(*g_app, 4); break;
         case GLFW_KEY_6: jumpToRegimeAndFrame(*g_app, 5); break;
         case GLFW_KEY_7: jumpToRegimeAndFrame(*g_app, 6); break;
+        case GLFW_KEY_8: jumpToRegimeAndFrame(*g_app, 7); break;
+        case GLFW_KEY_9: jumpToRegimeAndFrame(*g_app, 8); break;
 
         case GLFW_KEY_C:
             recenterCameraToScene(*g_app, g_app->mgr.getCurrentRegimeIndex());
@@ -410,7 +412,7 @@ int main(int argc, char** argv) {
                 app.universe.quality.grid_res,
                 app.universe.quality.barnes_hut_theta);
 
-    std::printf("[main] Starting simulation. Seed=%u. Keys: SPACE=play/pause, 1-7=jump, T=toggle track, C=recenter camera, R=reload shaders, H=HUD, F=fullscreen, ESC=release/quit, Ctrl+Q=quit\n",
+    std::printf("[main] Starting simulation. Seed=%u. Keys: SPACE=play/pause, 1-9=jump, T=toggle track, C=recenter camera, R=reload shaders, H=HUD, F=fullscreen, ESC=release/quit, Ctrl+Q=quit\n",
                 simrng::globalSeed());
 
     // ── Loop principal ──────────────────────────────────────────────────────────────

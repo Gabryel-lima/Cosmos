@@ -7,14 +7,37 @@
 #include "../physics/Constants.hpp"
 #include "../physics/Friedmann.hpp"
 #include <array>
+#include <chrono>
 #include <random>
 #include <cmath>
 #include <algorithm>
 
 namespace {
+std::mt19937 makeFreshInflationRng() {
+    std::random_device rd;
+    const auto now = static_cast<std::uint64_t>(
+        std::chrono::high_resolution_clock::now().time_since_epoch().count());
+    std::array<std::uint32_t, 8> seed_data = {
+        rd(),
+        rd(),
+        rd(),
+        rd(),
+        static_cast<std::uint32_t>(now),
+        static_cast<std::uint32_t>(now >> 32),
+        simrng::globalSeed(),
+        static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(&seed_data))
+    };
+    std::seed_seq seq(seed_data.begin(), seed_data.end());
+    return std::mt19937(seq);
+}
+
 std::mt19937& inflationRng() {
-    static std::mt19937 rng = simrng::makeStream("inflation");
+    static std::mt19937 rng = makeFreshInflationRng();
     return rng;
+}
+
+void reseedInflationRng() {
+    inflationRng() = makeFreshInflationRng();
 }
 
 constexpr double kInflationTotalEFoldsVisual = 55.0;
@@ -29,6 +52,7 @@ struct InflationMode {
 }
 
 void RegimeInflation::onEnter(Universe& state) {
+    reseedInflationRng();
     e_folds_    = 0.0;
     in_phase_b_ = false;
     extrude_t_  = 0.0f;
