@@ -6,6 +6,32 @@
 #include <cmath>
 #include <vector>
 
+namespace {
+
+double regimeFramePadding(int regime_index) {
+    switch (regime_index) {
+        case 0: return 1.10;
+        case 1:
+        case 2: return 1.12;
+        case 3: return 1.15;
+        case 4: return 1.18;
+        case 5:
+        case 6: return 1.20;
+        default: return 1.15;
+    }
+}
+
+double fitDistanceForSphere(double radius, float fov_deg) {
+    double half_fov_rad = glm::radians(static_cast<double>(std::clamp(fov_deg, 20.0f, 100.0f)) * 0.5);
+    double sin_half_fov = std::sin(half_fov_rad);
+    if (sin_half_fov <= 1e-6) {
+        return radius * 2.0;
+    }
+    return radius / sin_half_fov;
+}
+
+} // namespace
+
 void Camera::processMouseDelta(float dx, float dy) {
     if (std::abs(dx) > 0.0f || std::abs(dy) > 0.0f) {
         disableAutoFrame();
@@ -86,17 +112,27 @@ void Camera::disableAutoFrame() {
 SceneFrame Camera::estimateSceneFrame(const Universe& universe) {
     const ParticlePool& pp = universe.particles;
     SceneFrame frame;
-    glm::dvec3 accum(0.0);
     size_t active_count = 0;
+    glm::dvec3 min_pos(0.0);
+    glm::dvec3 max_pos(0.0);
+    bool has_bounds = false;
 
     for (size_t i = 0; i < pp.x.size(); ++i) {
         if (!(pp.flags[i] & PF_ACTIVE)) continue;
-        accum += glm::dvec3(pp.x[i], pp.y[i], pp.z[i]);
+        glm::dvec3 pos(pp.x[i], pp.y[i], pp.z[i]);
+        if (!has_bounds) {
+            min_pos = pos;
+            max_pos = pos;
+            has_bounds = true;
+        } else {
+            min_pos = glm::min(min_pos, pos);
+            max_pos = glm::max(max_pos, pos);
+        }
         ++active_count;
     }
 
-    if (active_count > 0) {
-        frame.center = accum / static_cast<double>(active_count);
+    if (has_bounds) {
+        frame.center = (min_pos + max_pos) * 0.5;
     }
 
     std::vector<double> radii;
@@ -141,17 +177,6 @@ SceneFrame Camera::estimateSceneFrame(const Universe& universe) {
 Camera::State Camera::getSceneFittedState(int regime_index, const SceneFrame& scene_frame) const {
     Camera::State base = getRegimeDefaultState(regime_index);
     double radius = std::max(scene_frame.radius, 1e-6);
-    double framing_multiplier = 3.0;
-    switch (regime_index) {
-        case 0: framing_multiplier = 1.4; break;
-        case 1: framing_multiplier = 3.2; break;
-        case 2: framing_multiplier = 3.2; break;
-        case 3: framing_multiplier = 2.1; break;
-        case 4: framing_multiplier = 1.45; break;
-        case 5: framing_multiplier = 1.3; break;
-        case 6: framing_multiplier = 1.15; break;
-        default: break;
-    }
 
     glm::dvec3 desired_forward = glm::normalize(glm::dvec3(base.forward));
     if (!std::isfinite(desired_forward.x) || !std::isfinite(desired_forward.y) || !std::isfinite(desired_forward.z) ||
@@ -160,7 +185,12 @@ Camera::State Camera::getSceneFittedState(int regime_index, const SceneFrame& sc
     }
 
     base.forward = glm::vec3(desired_forward);
-    base.zoom_distance = std::max(base.zoom_distance, radius * framing_multiplier);
+    if (base.ortho_mode) {
+        base.zoom_distance = radius * regimeFramePadding(regime_index);
+    } else {
+        const double fitted_distance = fitDistanceForSphere(radius, fov_deg) * regimeFramePadding(regime_index);
+        base.zoom_distance = std::max(fitted_distance, radius * 1.05);
+    }
     base.position = scene_frame.center - desired_forward * base.zoom_distance;
     return base;
 }
