@@ -7,34 +7,34 @@ in vec3 v_ray_dir;
 out vec4 frag_color;
 
 uniform sampler3D u_density_tex;
+uniform int       u_regime;
 uniform float     u_density_scale;
 uniform float     u_opacity_scale;
 uniform float     u_opacity;
+uniform float     u_edge_boost;
 uniform vec3      u_cam_world_pos;
 uniform float     u_box_size;
+uniform vec3      u_color_cold;
+uniform vec3      u_color_warm;
+uniform vec3      u_color_hot;
+uniform vec3      u_color_core;
 
 #define MAX_STEPS 256
 #define STEP_SIZE 0.005     // volume step size
 
-vec4 transferFunction(float density) {
-    // Baixa densidade: azul escuro/ciano; média: magenta/rosa pálido; alta: branco e dourado
-    // Simulando emissão térmica e poeira quente da teia cósmica.
-    vec3 cool  = vec3(0.01, 0.05, 0.15);
-    vec3 warm  = vec3(0.6, 0.1, 0.4);
-    vec3 hot   = vec3(1.0, 0.8, 0.3);
-    vec3 core  = vec3(1.0, 1.0, 1.0);
-
+vec4 transferFunction(float density, float edge) {
     float t = clamp(density * u_density_scale, 0.0, 1.0);
     
-    vec3 col_mix = mix(cool, warm, smoothstep(0.0, 0.4, t));
-    col_mix = mix(col_mix, hot, smoothstep(0.4, 0.8, t));
-    col_mix = mix(col_mix, core, smoothstep(0.8, 1.0, t));
+    vec3 col_mix = mix(u_color_cold, u_color_warm, smoothstep(0.0, 0.4, t));
+    col_mix = mix(col_mix, u_color_hot, smoothstep(0.4, 0.8, t));
+    col_mix = mix(col_mix, u_color_core, smoothstep(0.8, 1.0, t));
+    col_mix += edge * mix(u_color_warm, u_color_hot, 0.5) * 0.35;
     
-    // Suaviza muito o limiar base pra não poluir todo o vazio de cor e criar fios
-    float alpha = smoothstep(0.05, 0.8, t) * u_opacity_scale * u_opacity;
+    float alpha_low = (u_regime >= 6) ? 0.10 : 0.05;
+    float alpha = smoothstep(alpha_low, 0.8, t) * u_opacity_scale * u_opacity;
+    alpha *= mix(0.8, 1.2, clamp(edge, 0.0, 1.0));
     
-    // Evita acumulação absurda mas mantém denso
-    return vec4(col_mix, min(alpha * 0.1, 0.5));
+    return vec4(col_mix, min(alpha * 0.1, 0.6));
 }
 
 void main() {
@@ -78,8 +78,12 @@ void main() {
         }
 
         float density = texture(u_density_tex, pos_vol).r;
-        if(density > 0.005) {    
-            vec4 sample_col = transferFunction(density);
+        if(density > 0.005) {
+            vec3 texel = 1.0 / vec3(textureSize(u_density_tex, 0));
+            vec3 ray_tex_step = normalize(abs(ray_dir) + vec3(1e-5)) * texel * 2.0;
+            float ahead_density = texture(u_density_tex, clamp(pos_vol + ray_tex_step, 0.0, 1.0)).r;
+            float edge = clamp(abs(ahead_density - density) * u_edge_boost * 4.0, 0.0, 1.0);
+            vec4 sample_col = transferFunction(density, edge);
             // Composição frente-para-trás
             accum.rgb += (1.0 - accum.a) * sample_col.a * sample_col.rgb;
             accum.a   += (1.0 - accum.a) * sample_col.a;

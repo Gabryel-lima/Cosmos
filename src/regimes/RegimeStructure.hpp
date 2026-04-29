@@ -32,6 +32,8 @@ private:
     void checkStarFormation(Universe& universe, double temp_K);
     void updateStellarEvolution(Universe& universe, double cosmic_dt);
     void runFriendsOfFriends(Universe& universe);
+    void animatePhaseEmission(Universe& universe, double cosmic_time) const;
+    void rebuildDensityField(Universe& universe, double cosmic_time);
     int regimeIndex() const;
     void applyPhasePalette(Universe& state) const;
 

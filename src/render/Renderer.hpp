@@ -115,6 +115,7 @@ private:
     void setupQuadBuffers();
     void setupFBOs();
     void applyPostProcess();
+    void setVec3Uniform(GLuint program, const char* name, const glm::vec3& value) const;
 
     int width_ = 1280, height_ = 720;
     float last_gpu_ms_ = 0.0f;

@@ -13,6 +13,8 @@
 #include <numeric>
 #include <random>
 
+#include <glm/vec3.hpp>
+
 namespace {
 float stellarGlowFromMass(double m_ratio) {
     double clamped_mass = std::clamp(m_ratio, 0.1, 40.0);
@@ -48,6 +50,17 @@ double interpolatePositive(double start, double end, double alpha) {
     double a1 = std::max(end, 1e-60);
     double t = std::clamp(alpha, 0.0, 1.0);
     return a0 * std::pow(a1 / a0, t);
+}
+
+double wrapPosition(double value, double box_size) {
+    if (box_size <= 0.0) return value;
+    double wrapped = std::fmod(value + box_size * 0.5, box_size);
+    if (wrapped < 0.0) wrapped += box_size;
+    return wrapped - box_size * 0.5;
+}
+
+float phaseWave(double cosmic_time, double seed, double frequency) {
+    return 0.5f + 0.5f * static_cast<float>(std::sin(cosmic_time * frequency + seed));
 }
 }
 
@@ -115,6 +128,154 @@ void RegimeStructure::onEnter(Universe& state) {
 
 void RegimeStructure::onExit() {
     halos_.clear();
+}
+
+void RegimeStructure::animatePhaseEmission(Universe& universe, double cosmic_time) const {
+    ParticlePool& p = universe.particles;
+    for (size_t i = 0; i < p.x.size(); ++i) {
+        if (!(p.flags[i] & PF_ACTIVE)) continue;
+
+        const float pulse = phaseWave(cosmic_time, static_cast<double>(i) * 0.073, 1.0e-15);
+        switch (phase_) {
+            case StructurePhase::DARK_AGES:
+                if (p.type[i] == ParticleType::GAS) {
+                    p.luminosity[i] = std::max(0.10f, 0.16f + pulse * 0.10f);
+                    p.color_r[i] = 0.10f + 0.06f * pulse;
+                    p.color_g[i] = 0.18f + 0.14f * pulse;
+                    p.color_b[i] = 0.32f + 0.28f * pulse;
+                } else if (p.type[i] == ParticleType::DARK_MATTER) {
+                    p.luminosity[i] = 0.03f + pulse * 0.02f;
+                }
+                break;
+            case StructurePhase::REIONIZATION:
+                if (p.type[i] == ParticleType::GAS) {
+                    p.luminosity[i] = std::max(0.24f, p.luminosity[i] * 0.985f + pulse * 0.18f);
+                    p.color_r[i] = 0.24f + 0.12f * pulse;
+                    p.color_g[i] = 0.58f + 0.18f * pulse;
+                    p.color_b[i] = 0.92f + 0.08f * pulse;
+                } else if (p.type[i] == ParticleType::STAR) {
+                    p.luminosity[i] = std::max(p.luminosity[i], 4.4f + pulse * 1.4f);
+                } else if (p.type[i] == ParticleType::BLACKHOLE) {
+                    p.luminosity[i] = std::max(p.luminosity[i], 4.8f + pulse * 1.6f);
+                }
+                break;
+            case StructurePhase::MATURE:
+                if (p.type[i] == ParticleType::GAS) {
+                    p.luminosity[i] = std::max(0.18f, p.luminosity[i] * 0.992f + pulse * 0.08f);
+                } else if (p.type[i] == ParticleType::STAR) {
+                    p.luminosity[i] = std::max(2.2f, p.luminosity[i] * 0.996f + pulse * 0.26f);
+                } else if (p.type[i] == ParticleType::BLACKHOLE) {
+                    p.luminosity[i] = std::max(5.2f, p.luminosity[i] * 0.997f + pulse * 0.42f);
+                }
+                break;
+        }
+    }
+}
+
+void RegimeStructure::rebuildDensityField(Universe& universe, double cosmic_time) {
+    GridData& field = universe.density_field;
+    GridData& vx = universe.velocity_x;
+    GridData& vy = universe.velocity_y;
+    GridData& vz = universe.velocity_z;
+    const int N = RegimeConfig::STRUCT_GRID_SIZE;
+    if (field.NX != N) {
+        field.resize(N, N, N);
+        vx.resize(N, N, N);
+        vy.resize(N, N, N);
+        vz.resize(N, N, N);
+    }
+
+    std::fill(field.data.begin(), field.data.end(), 0.0f);
+    std::fill(vx.data.begin(), vx.data.end(), 0.0f);
+    std::fill(vy.data.begin(), vy.data.end(), 0.0f);
+    std::fill(vz.data.begin(), vz.data.end(), 0.0f);
+    std::vector<float> weight(field.data.size(), 0.0f);
+
+    const double box_size = RegimeConfig::STRUCT_BOX_SIZE_MPC;
+    const double inv_box = 1.0 / box_size;
+    auto depositKernel = [&](const glm::dvec3& pos, const glm::dvec3& vel,
+                             float density_weight, int radius, float falloff,
+                             float ionization) {
+        double px = (wrapPosition(pos.x, box_size) * inv_box + 0.5) * static_cast<double>(N);
+        double py = (wrapPosition(pos.y, box_size) * inv_box + 0.5) * static_cast<double>(N);
+        double pz = (wrapPosition(pos.z, box_size) * inv_box + 0.5) * static_cast<double>(N);
+        int cx = static_cast<int>(std::floor(px));
+        int cy = static_cast<int>(std::floor(py));
+        int cz = static_cast<int>(std::floor(pz));
+        for (int dz = -radius; dz <= radius; ++dz)
+        for (int dy = -radius; dy <= radius; ++dy)
+        for (int dx = -radius; dx <= radius; ++dx) {
+            int ix = (cx + dx + N) % N;
+            int iy = (cy + dy + N) % N;
+            int iz = (cz + dz + N) % N;
+            float dist2 = static_cast<float>(dx * dx + dy * dy + dz * dz);
+            float kernel = std::exp(-dist2 * falloff);
+            float heated = kernel * density_weight * (1.0f + ionization);
+            size_t idx = static_cast<size_t>(ix + N * (iy + N * iz));
+            field.data[idx] += heated;
+            vx.data[idx] += static_cast<float>(vel.x) * kernel;
+            vy.data[idx] += static_cast<float>(vel.y) * kernel;
+            vz.data[idx] += static_cast<float>(vel.z) * kernel;
+            weight[idx] += kernel;
+        }
+    };
+
+    ParticlePool& p = universe.particles;
+    for (size_t i = 0; i < p.x.size(); ++i) {
+        if (!(p.flags[i] & PF_ACTIVE)) continue;
+
+        float density_weight = 0.0f;
+        int radius = 1;
+        float falloff = 0.75f;
+        float ionization = 0.0f;
+
+        switch (p.type[i]) {
+            case ParticleType::GAS:
+                density_weight = (phase_ == StructurePhase::DARK_AGES) ? 1.15f : 0.95f;
+                radius = (phase_ == StructurePhase::MATURE) ? 2 : 1;
+                falloff = (phase_ == StructurePhase::DARK_AGES) ? 0.95f : 0.72f;
+                break;
+            case ParticleType::DARK_MATTER:
+                density_weight = 0.55f;
+                radius = 1;
+                falloff = 1.10f;
+                break;
+            case ParticleType::STAR:
+                density_weight = 1.4f;
+                radius = (phase_ == StructurePhase::REIONIZATION) ? 3 : 2;
+                falloff = 0.58f;
+                ionization = (phase_ == StructurePhase::REIONIZATION) ? (0.4f + 0.5f * phaseWave(cosmic_time, static_cast<double>(i), 2.4e-15)) : 0.12f;
+                break;
+            case ParticleType::BLACKHOLE:
+                density_weight = 2.2f;
+                radius = (phase_ == StructurePhase::MATURE) ? 3 : 2;
+                falloff = 0.44f;
+                ionization = 0.35f + 0.35f * phaseWave(cosmic_time, static_cast<double>(i) * 0.37, 3.2e-15);
+                break;
+            default:
+                continue;
+        }
+
+        depositKernel({p.x[i], p.y[i], p.z[i]}, {p.vx[i], p.vy[i], p.vz[i]},
+                      density_weight, radius, falloff, ionization);
+    }
+
+    for (const Halo& halo : halos_) {
+        float halo_strength = std::clamp(static_cast<float>(halo.member_count) / 24.0f, 0.2f, 2.8f);
+        float ionization = (phase_ == StructurePhase::REIONIZATION) ? halo_strength * 0.45f : halo_strength * 0.10f;
+        depositKernel({halo.cx, halo.cy, halo.cz}, {0.0, 0.0, 0.0},
+                      halo_strength, (phase_ == StructurePhase::MATURE) ? 4 : 3, 0.26f, ionization);
+    }
+
+    const float base_floor = (phase_ == StructurePhase::DARK_AGES) ? 0.008f : (phase_ == StructurePhase::REIONIZATION ? 0.015f : 0.010f);
+    for (size_t idx = 0; idx < field.data.size(); ++idx) {
+        float w = std::max(weight[idx], 1e-4f);
+        vx.data[idx] /= w;
+        vy.data[idx] /= w;
+        vz.data[idx] /= w;
+        float micro = phaseWave(cosmic_time, static_cast<double>(idx) * 0.013, 4.5e-16) - 0.5f;
+        field.data[idx] = std::max(base_floor, field.data[idx] * 0.08f + micro * base_floor * 0.4f + base_floor);
+    }
 }
 
 // ── Integrador Leapfrog (Kick-Drift-Kick) ───────────────────────────────────
@@ -402,6 +563,8 @@ void RegimeStructure::update(double cosmic_dt, double scale_factor, double temp_
         }
     }
 
+    animatePhaseEmission(universe, universe.cosmic_time);
+
     prev_scale_factor_ = a_new;
 
     // Formação estelar a cada 60 frames (O(N²) por isso limitado)
@@ -415,6 +578,8 @@ void RegimeStructure::update(double cosmic_dt, double scale_factor, double temp_
         runFriendsOfFriends(universe);
         last_fof_time_ = universe.cosmic_time;
     }
+
+    rebuildDensityField(universe, universe.cosmic_time);
 
     universe.scale_factor    = scale_factor;
     universe.temperature_keV = temp_keV;
