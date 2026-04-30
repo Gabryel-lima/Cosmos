@@ -2,12 +2,19 @@
 // src/core/CosmicClock.hpp — Controlador mestre do tempo e integrador de Friedmann.
 // Única autoridade no tempo de simulação. Regimes NÃO rastreiam tempo absoluto.
 
+#include "../physics/Constants.hpp"
+
+#include <algorithm>
 #include <array>
 
 class CosmicClock {
 public:
     static constexpr int REGIME_COUNT = 9;
     static constexpr int LAST_REGIME_INDEX = REGIME_COUNT - 1;
+
+    static constexpr int clampRegimeIndex(int regime_index) {
+        return (regime_index < 0) ? 0 : ((regime_index > LAST_REGIME_INDEX) ? LAST_REGIME_INDEX : regime_index);
+    }
 
     // ── Limiares de transição de regime [keV] ──────────────────────────────
     static constexpr double T_INFLATION_END = 1e16;   // regime 0→1
@@ -19,23 +26,7 @@ public:
     static constexpr double T_DARK_AGES     = 2.4e-5; // regime 6→7 (~z 100)
     static constexpr double T_REIONIZATION  = 6.0e-6; // regime 7→8 (~z 25)
 
-    // ── Escalas de tempo padrão por regime (cosmic_dt / real_dt) ─────────────────
-    // Calibradas para que cada regime seja atravessado em ~90 segundos reais,
-    // garantindo que as transições automáticas ocorram e os elementos apareçam.
-    // scale = duração_cósmica_do_regime / 90 segundos
-    static constexpr std::array<double, REGIME_COUNT> DEFAULT_SCALE = {
-        1.0e-37,   // Regime 0: Inflação
-        1.0e-14,   // Regime 1: Reaquecimento
-        2.0e-10,   // Regime 2: Plasma leptônico / eletrofraco
-        1.5e-2,    // Regime 3: QGP
-        15.0,      // Regime 4: Nucleossíntese
-        1.2e11,    // Regime 5: Plasma / recombinação
-        3.5e13,    // Regime 6: Idades escuras
-        1.4e14,    // Regime 7: Reionização / primeiras estrelas
-        5.0e14,    // Regime 8: Estruturas maduras
-    };
-
-    /// Multiplicadores de preset de velocidade relativos ao DEFAULT_SCALE.
+    /// Multiplicadores de preset de velocidade relativos à escala padrão do regime.
     enum class SpeedPreset {
         SLOW_MOTION,        // ×0,01
         NORMAL,             // ×1,0  (padrão do regime)
@@ -84,6 +75,28 @@ public:
     double getHubbleRate()        const;
     int    getCurrentRegimeIndex() const { return regime_index_; }
     double getRegimeProgress()    const;
+    double getEstimatedRealSecondsToNextRegime() const;
+
+    static constexpr double defaultRealSecondsForRegime(int regime_index) {
+        return DEFAULT_REAL_SECONDS[static_cast<size_t>(clampRegimeIndex(regime_index))];
+    }
+
+    static constexpr double regimeEndTimeForIndex(int regime_index) {
+        const int idx = clampRegimeIndex(regime_index);
+        return (idx < LAST_REGIME_INDEX)
+            ? REGIME_START_TIMES[static_cast<size_t>(idx + 1)]
+            : phys::t_today;
+    }
+
+    static constexpr double regimeDurationSecondsForIndex(int regime_index) {
+        const int idx = clampRegimeIndex(regime_index);
+        return regimeEndTimeForIndex(idx) - REGIME_START_TIMES[static_cast<size_t>(idx)];
+    }
+
+    static constexpr double defaultScaleForRegimeIndex(int regime_index) {
+        const int idx = clampRegimeIndex(regime_index);
+        return regimeDurationSecondsForIndex(idx) / defaultRealSecondsForRegime(idx);
+    }
 
     // ── Tempos de início dos regimes (segundos desde o Big Bang) ───────────────────────
     static constexpr std::array<double, REGIME_COUNT> REGIME_START_TIMES = {
@@ -98,6 +111,13 @@ public:
         1.6e16,  // Regime 8: estruturas maduras (~500 Myr)
     };
 
+    // ── Janelas reais padrão de visualização por regime ──────────────────────────────
+    // Padronizadas em ~45 s no modo normal para manter todos os regimes observáveis
+    // sem alongar demais a sessão, preservando os presets slow/fast para inspeção fina.
+    static constexpr std::array<double, REGIME_COUNT> DEFAULT_REAL_SECONDS = {
+        45.0, 45.0, 45.0, 45.0, 45.0, 45.0, 45.0, 45.0, 45.0,
+    };
+
 private:
     void recomputeDerivedQuantities();
     void updateRegimeIndex();
@@ -105,7 +125,7 @@ private:
     double cosmic_time_     = 1e-43;  // seconds since Big Bang
     double scale_factor_    = 1e-28;  // a(t) — very small at Planck time
     double temperature_keV_ = 1e28;   // T in keV
-    double time_scale_      = DEFAULT_SCALE[0];
+    double time_scale_      = defaultScaleForRegimeIndex(0);
     double speed_multiplier_ = 1.0;
     bool   paused_          = true;   // start paused until initialized
     int    regime_index_    = 0;

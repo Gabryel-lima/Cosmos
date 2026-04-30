@@ -24,7 +24,7 @@ double targetTemperatureForRegime(int regime_index) {
 }
 
 double defaultScaleForRegime(int regime_index) {
-    return CosmicClock::DEFAULT_SCALE[static_cast<size_t>(std::clamp(regime_index, 0, CosmicClock::LAST_REGIME_INDEX))];
+    return CosmicClock::defaultScaleForRegimeIndex(regime_index);
 }
 
 double nextRegimeStartTime(int regime_index) {
@@ -207,6 +207,14 @@ double CosmicClock::getRegimeProgress() const {
     double t_end   = (r < LAST_REGIME_INDEX) ? REGIME_START_TIMES[static_cast<size_t>(r + 1)] : phys::t_today;
     if (t_end <= t_start) return 1.0;
     return std::clamp((cosmic_time_ - t_start) / (t_end - t_start), 0.0, 1.0);
+}
+
+double CosmicClock::getEstimatedRealSecondsToNextRegime() const {
+    double remaining_cosmic = std::max(0.0, nextRegimeStartTime(regime_index_) - cosmic_time_);
+    if (time_scale_ <= 0.0 || !std::isfinite(time_scale_)) {
+        return 0.0;
+    }
+    return remaining_cosmic / time_scale_;
 }
 
 void CosmicClock::recomputeDerivedQuantities() {

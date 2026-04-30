@@ -440,7 +440,9 @@ void RegimeOverlay::drawTimeControls(CosmicClock& clock, RegimeManager& mgr, Uni
 
     // Controle deslizante do multiplicador relativo ao tempo-base do regime atual.
     int current_regime = std::clamp(mgr.getCurrentRegimeIndex(), 0, CosmicClock::LAST_REGIME_INDEX);
-    double base_scale = CosmicClock::DEFAULT_SCALE[static_cast<size_t>(current_regime)];
+    double base_scale = CosmicClock::defaultScaleForRegimeIndex(current_regime);
+    double base_window_seconds = CosmicClock::defaultRealSecondsForRegime(current_regime);
+    double remaining_window_seconds = clock.getEstimatedRealSecondsToNextRegime();
     float log_multiplier = std::log10(static_cast<float>(std::max(clock.getSpeedMultiplier(), 1e-6)));
     ImGui::PushItemWidth(200.0f);
     if (ImGui::SliderFloat("Speed multiplier (log)", &log_multiplier, -6.0f, 6.0f, "x%.3g")) {
@@ -450,6 +452,7 @@ void RegimeOverlay::drawTimeControls(CosmicClock& clock, RegimeManager& mgr, Uni
     ImGui::PopItemWidth();
     ImGui::SameLine();
     ImGui::Text("base %.2e | current %.2e", base_scale, clock.getTimeScale());
+    ImGui::Text("Window %.0fs @ x1 | remaining %.1fs", base_window_seconds, remaining_window_seconds);
 
     // Botões de salto
     ImGui::Text("Jump to:");
