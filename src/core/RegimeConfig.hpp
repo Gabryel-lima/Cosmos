@@ -11,39 +11,49 @@
 namespace RegimeConfig {
     constexpr std::uint32_t DEFAULT_RANDOM_SEED = 424242u;
 
-#if defined(QUALITY_LOW)
+    // Os regimes macro agora dependem mais do volume 3D do que de grandes contagens
+    // de partículas. Os presets abaixo privilegiam reduzir custo de CPU (N-body,
+    // seeds e microfísica) antes de degradar completamente a resolução volumétrica.
+#if defined(QUALITY_SAFE)
+    constexpr const char* BUILD_QUALITY_NAME = "SAFE";
+    constexpr int    QGP_QUARK_COUNT = 480;
+    constexpr int    PLASMA_GRID_SIZE = 24;
+    constexpr int    STRUCT_ZELDOVICH_N_CBRT = 9;
+    constexpr int    STRUCT_GRID_SIZE = 20;
+    constexpr float  STRUCT_BARNES_HUT_THETA = 1.05f;
+#elif defined(QUALITY_LOW)
     constexpr const char* BUILD_QUALITY_NAME = "LOW";
-    constexpr int    QGP_QUARK_COUNT = 1200;
-    constexpr int    PLASMA_GRID_SIZE = 40;
-    constexpr int    STRUCT_ZELDOVICH_N_CBRT = 18;
-    constexpr int    STRUCT_GRID_SIZE = 32;
-    constexpr float  STRUCT_BARNES_HUT_THETA = 0.75f;
+    constexpr int    QGP_QUARK_COUNT = 800;
+    constexpr int    PLASMA_GRID_SIZE = 32;
+    constexpr int    STRUCT_ZELDOVICH_N_CBRT = 12;
+    constexpr int    STRUCT_GRID_SIZE = 24;
+    constexpr float  STRUCT_BARNES_HUT_THETA = 0.90f;
 #elif defined(QUALITY_HIGH)
     constexpr const char* BUILD_QUALITY_NAME = "HIGH";
-    constexpr int    QGP_QUARK_COUNT = 3200;
+    constexpr int    QGP_QUARK_COUNT = 2400;
+    constexpr int    PLASMA_GRID_SIZE = 64;
+    constexpr int    STRUCT_ZELDOVICH_N_CBRT = 24;
+    constexpr int    STRUCT_GRID_SIZE = 64;
+    constexpr float  STRUCT_BARNES_HUT_THETA = 0.50f;
+#elif defined(QUALITY_ULTRA)
+    constexpr const char* BUILD_QUALITY_NAME = "ULTRA";
+    constexpr int    QGP_QUARK_COUNT = 3600;
     constexpr int    PLASMA_GRID_SIZE = 80;
     constexpr int    STRUCT_ZELDOVICH_N_CBRT = 30;
     constexpr int    STRUCT_GRID_SIZE = 80;
     constexpr float  STRUCT_BARNES_HUT_THETA = 0.42f;
-#elif defined(QUALITY_ULTRA)
-    constexpr const char* BUILD_QUALITY_NAME = "ULTRA";
-    constexpr int    QGP_QUARK_COUNT = 4800;
-    constexpr int    PLASMA_GRID_SIZE = 96;
-    constexpr int    STRUCT_ZELDOVICH_N_CBRT = 34;
-    constexpr int    STRUCT_GRID_SIZE = 96;
-    constexpr float  STRUCT_BARNES_HUT_THETA = 0.35f;
 #else
     constexpr const char* BUILD_QUALITY_NAME = "MEDIUM";
-    constexpr int    QGP_QUARK_COUNT = 2000;
-    constexpr int    PLASMA_GRID_SIZE = 64;
-    constexpr int    STRUCT_ZELDOVICH_N_CBRT = 25;
-    constexpr int    STRUCT_GRID_SIZE = 64;
-    constexpr float  STRUCT_BARNES_HUT_THETA = 0.5f;
+    constexpr int    QGP_QUARK_COUNT = 1400;
+    constexpr int    PLASMA_GRID_SIZE = 48;
+    constexpr int    STRUCT_ZELDOVICH_N_CBRT = 18;
+    constexpr int    STRUCT_GRID_SIZE = 40;
+    constexpr float  STRUCT_BARNES_HUT_THETA = 0.68f;
 #endif
 
-    constexpr int    BASE_QGP_QUARK_COUNT = 2000;
-    constexpr int    BASE_PLASMA_GRID_SIZE = 64;
-    constexpr int    BASE_STRUCT_GRID_SIZE = 64;
+    constexpr int    BASE_QGP_QUARK_COUNT = 1400;
+    constexpr int    BASE_PLASMA_GRID_SIZE = 48;
+    constexpr int    BASE_STRUCT_GRID_SIZE = 40;
     constexpr double QGP_QUALITY_SCALE = static_cast<double>(QGP_QUARK_COUNT) / static_cast<double>(BASE_QGP_QUARK_COUNT);
     constexpr double PLASMA_QUALITY_SCALE = static_cast<double>(PLASMA_GRID_SIZE) / static_cast<double>(BASE_PLASMA_GRID_SIZE);
     constexpr double STRUCT_QUALITY_SCALE = static_cast<double>(STRUCT_GRID_SIZE) / static_cast<double>(BASE_STRUCT_GRID_SIZE);

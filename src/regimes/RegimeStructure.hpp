@@ -46,8 +46,16 @@ private:
     // Dados de grupo FoF (halos de galáxias)
     struct Halo {
         double cx, cy, cz;    // centro de massa
-        double mass;
-        int    member_count;
+        double mass = 0.0;
+        double virial_radius = 0.0;
+        double gas_mass = 0.0;
+        double star_mass = 0.0;
+        double black_hole_mass = 0.0;
+        double emissivity = 0.0;
+        float  gas_fraction = 0.0f;
+        float  stellar_fraction = 0.0f;
+        float  ionized_radius = 0.0f;
+        int    member_count = 0;
     };
     std::vector<Halo> halos_;
     double last_fof_time_ = 0.0;

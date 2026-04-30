@@ -22,6 +22,8 @@ struct InitialState {
     double            temperature_keV  = 1e28;
     ParticlePool      particles;
     GridData          field;
+    GridData          ionization_field;
+    GridData          emissivity_field;
     NuclearAbundances abundances;
     CameraState       suggested_camera;
 };

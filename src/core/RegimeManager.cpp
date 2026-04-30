@@ -11,6 +11,8 @@
 #include "../physics/Friedmann.hpp"
 #include "../physics/Constants.hpp"
 #include "../physics/Hadronization.hpp"
+#include <glm/vec3.hpp>
+#include <glm/geometric.hpp>
 #include <random>
 #include <cmath>
 #include <cstdio>
@@ -902,6 +904,12 @@ void inheritStateAcrossTransition(int from, int to, const Universe& previous, In
     if (to >= 5 && previous.density_field.NX > 0 && previous.density_field.data.size() == next.field.data.size()) {
         next.field = previous.density_field;
     }
+    if (to >= 6 && previous.ionization_field.NX > 0 && previous.ionization_field.data.size() == next.ionization_field.data.size()) {
+        next.ionization_field = previous.ionization_field;
+    }
+    if (to >= 6 && previous.emissivity_field.NX > 0 && previous.emissivity_field.data.size() == next.emissivity_field.data.size()) {
+        next.emissivity_field = previous.emissivity_field;
+    }
 }
 
 } // namespace
@@ -922,36 +930,187 @@ RegimeManager::RegimeManager() {
 
 // ── Construtores de Estado Inicial ─────────────────────────────────────────────────────
 
-/// Aproximação de Zel'dovich: desloca grade regular com perturbações de densidade.
-/// Produz distribuição inicial de partículas cosmologicamente motivada em z~20.
-static void zelDovichDisplace(ParticlePool& pool, int N_cbrt, double box_size) {
-    std::normal_distribution<double> gauss(0.0, 0.05 * box_size);
-    std::normal_distribution<double> velocity(0.0, 0.015);
+struct StructureMode {
+    glm::dvec3 wave;
+    double amplitude;
+    double phase;
+};
+
+double fractUnit(double value) {
+    return value - std::floor(value);
+}
+
+double wrapPeriodic(double value, double box_size) {
+    if (box_size <= 0.0) return value;
+    double wrapped = std::fmod(value + box_size * 0.5, box_size);
+    if (wrapped < 0.0) wrapped += box_size;
+    return wrapped - box_size * 0.5;
+}
+
+double cellHash01(int i, int j, int k, unsigned int stream) {
+    unsigned int h = static_cast<unsigned int>(i) * 0x8da6b343u;
+    h ^= static_cast<unsigned int>(j) * 0xd8163841u;
+    h ^= static_cast<unsigned int>(k) * 0xcb1ab31fu;
+    h ^= stream * 0x9e3779b9u;
+    h ^= h >> 16;
+    h *= 0x7feb352du;
+    h ^= h >> 15;
+    h *= 0x846ca68bu;
+    h ^= h >> 16;
+    return static_cast<double>(h) / 4294967295.0;
+}
+
+struct StructureLptSample {
+    glm::dvec3 displacement{0.0};
+    glm::dvec3 velocity{0.0};
+    float overdensity = 0.0f;
+};
+
+std::array<StructureMode, 10> makeStructureModes(std::mt19937& rng) {
+    constexpr double tau = 6.28318530717958647692;
+    std::uniform_int_distribution<int> kdist(1, 5);
+    std::uniform_real_distribution<double> amp_dist(0.015, 0.075);
+    std::uniform_real_distribution<double> phase_dist(0.0, tau);
+    std::bernoulli_distribution sign_flip(0.5);
+
+    std::array<StructureMode, 10> modes{};
+    for (StructureMode& mode : modes) {
+        glm::dvec3 wave(static_cast<double>(kdist(rng)),
+                        static_cast<double>(kdist(rng)),
+                        static_cast<double>(kdist(rng)));
+        if (sign_flip(rng)) wave.x *= -1.0;
+        if (sign_flip(rng)) wave.y *= -1.0;
+        if (sign_flip(rng)) wave.z *= -1.0;
+        mode.wave = wave;
+        mode.amplitude = amp_dist(rng) / std::sqrt(glm::dot(wave, wave));
+        mode.phase = phase_dist(rng);
+    }
+    return modes;
+}
+
+StructureLptSample sampleStructureLpt(const glm::dvec3& uvw,
+                                      const std::array<StructureMode, 10>& modes)
+{
+    constexpr double tau = 6.28318530717958647692;
+    std::array<double, 10> theta{};
+    std::array<glm::dvec3, 10> gradients{};
+
+    glm::dvec3 grad1(0.0);
+    double density = 0.0;
+    for (std::size_t index = 0; index < modes.size(); ++index) {
+        const StructureMode& mode = modes[index];
+        theta[index] = tau * glm::dot(mode.wave, uvw) + mode.phase;
+        const double s = std::sin(theta[index]);
+        const double c = std::cos(theta[index]);
+        gradients[index] = mode.wave * (mode.amplitude * tau * c);
+        grad1 += gradients[index];
+        density += mode.amplitude * glm::dot(mode.wave, mode.wave) * s;
+    }
+
+    glm::dvec3 grad2(0.0);
+    for (std::size_t a = 0; a < modes.size(); ++a) {
+        for (std::size_t b = a + 1; b < modes.size(); ++b) {
+            const double coupling = 0.20 * modes[a].amplitude * modes[b].amplitude;
+            const glm::dvec3 delta_k = modes[a].wave - modes[b].wave;
+            grad2 += delta_k * (coupling * std::sin(theta[a] - theta[b]));
+        }
+    }
+
+    StructureLptSample sample;
+    sample.displacement = (-0.0021 * grad1) + (-0.00055 * grad2);
+    sample.velocity = (0.11 * sample.displacement) + (-0.00018 * grad2);
+    sample.overdensity = std::clamp(static_cast<float>(0.5 + density * 0.42), -1.0f, 1.0f);
+    return sample;
+}
+
+void seedStructureFields(GridData& density_field,
+                         GridData& ionization_field,
+                         GridData& emissivity_field,
+                         const std::array<StructureMode, 10>& modes,
+                         int regime_index)
+{
+    const int N = density_field.NX;
+    const float phase_seed = static_cast<float>(0.18 * regime_index + 0.37);
+    for (int z = 0; z < N; ++z)
+    for (int y = 0; y < N; ++y)
+    for (int x = 0; x < N; ++x) {
+        const glm::dvec3 uvw((static_cast<double>(x) + 0.5) / static_cast<double>(N),
+                             (static_cast<double>(y) + 0.5) / static_cast<double>(N),
+                             (static_cast<double>(z) + 0.5) / static_cast<double>(N));
+        const StructureLptSample lpt = sampleStructureLpt(uvw, modes);
+        const float overdensity01 = std::clamp(0.5f + 0.5f * lpt.overdensity, 0.0f, 1.0f);
+        const float filament = std::clamp(0.25f + 0.75f * overdensity01, 0.0f, 1.0f);
+        const float patch = 0.5f + 0.5f * std::sin(6.2831853f * (0.61f * static_cast<float>(uvw.x)
+                                                                + 0.37f * static_cast<float>(uvw.y)
+                                                                + 0.29f * static_cast<float>(uvw.z))
+                                                   + phase_seed);
+        const float emissive_seed = std::pow(std::max(overdensity01 * patch, 0.0f), 1.8f);
+
+        density_field.at(x, y, z) = 0.010f + filament * 0.055f;
+        if (regime_index == 6) {
+            ionization_field.at(x, y, z) = emissive_seed * 0.025f;
+            emissivity_field.at(x, y, z) = emissive_seed * 0.015f;
+        } else if (regime_index == 7) {
+            ionization_field.at(x, y, z) = std::clamp(emissive_seed * 0.42f + patch * 0.08f, 0.0f, 0.55f);
+            emissivity_field.at(x, y, z) = emissive_seed * 0.22f;
+        } else {
+            ionization_field.at(x, y, z) = std::clamp(0.28f + emissive_seed * 0.46f + patch * 0.10f, 0.0f, 1.0f);
+            emissivity_field.at(x, y, z) = emissive_seed * 0.30f;
+        }
+    }
+}
+
+/// Aproximação LPT coerente: desloca grade regular com modos de potencial de larga escala
+/// e uma correção de segunda ordem inspirada em 2LPT/COLA. Produz condições iniciais
+/// mais plausíveis para a formação de estrutura tardia do que jitter gaussiano puro.
+static void zelDovichDisplace(ParticlePool& pool, GridData& density_field,
+                              GridData& ionization_field, GridData& emissivity_field,
+                              int N_cbrt, double box_size, int regime_index) {
     std::mt19937& rng_init = initRng();
+    const auto modes = makeStructureModes(rng_init);
     pool.clear();
-    double spacing = box_size / static_cast<double>(N_cbrt);
-    double half = box_size * 0.5;  // centre particles around origin
-    double R2 = half * half; // reject points outside sphere to prevent cuboid collapse artifacts
+    std::uniform_real_distribution<double> global_shift_dist(0.0, 1.0);
+    const glm::dvec3 global_shift(global_shift_dist(rng_init),
+                                  global_shift_dist(rng_init),
+                                  global_shift_dist(rng_init));
+    const double jitter_cells = 0.38;
+
+    seedStructureFields(density_field, ionization_field, emissivity_field, modes, regime_index);
+
     for (int k = 0; k < N_cbrt; ++k)
     for (int j = 0; j < N_cbrt; ++j)
     for (int i = 0; i < N_cbrt; ++i) {
-        double px = (i + 0.5) * spacing - half;
-        double py = (j + 0.5) * spacing - half;
-        double pz = (k + 0.5) * spacing - half;
-        if (px * px + py * py + pz * pz > R2) continue; // Shape as a sphere
-        
-        double x = px + gauss(rng_init);
-        double y = py + gauss(rng_init);
-        double z = pz + gauss(rng_init);
+        const glm::dvec3 cell_jitter((cellHash01(i, j, k, 11u) - 0.5) * jitter_cells,
+                                     (cellHash01(i, j, k, 23u) - 0.5) * jitter_cells,
+                                     (cellHash01(i, j, k, 37u) - 0.5) * jitter_cells);
+        const glm::dvec3 uvw(fractUnit((static_cast<double>(i) + 0.5 + cell_jitter.x) / static_cast<double>(N_cbrt) + global_shift.x),
+                             fractUnit((static_cast<double>(j) + 0.5 + cell_jitter.y) / static_cast<double>(N_cbrt) + global_shift.y),
+                             fractUnit((static_cast<double>(k) + 0.5 + cell_jitter.z) / static_cast<double>(N_cbrt) + global_shift.z));
+        const StructureLptSample lpt = sampleStructureLpt(uvw, modes);
+        const double x = wrapPeriodic((uvw.x - 0.5 + lpt.displacement.x) * box_size, box_size);
+        const double y = wrapPeriodic((uvw.y - 0.5 + lpt.displacement.y) * box_size, box_size);
+        const double z = wrapPeriodic((uvw.z - 0.5 + lpt.displacement.z) * box_size, box_size);
+
+        const float overdensity01 = std::clamp(0.5f + 0.5f * lpt.overdensity, 0.0f, 1.0f);
+        const bool gas_biased = (cellHash01(i, j, k, 53u) < (1.0 / static_cast<double>(RegimeConfig::STRUCT_GAS_RATIO_DIVISOR)))
+                             || (overdensity01 > 0.72f && cellHash01(i, j, k, 71u) < 0.24);
+        const ParticleType t = gas_biased ? ParticleType::GAS : ParticleType::DARK_MATTER;
+        const double mass = (t == ParticleType::DARK_MATTER) ? RegimeConfig::MASS_DARK_MATTER : RegimeConfig::MASS_GAS;
+
         float cr, cg, cb;
-        // 80% matéria escura, 20% gás
-        ParticleType t = (rng_init() % RegimeConfig::STRUCT_GAS_RATIO_DIVISOR == 0) ? ParticleType::GAS : ParticleType::DARK_MATTER;
-        double mass = (t == ParticleType::DARK_MATTER) ? RegimeConfig::MASS_DARK_MATTER : RegimeConfig::MASS_GAS;
         ParticlePool::defaultColor(t, cr, cg, cb);
+        if (t == ParticleType::GAS) {
+            cr = std::clamp(cr * (0.85f + overdensity01 * 0.25f), 0.0f, 1.0f);
+            cg = std::clamp(cg * (0.95f + overdensity01 * 0.15f), 0.0f, 1.0f);
+            cb = std::clamp(cb * (1.00f + overdensity01 * 0.18f), 0.0f, 1.0f);
+        }
+
         size_t added = pool.add(x, y, z,
-                 velocity(rng_init), velocity(rng_init), velocity(rng_init),
-                 mass, t, cr, cg, cb);
-        pool.luminosity[added] = (t == ParticleType::GAS) ? 0.7f : 0.05f; // Gás visível, Matéria Escura bem discreta
+                                lpt.velocity.x, lpt.velocity.y, lpt.velocity.z,
+                                mass, t, cr, cg, cb);
+        pool.luminosity[added] = (t == ParticleType::GAS)
+            ? std::clamp(0.16f + overdensity01 * 0.55f, 0.12f, 0.85f)
+            : std::clamp(0.03f + overdensity01 * 0.08f, 0.02f, 0.14f);
     }
 }
 
@@ -1135,26 +1294,28 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
         case 6:
         case 7:
         case 8: {
-            // Estruturas tardias: grade de Zel'dovich em z~20 — N_cbrt³ partículas
+            // Estruturas tardias: grade com deslocamento LPT coerente em z~20.
             int N_cbrt = RegimeConfig::STRUCT_ZELDOVICH_N_CBRT;  // ~15 625 partículas (gerenciável para formação estelar)
             double box = RegimeConfig::STRUCT_BOX_SIZE_MPC;  // Mpc comóvel (câmera vê melhor)
-            zelDovichDisplace(st.particles, N_cbrt, box);
-            // Campo de densidade semente
             st.field.resize(RegimeConfig::STRUCT_GRID_SIZE, RegimeConfig::STRUCT_GRID_SIZE, RegimeConfig::STRUCT_GRID_SIZE);
-            std::normal_distribution<float> dn(0.0f, 0.05f);
-            for (float& v : st.field.data) v = dn(rng_init);
+            st.ionization_field.resize(RegimeConfig::STRUCT_GRID_SIZE, RegimeConfig::STRUCT_GRID_SIZE, RegimeConfig::STRUCT_GRID_SIZE);
+            st.emissivity_field.resize(RegimeConfig::STRUCT_GRID_SIZE, RegimeConfig::STRUCT_GRID_SIZE, RegimeConfig::STRUCT_GRID_SIZE);
+            zelDovichDisplace(st.particles, st.field, st.ionization_field, st.emissivity_field,
+                              N_cbrt, box, idx);
 
             for (size_t i = 0; i < st.particles.x.size(); ++i) {
                 if (st.particles.type[i] == ParticleType::GAS) {
-                    st.particles.luminosity[i] = (idx == 6) ? 0.18f : (idx == 7 ? 0.35f : 0.7f);
+                    st.particles.luminosity[i] = (idx == 6) ? 0.06f : (idx == 7 ? 0.12f : 0.20f);
                     if (idx == 6) {
-                        st.particles.color_r[i] = 0.24f; st.particles.color_g[i] = 0.55f; st.particles.color_b[i] = 0.95f;
+                        st.particles.color_r[i] = 0.34f; st.particles.color_g[i] = 0.22f; st.particles.color_b[i] = 0.11f;
                     } else if (idx == 7) {
-                        st.particles.color_r[i] = 0.34f; st.particles.color_g[i] = 0.78f; st.particles.color_b[i] = 1.0f;
+                        st.particles.color_r[i] = 0.42f; st.particles.color_g[i] = 0.28f; st.particles.color_b[i] = 0.15f;
+                    } else {
+                        st.particles.color_r[i] = 0.50f; st.particles.color_g[i] = 0.32f; st.particles.color_b[i] = 0.18f;
                     }
                 } else if (st.particles.type[i] == ParticleType::DARK_MATTER) {
-                    st.particles.color_r[i] = 0.45f; st.particles.color_g[i] = 0.18f; st.particles.color_b[i] = 0.78f;
-                    st.particles.luminosity[i] = 0.05f;
+                    st.particles.color_r[i] = 0.18f; st.particles.color_g[i] = 0.14f; st.particles.color_b[i] = 0.20f;
+                    st.particles.luminosity[i] = 0.03f;
                 }
             }
 
@@ -1166,12 +1327,12 @@ InitialState RegimeManager::buildInitialState(int regime_index) {
                     size_t star = st.particles.add(st.particles.x[i], st.particles.y[i], st.particles.z[i],
                                                    st.particles.vx[i], st.particles.vy[i], st.particles.vz[i],
                                                    RegimeConfig::MASS_STAR, ParticleType::STAR,
-                                                   (idx == 7) ? 0.82f : 1.0f,
-                                                   (idx == 7) ? 0.9f  : 0.92f,
-                                                   (idx == 7) ? 1.0f  : 0.72f,
+                                                   1.0f,
+                                                   (idx == 7) ? 0.84f : 0.92f,
+                                                   (idx == 7) ? 0.60f : 0.78f,
                                                    0.0f);
-                    st.particles.star_state[star] = (idx == 7) ? StarState::MAIN_SEQUENCE : StarState::PROTOSTAR;
-                    st.particles.luminosity[star] = (idx == 7) ? 4.8f : 4.0f;
+                    st.particles.star_state[star] = (idx == 7) ? StarState::PROTOSTAR : StarState::MAIN_SEQUENCE;
+                    st.particles.luminosity[star] = (idx == 7) ? 2.4f : 3.4f;
                     st.particles.flags[star] |= PF_STAR_FORMED;
                 }
             }
@@ -1218,6 +1379,23 @@ void RegimeManager::applyInitialState(int regime_index, InitialState& state,
             universe.velocity_y.resize(N, N, N);
             universe.velocity_z.resize(N, N, N);
         }
+    }
+    if (regime_index >= 6) {
+        universe.ionization_field = std::move(state.ionization_field);
+        universe.emissivity_field = std::move(state.emissivity_field);
+        if (universe.ionization_field.NX == 0 && universe.density_field.NX > 0) {
+            universe.ionization_field.resize(universe.density_field.NX,
+                                             universe.density_field.NY,
+                                             universe.density_field.NZ);
+        }
+        if (universe.emissivity_field.NX == 0 && universe.density_field.NX > 0) {
+            universe.emissivity_field.resize(universe.density_field.NX,
+                                             universe.density_field.NY,
+                                             universe.density_field.NZ);
+        }
+    } else {
+        universe.ionization_field = GridData{};
+        universe.emissivity_field = GridData{};
     }
 }
 

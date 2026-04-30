@@ -21,6 +21,8 @@ set of user controls for fast exploration and reproducible diagnostics.
 - Expanded timeline to 9 playable phases spanning inflation through mature structure formation.
 - Early-universe flow now separates Reheating and the Lepton/Electroweak era before the QGP and BBN stages.
 - Automatic regime transitions with smooth cross-fade and continuity-preserving state handoff.
+- Late macro regimes now use a richer volume-driven look: neutral gas fog, ionization fronts, emissivity fields, and gradual condensation into luminous sources.
+- Quality presets were rebalanced around the new macro renderer, and a new `SAFE` tier targets weak CPUs / integrated GPUs.
 - Runtime-safe CPU path: portable SSE2 baseline plus AVX2 dispatch for hot loops when available.
 - Fixed-step simulation update loop with overload protection for stable dynamics under low FPS.
 - Improved camera workflow: scene auto-framing, quick recenter, and nearest-particle tracking.
@@ -72,11 +74,14 @@ Manual run (equivalent):
 ### Quality profiles
 
 ```bash
+make QUALITY=SAFE     # survival mode for weak CPU/iGPU laptops and debug captures
 make QUALITY=LOW      # fast — fewer particles, lower resolution
-make QUALITY=MEDIUM   # default
-make QUALITY=HIGH
-make QUALITY=ULTRA    # maximum detail — demands a capable GPU
+make QUALITY=MEDIUM   # default balance for the newer volume-heavy macro pass
+make QUALITY=HIGH     # fuller structure fields and denser particle phases
+make QUALITY=ULTRA    # maximum detail — demands a capable CPU and GPU
 ```
+
+`SAFE` reduces CPU-heavy particle counts aggressively in the late N-body stages while keeping a minimal 3D field resolution so the smoke-like macro gas remains readable.
 
 ### Native-speed build (optional)
 
@@ -137,7 +142,7 @@ Note: punctuation shortcuts follow the typed character via GLFW's char callback,
 - BBN network tracks `n`, `p`, `D`, `He3`, `He4`, `Li7` abundances.
 - Plasma regime evolves baryon fluid on 3D grid with Poisson solve and recombination behavior.
 - Dark Ages, Reionization, and mature Structure formation share a phased Barnes-Hut N-body evolution with halo and ionization logic.
-- Renderer includes HDR pipeline, bloom passes, volume rendering, and regime transition blending.
+- Renderer includes HDR pipeline, bloom passes, regime transition blending, and a three-field macro volume pass (density, ionization, emissivity).
 
 ## Project Structure
 
@@ -207,7 +212,7 @@ Note: some hosting platforms (including GitHub) may restrict autoplay and certai
 ## Troubleshooting
 
 - Application crashes on start / blank window: verify GPU drivers and OpenGL 4.3 support. On Debian/Ubuntu, ensure `libgl1-mesa-dri` and `libglfw3` are installed.
-- Low FPS / UI choppiness: try `make QUALITY=LOW` to reduce particle counts and grid resolution.
+- Low FPS / UI choppiness: try `make QUALITY=SAFE` first on weak integrated GPUs, then `LOW` if you still want a bit more fidelity.
 - Video export fails immediately: confirm that `ffmpeg` is installed and available on `PATH`.
 - SIGILL (illegal instruction) after building with native optimizations: you probably built with `-DNATIVE_OPT=ON`. Rebuild without native optimizations or use a portable build:
 
@@ -217,6 +222,7 @@ make clean && make
 ```
 
 - Shader compile errors: press `R` in the running app to reload shaders and check the console/log for compilation messages.
+- Late regimes stall weak hardware: the new macro visuals lean on a volumetric pass plus Barnes-Hut evolution. Prefer `SAFE` for local validation and reserve `HIGH`/`ULTRA` for stronger hardware.
 
 If a problem persists, open an issue with a short description and your GPU/driver information.
 

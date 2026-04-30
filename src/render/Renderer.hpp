@@ -56,7 +56,14 @@ struct GlShader {
 };
 
 // ── Dados de halo para renderização de galáxias ─────────────────────────────
-struct HaloInfo { double cx, cy, cz, mass; int member_count; };
+struct HaloInfo {
+    double cx, cy, cz;
+    double mass;
+    double radius;
+    double emissivity;
+    float  gas_fraction;
+    int    member_count;
+};
 
 // ── Renderizador principal ────────────────────────────────────────────────────
 class Renderer {
@@ -167,6 +174,8 @@ private:
 
     // Textura de densidade 3D (atualizada a partir dos dados de campo)
     GlTexture density_3d_tex_;
+    GlTexture ionization_3d_tex_;
+    GlTexture emissivity_3d_tex_;
     // Textura 2D do campo de inflação
     GlTexture inflation_2d_tex_;
 

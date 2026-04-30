@@ -7,7 +7,7 @@
 #   make distclean  — remover build + dependências baixadas
 #
 # Opções (sobrescrever na linha de comando):
-#   QUALITY=LOW|MEDIUM|HIGH|ULTRA   (padrão: MEDIUM)
+#   QUALITY=SAFE|LOW|MEDIUM|HIGH|ULTRA   (padrão: MEDIUM)
 #   JOBS=N                           (padrão: nproc)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -110,10 +110,10 @@ help:
 	@echo "  make help       Show this message"
 	@echo ""
 	@echo "Options (set on command line):"
-	@echo "  QUALITY=LOW|MEDIUM|HIGH|ULTRA  Simulation quality  (default: MEDIUM)"
+	@echo "  QUALITY=SAFE|LOW|MEDIUM|HIGH|ULTRA  Simulation quality  (default: MEDIUM)"
 	@echo "  JOBS=N                         Parallel build jobs  (default: nproc)"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make QUALITY=HIGH"
+	@echo "  make QUALITY=SAFE"
 	@echo "  make run QUALITY=ULTRA JOBS=8"
 	@echo ""

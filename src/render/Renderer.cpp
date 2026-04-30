@@ -197,67 +197,67 @@ RegimeVisualProfile visualProfileForRegime(int regime_index) {
             profile.highlight_tint = glm::vec3(1.05f, 1.04f, 0.96f);
             break;
         case 6:
-            profile.particle_tint = glm::vec3(0.98f, 1.04f, 1.18f);
-            profile.particle_halo_softness = 0.18f;
-            profile.particle_core_boost = 1.14f;
-            profile.particle_sparkle = 0.06f;
-            profile.particle_streak = 0.04f;
-            profile.volume_cold = glm::vec3(0.016f, 0.032f, 0.064f);
-            profile.volume_warm = glm::vec3(0.12f, 0.24f, 0.38f);
-            profile.volume_hot = glm::vec3(0.36f, 0.56f, 0.82f);
-            profile.volume_core = glm::vec3(0.92f, 0.97f, 1.0f);
-            profile.volume_density_scale = 14.0f;
-            profile.volume_opacity_scale = 0.92f;
+            profile.particle_tint = glm::vec3(0.88f, 0.78f, 0.62f);
+            profile.particle_halo_softness = 0.26f;
+            profile.particle_core_boost = 0.92f;
+            profile.particle_sparkle = 0.02f;
+            profile.particle_streak = 0.00f;
+            profile.volume_cold = glm::vec3(0.012f, 0.010f, 0.009f);
+            profile.volume_warm = glm::vec3(0.18f, 0.11f, 0.06f);
+            profile.volume_hot = glm::vec3(0.52f, 0.32f, 0.15f);
+            profile.volume_core = glm::vec3(0.90f, 0.72f, 0.48f);
+            profile.volume_density_scale = 12.8f;
+            profile.volume_opacity_scale = 1.14f;
             profile.volume_edge_boost = 2.2f;
-            profile.exposure = 1.08f;
-            profile.saturation = 0.98f;
-            profile.contrast = 1.24f;
+            profile.exposure = 0.88f;
+            profile.saturation = 0.88f;
+            profile.contrast = 1.18f;
             profile.vignette = 0.86f;
-            profile.grain = 0.008f;
-            profile.shadow_tint = glm::vec3(0.90f, 0.96f, 1.14f);
-            profile.highlight_tint = glm::vec3(1.02f, 1.08f, 1.12f);
+            profile.grain = 0.012f;
+            profile.shadow_tint = glm::vec3(0.96f, 0.90f, 0.82f);
+            profile.highlight_tint = glm::vec3(1.08f, 0.98f, 0.88f);
             break;
         case 7:
-            profile.particle_tint = glm::vec3(0.96f, 1.08f, 1.16f);
-            profile.particle_halo_softness = 0.04f;
-            profile.particle_core_boost = 1.18f;
-            profile.particle_sparkle = 0.12f;
-            profile.particle_streak = 0.10f;
-            profile.volume_cold = glm::vec3(0.01f, 0.03f, 0.08f);
-            profile.volume_warm = glm::vec3(0.10f, 0.50f, 0.78f);
-            profile.volume_hot = glm::vec3(0.95f, 0.56f, 0.26f);
-            profile.volume_core = glm::vec3(1.0f, 0.96f, 0.84f);
-            profile.volume_density_scale = 9.0f;
-            profile.volume_opacity_scale = 0.90f;
+            profile.particle_tint = glm::vec3(0.92f, 0.82f, 0.68f);
+            profile.particle_halo_softness = 0.12f;
+            profile.particle_core_boost = 1.02f;
+            profile.particle_sparkle = 0.06f;
+            profile.particle_streak = 0.03f;
+            profile.volume_cold = glm::vec3(0.013f, 0.011f, 0.010f);
+            profile.volume_warm = glm::vec3(0.22f, 0.14f, 0.08f);
+            profile.volume_hot = glm::vec3(0.62f, 0.40f, 0.20f);
+            profile.volume_core = glm::vec3(0.98f, 0.88f, 0.74f);
+            profile.volume_density_scale = 10.0f;
+            profile.volume_opacity_scale = 1.06f;
             profile.volume_edge_boost = 3.0f;
             profile.exposure = 0.92f;
-            profile.saturation = 1.02f;
+            profile.saturation = 0.94f;
             profile.contrast = 1.12f;
             profile.vignette = 0.90f;
-            profile.grain = 0.009f;
-            profile.shadow_tint = glm::vec3(0.88f, 0.96f, 1.08f);
-            profile.highlight_tint = glm::vec3(1.08f, 1.04f, 0.94f);
+            profile.grain = 0.011f;
+            profile.shadow_tint = glm::vec3(0.94f, 0.89f, 0.82f);
+            profile.highlight_tint = glm::vec3(1.06f, 0.98f, 0.90f);
             break;
         case 8:
         default:
-            profile.particle_tint = glm::vec3(1.02f, 1.00f, 1.06f);
-            profile.particle_halo_softness = -0.06f;
-            profile.particle_core_boost = 1.34f;
-            profile.particle_sparkle = 0.18f;
-            profile.particle_streak = 0.06f;
-            profile.volume_cold = glm::vec3(0.01f, 0.03f, 0.08f);
-            profile.volume_warm = glm::vec3(0.46f, 0.10f, 0.34f);
-            profile.volume_hot = glm::vec3(0.98f, 0.74f, 0.28f);
-            profile.volume_core = glm::vec3(1.0f, 0.98f, 0.92f);
+            profile.particle_tint = glm::vec3(0.98f, 0.92f, 0.82f);
+            profile.particle_halo_softness = -0.02f;
+            profile.particle_core_boost = 1.18f;
+            profile.particle_sparkle = 0.10f;
+            profile.particle_streak = 0.03f;
+            profile.volume_cold = glm::vec3(0.014f, 0.012f, 0.012f);
+            profile.volume_warm = glm::vec3(0.24f, 0.15f, 0.10f);
+            profile.volume_hot = glm::vec3(0.70f, 0.46f, 0.22f);
+            profile.volume_core = glm::vec3(1.0f, 0.92f, 0.80f);
             profile.volume_density_scale = 10.5f;
-            profile.volume_opacity_scale = 1.0f;
+            profile.volume_opacity_scale = 0.98f;
             profile.volume_edge_boost = 2.2f;
-            profile.exposure = 1.00f;
-            profile.saturation = 1.08f;
+            profile.exposure = 0.98f;
+            profile.saturation = 1.00f;
             profile.contrast = 1.10f;
             profile.vignette = 0.78f;
-            profile.shadow_tint = glm::vec3(0.92f, 0.96f, 1.04f);
-            profile.highlight_tint = glm::vec3(1.08f, 1.04f, 0.96f);
+            profile.shadow_tint = glm::vec3(0.95f, 0.92f, 0.88f);
+            profile.highlight_tint = glm::vec3(1.08f, 1.00f, 0.92f);
             break;
     }
     return profile;
@@ -378,6 +378,8 @@ bool Renderer::init(int width, int height) {
     glGenTextures(1, &bloom_tex_[0].id);
     glGenTextures(1, &bloom_tex_[1].id);
     glGenTextures(1, &density_3d_tex_.id);
+    glGenTextures(1, &ionization_3d_tex_.id);
+    glGenTextures(1, &emissivity_3d_tex_.id);
     glGenTextures(1, &inflation_2d_tex_.id);
 
     // Carregar shaders
@@ -441,12 +443,13 @@ void Renderer::shutdown() {
     deleteFramebuffer(hdr_fbo_);
     deleteFramebuffer(bloom_fbo_[0]);
     deleteFramebuffer(bloom_fbo_[1]);
-
     deleteTexture(hdr_color_tex_);
     deleteTexture(hdr_depth_tex_);
     deleteTexture(bloom_tex_[0]);
     deleteTexture(bloom_tex_[1]);
     deleteTexture(density_3d_tex_);
+    deleteTexture(ionization_3d_tex_);
+    deleteTexture(emissivity_3d_tex_);
     deleteTexture(inflation_2d_tex_);
 
     deleteProgram(particle_shader_);
@@ -521,6 +524,24 @@ void Renderer::setupFBOs() {
 
     // Textura de densidade 3D
     glBindTexture(GL_TEXTURE_3D, density_3d_tex_.id);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F, 64, 64, 64, 0,
+                 GL_RED, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    glBindTexture(GL_TEXTURE_3D, ionization_3d_tex_.id);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F, 64, 64, 64, 0,
+                 GL_RED, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    glBindTexture(GL_TEXTURE_3D, emissivity_3d_tex_.id);
     glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F, 64, 64, 64, 0,
                  GL_RED, GL_FLOAT, nullptr);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -697,11 +718,15 @@ void Renderer::renderParticles(const Universe& universe) {
         float visual_scale = ParticlePool::defaultVisualScale(p.type[i], p.flags[i]);
         float screen_space_size = std::max(camera_dist, 1e-5f) * min_screen_radius_ndc / proj_scale;
         float particle_sz = std::max(extent_size * visual_scale, screen_space_size * visual_scale);
-        if (universe.regime_index == 6) {
+        if (universe.regime_index >= 6) {
             if (p.type[i] == ParticleType::GAS) {
-                particle_sz *= 1.28f;
+                if (universe.regime_index == 6) particle_sz *= 0.76f;
+                else if (universe.regime_index == 7) particle_sz *= 0.84f;
+                else particle_sz *= 0.90f;
             } else if (p.type[i] == ParticleType::DARK_MATTER) {
-                particle_sz *= 1.12f;
+                particle_sz *= 0.84f;
+            } else if (p.type[i] == ParticleType::STAR) {
+                particle_sz *= (universe.regime_index == 7) ? 0.92f : 1.00f;
             }
         }
         pos_data.push_back(rx); pos_data.push_back(ry);
@@ -711,15 +736,29 @@ void Renderer::renderParticles(const Universe& universe) {
         float color_r = p.color_r[i] * p.luminosity[i];
         float color_g = p.color_g[i] * p.luminosity[i];
         float color_b = p.color_b[i] * p.luminosity[i];
-        if (universe.regime_index == 6) {
+        if (universe.regime_index >= 6) {
             if (p.type[i] == ParticleType::GAS) {
-                color_r *= 1.45f;
-                color_g *= 1.55f;
-                color_b *= 1.70f;
+                if (universe.regime_index == 6) {
+                    color_r *= 0.60f;
+                    color_g *= 0.50f;
+                    color_b *= 0.38f;
+                } else if (universe.regime_index == 7) {
+                    color_r *= 0.74f;
+                    color_g *= 0.66f;
+                    color_b *= 0.58f;
+                } else {
+                    color_r *= 0.86f;
+                    color_g *= 0.80f;
+                    color_b *= 0.74f;
+                }
             } else if (p.type[i] == ParticleType::DARK_MATTER) {
-                color_r *= 1.18f;
-                color_g *= 1.12f;
-                color_b *= 1.28f;
+                color_r *= 0.54f;
+                color_g *= 0.48f;
+                color_b *= 0.58f;
+            } else if (p.type[i] == ParticleType::STAR) {
+                color_r *= 1.06f;
+                color_g *= 0.98f;
+                color_b *= (universe.regime_index == 7) ? 0.90f : 0.84f;
             }
         }
         boostDimColor(color_r, color_g, color_b, std::min(p.luminosity[i], 1.0f));
@@ -785,6 +824,12 @@ void Renderer::renderVolumeField(const Universe& universe) {
     if (field.data.empty() || !volume_shader_.id) return;
     syncVisualTuning(universe);
     const RegimeVisualProfile profile = visualProfileForRegime(universe.regime_index);
+    const GridData* ionization = (universe.ionization_field.data.size() == field.data.size())
+        ? &universe.ionization_field
+        : nullptr;
+    const GridData* emissivity = (universe.emissivity_field.data.size() == field.data.size())
+        ? &universe.emissivity_field
+        : nullptr;
 
     // Determine the box size based on the current cosmic regime.
     // Regime 1 and 2 operate on small boxes. Regime 3 uses a 5.0 unit box. Regime 4 uses 50.0 units.
@@ -799,9 +844,33 @@ void Renderer::renderVolumeField(const Universe& universe) {
                      field.NX, field.NY, field.NZ, 0,
                      GL_RED, GL_FLOAT, field.data.data());
     }
+    glBindTexture(GL_TEXTURE_3D, ionization_3d_tex_.id);
+    if (ionization && ionization->NX > 0) {
+        glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F,
+                     ionization->NX, ionization->NY, ionization->NZ, 0,
+                     GL_RED, GL_FLOAT, ionization->data.data());
+    } else if (field.NX > 0) {
+        std::vector<float> zeros(field.data.size(), 0.0f);
+        glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F,
+                     field.NX, field.NY, field.NZ, 0,
+                     GL_RED, GL_FLOAT, zeros.data());
+    }
+    glBindTexture(GL_TEXTURE_3D, emissivity_3d_tex_.id);
+    if (emissivity && emissivity->NX > 0) {
+        glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F,
+                     emissivity->NX, emissivity->NY, emissivity->NZ, 0,
+                     GL_RED, GL_FLOAT, emissivity->data.data());
+    } else if (field.NX > 0) {
+        std::vector<float> zeros(field.data.size(), 0.0f);
+        glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F,
+                     field.NX, field.NY, field.NZ, 0,
+                     GL_RED, GL_FLOAT, zeros.data());
+    }
 
     glUseProgram(volume_shader_.id);
     glUniform1i(glGetUniformLocation(volume_shader_.id, "u_density_tex"), 0);
+    glUniform1i(glGetUniformLocation(volume_shader_.id, "u_ionization_tex"), 1);
+    glUniform1i(glGetUniformLocation(volume_shader_.id, "u_emissivity_tex"), 2);
     glUniform1i(glGetUniformLocation(volume_shader_.id, "u_regime"), universe.regime_index);
     glUniform1f(glGetUniformLocation(volume_shader_.id, "u_density_scale"), profile.volume_density_scale);
     glUniform1f(glGetUniformLocation(volume_shader_.id, "u_opacity_scale"), profile.volume_opacity_scale * volume_opacity_multiplier_);
@@ -823,6 +892,10 @@ void Renderer::renderVolumeField(const Universe& universe) {
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_3D, density_3d_tex_.id);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_3D, ionization_3d_tex_.id);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_3D, emissivity_3d_tex_.id);
 
     glBindVertexArray(quad_vao_.id);
     glDisable(GL_DEPTH_TEST);
@@ -858,7 +931,8 @@ void Renderer::renderGalaxyHalos(const HaloInfo* halos, int count) {
     col_data.reserve(static_cast<size_t>(count) * 4);
 
     const float regime_mix = std::clamp((static_cast<float>(current_regime_) - 6.0f) / 2.0f, 0.0f, 1.0f);
-    const glm::vec3 halo_color = glm::mix(glm::vec3(0.22f, 0.58f, 1.00f), glm::vec3(1.00f, 0.78f, 0.36f), regime_mix);
+    const glm::vec3 halo_cold = glm::mix(glm::vec3(0.22f, 0.58f, 1.00f), glm::vec3(0.46f, 0.94f, 1.00f), regime_mix * 0.35f);
+    const glm::vec3 halo_hot = glm::mix(glm::vec3(1.00f, 0.78f, 0.36f), glm::vec3(1.00f, 0.54f, 0.18f), regime_mix);
 
     for (int i = 0; i < count; ++i) {
         float rx = static_cast<float>(halos[i].cx - cam_world_pos_.x);
@@ -866,14 +940,19 @@ void Renderer::renderGalaxyHalos(const HaloInfo* halos, int count) {
         float rz = static_cast<float>(halos[i].cz - cam_world_pos_.z);
         float member_scale = std::log1pf(static_cast<float>(std::max(halos[i].member_count, 1)));
         float mass_scale = std::log10(static_cast<float>(std::max(halos[i].mass, 1.0)) + 1.0f);
-        float halo_size = std::clamp((0.45f + member_scale * 0.28f + mass_scale * 0.06f) * halo_visibility_, 0.35f, 3.50f);
+        float emissive_scale = std::clamp(static_cast<float>(halos[i].emissivity) / 8.0f, 0.0f, 1.0f);
+        float halo_size = std::clamp(static_cast<float>(halos[i].radius) * 0.32f
+                                   + (0.22f + member_scale * 0.22f + mass_scale * 0.04f + emissive_scale * 0.35f) * halo_visibility_,
+                                     0.35f, 4.20f);
 
         pos_data.push_back(rx);
         pos_data.push_back(ry);
         pos_data.push_back(rz);
         pos_data.push_back(halo_size);
 
-        float glow = std::clamp(0.55f + member_scale * 0.08f, 0.45f, 1.25f);
+        const glm::vec3 halo_color = glm::mix(halo_cold, halo_hot, emissive_scale * 0.82f)
+                                   * glm::mix(0.92f, 1.12f, std::clamp(halos[i].gas_fraction, 0.0f, 1.0f));
+        float glow = std::clamp(0.50f + member_scale * 0.08f + emissive_scale * 0.24f, 0.45f, 1.40f);
         col_data.push_back(halo_color.r * glow);
         col_data.push_back(halo_color.g * glow);
         col_data.push_back(halo_color.b * glow);
@@ -900,7 +979,8 @@ void Renderer::renderGalaxyHalos(const HaloInfo* halos, int count) {
                        1, GL_FALSE, glm::value_ptr(proj_mat_));
     glUniform1f(glGetUniformLocation(particle_shader_.id, "u_opacity"), render_opacity_ * std::clamp(0.65f + halo_visibility_ * 0.20f, 0.25f, 1.0f));
     glUniform1i(glGetUniformLocation(particle_shader_.id, "u_regime"), current_regime_);
-    setVec3Uniform(particle_shader_.id, "u_particle_tint", glm::mix(profile.particle_tint, halo_color, 0.45f));
+    const glm::vec3 aggregate_halo_tint = glm::mix(halo_cold, halo_hot, 0.45f);
+    setVec3Uniform(particle_shader_.id, "u_particle_tint", glm::mix(profile.particle_tint, aggregate_halo_tint, 0.45f));
     glUniform1f(glGetUniformLocation(particle_shader_.id, "u_halo_softness"), 0.15f);
     glUniform1f(glGetUniformLocation(particle_shader_.id, "u_core_boost"), 0.85f);
     glUniform1f(glGetUniformLocation(particle_shader_.id, "u_sparkle_gain"), 0.0f);

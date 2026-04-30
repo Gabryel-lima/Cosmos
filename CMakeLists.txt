@@ -132,7 +132,7 @@ endif()
 
 # ── Perfil de qualidade ───────────────────────────────────────────────────────
 set(QUALITY "MEDIUM" CACHE STRING "Simulation quality profile")
-set_property(CACHE QUALITY PROPERTY STRINGS LOW MEDIUM HIGH ULTRA)
+set_property(CACHE QUALITY PROPERTY STRINGS SAFE LOW MEDIUM HIGH ULTRA)
 target_compile_definitions(cosmos PRIVATE "QUALITY_${QUALITY}=1")
 
 message(STATUS "cosmos: quality=${QUALITY}, build=${CMAKE_BUILD_TYPE}")

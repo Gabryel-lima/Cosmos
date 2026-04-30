@@ -68,6 +68,8 @@ struct CameraState {
 struct Universe {
     ParticlePool    particles;
     GridData        density_field;  // campo 3D de densidade/escalar
+    GridData        ionization_field; // fração ionizada / frente de reionização
+    GridData        emissivity_field; // intensidade das fontes ionizantes / aquecimento
     GridData        velocity_x;     // componentes de velocidade do fluido
     GridData        velocity_y;
     GridData        velocity_z;

@@ -18,6 +18,8 @@ controles simples para exploração e diagnósticos reproduzíveis.
 - Linha do tempo expandida para 9 fases jogáveis, cobrindo da inflação até a formação madura de estruturas.
 - O início do universo agora separa Reaquecimento e a era Leptônica/Eletrofraca antes de QGP e BBN.
 - Transições automáticas entre regimes com cross-fade suave e transferência de estado que preserva a continuidade.
+- Os regimes macro tardios agora usam um visual mais volumétrico: neblina de gás neutro, frentes de ionização, campos de emissividade e condensação gradual em fontes luminosas.
+- Os presets de qualidade foram rebalanceados para esse novo render macro, e um nível `SAFE` foi adicionado para CPUs fracas e GPUs integradas.
 - Caminho de CPU seguro em tempo de execução: base portátil SSE2 com despacho AVX2 para loops críticos quando disponível.
 - Loop de atualização da simulação com passo fixo e proteção contra sobrecarga para dinâmica estável em FPS baixo.
 - Fluxo de câmera aprimorado: enquadramento automático da cena, recentralização rápida e rastreamento da partícula mais próxima.
@@ -69,11 +71,14 @@ Execução manual (equivalente):
 ### Perfis de qualidade
 
 ```bash
+make QUALITY=SAFE     # modo de sobrevivência para notebook fraco / iGPU e capturas de debug
 make QUALITY=LOW      # rápido — menos partículas, resolução menor
-make QUALITY=MEDIUM   # padrão
-make QUALITY=HIGH
-make QUALITY=ULTRA    # detalhe máximo — exige uma GPU capaz
+make QUALITY=MEDIUM   # equilíbrio padrão para o macro render mais volumétrico
+make QUALITY=HIGH     # campos estruturais mais cheios e fases de partículas mais densas
+make QUALITY=ULTRA    # detalhe máximo — exige CPU e GPU mais fortes
 ```
+
+O preset `SAFE` derruba agressivamente as contagens de partículas pesadas em CPU nos estágios N-body, mas preserva uma resolução 3D mínima para o gás macro continuar legível.
 
 ### Build com otimização nativa (opcional)
 
@@ -134,7 +139,7 @@ Observação: os atalhos com pontuação seguem o caractere digitado, então `,`
 - A rede de BBN rastreia abundâncias de `n`, `p`, `D`, `He3`, `He4` e `Li7`.
 - O regime de plasma evolui o fluido bariônico em uma grade 3D com solução de Poisson e comportamento de recombinação.
 - Idades Escuras, Reionização e Estrutura madura compartilham uma evolução N-body com Barnes-Hut, incluindo lógica por fase para halos e ionização.
-- O renderizador inclui pipeline HDR, passes de bloom, renderização volumétrica e blend de transição entre regimes.
+- O renderizador inclui pipeline HDR, passes de bloom, blend de transição entre regimes e um passe volumétrico macro com três campos (densidade, ionização e emissividade).
 
 ## Estrutura do Projeto
 
@@ -204,7 +209,7 @@ Observação: algumas plataformas de hospedagem (incluindo o GitHub) podem restr
 ## Solução de Problemas
 
 - Aplicação trava ao iniciar / janela em branco: verifique drivers da GPU e suporte a OpenGL 4.3. No Debian/Ubuntu, confirme que `libgl1-mesa-dri` e `libglfw3` estão instalados.
-- FPS baixo / interface travando: tente `make QUALITY=LOW` para reduzir contagem de partículas e resolução da grade.
+- FPS baixo / interface travando: tente `make QUALITY=SAFE` primeiro em iGPU fraca; se ainda quiser mais fidelidade, suba para `LOW`.
 - Exportação de vídeo falha logo ao iniciar: confirme que `ffmpeg` está instalado e acessível no `PATH`.
 - SIGILL (instrução ilegal) após compilar com otimizações nativas: provavelmente você compilou com `-DNATIVE_OPT=ON`. Recompile sem otimizações nativas:
 
@@ -214,6 +219,7 @@ make clean && make
 ```
 
 - Erros de compilação de shader: pressione `R` durante a execução para recarregar os shaders e verifique as mensagens no console/log.
+- Os regimes tardios travam a máquina fraca: o visual macro novo combina passe volumétrico e evolução Barnes-Hut. Use `SAFE` para validar localmente e deixe `HIGH`/`ULTRA` para hardware mais forte.
 
 Se o problema persistir, abra uma issue com descrição curta e informações sobre GPU/driver.
 
