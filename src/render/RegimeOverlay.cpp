@@ -8,6 +8,7 @@
 #include "../physics/Friedmann.hpp"
 #include "../physics/QcdColor.hpp"
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -108,13 +109,181 @@ static void fmtSci(char* buf, size_t len, double v) {
     snprintf(buf, len, "%.3g x 10^%d", mantissa, exp);
 }
 
+constexpr float kSidePanelWidth = 300.0f;
+constexpr float kLateTuningHeight = 272.0f;
+constexpr float kCompactLabelX = 112.0f;
+
+struct OverlayWindowLayout {
+    const char* name;
+    ImVec2 pos;
+    ImVec2 size;
+    float bg_alpha;
+    ImGuiCond pos_condition;
+    ImGuiCond size_condition;
+};
+
+static short iniCoord(float value) {
+    return static_cast<short>(std::lround(value));
+}
+
+static bool syncWindowSettings(const OverlayWindowLayout& layout) {
+    ImGuiWindowSettings* settings = ImGui::FindWindowSettingsByID(ImHashStr(layout.name));
+    if (!settings) {
+        settings = ImGui::CreateNewWindowSettings(layout.name);
+    }
+
+    const ImVec2ih desired_pos(iniCoord(layout.pos.x), iniCoord(layout.pos.y));
+    const ImVec2ih desired_size(iniCoord(layout.size.x), iniCoord(layout.size.y));
+    const bool changed = settings->Pos.x != desired_pos.x || settings->Pos.y != desired_pos.y
+                      || settings->Size.x != desired_size.x || settings->Size.y != desired_size.y;
+    if (changed) {
+        settings->Pos = desired_pos;
+        settings->Size = desired_size;
+        settings->Collapsed = false;
+    }
+    return changed;
+}
+
+static bool clearLegacyWindowSettings(const char* name) {
+    ImGuiWindowSettings* settings = ImGui::FindWindowSettingsByID(ImHashStr(name));
+    if (!settings || settings->WantDelete) {
+        return false;
+    }
+    ImGui::ClearWindowSettings(name);
+    return true;
+}
+
+static void primeWindowLayout(const OverlayWindowLayout& layout, bool force_defaults) {
+    ImGui::SetNextWindowPos(layout.pos, force_defaults ? ImGuiCond_Always : layout.pos_condition);
+    ImGui::SetNextWindowSize(layout.size, force_defaults ? ImGuiCond_Always : layout.size_condition);
+    ImGui::SetNextWindowBgAlpha(layout.bg_alpha);
+}
+
+static const char* LATE_TUNING_PRESETS[] = {
+    "Custom",
+    "Planck-like",
+    "Patchy EoR",
+    "AGN-heavy"
+};
+
+static void applyLateRegimePreset(Universe::VisualTuning& visual, int preset_index) {
+    visual = Universe::VisualTuning{};
+    visual.preset_index = preset_index;
+
+    switch (preset_index) {
+        case 1: // Planck-like
+            visual.exposure_multiplier = 0.92f;
+            visual.volume_opacity_multiplier = 0.82f;
+            visual.cmb_visibility_width = 0.72f;
+            visual.cmb_flash_strength = 0.78f;
+            visual.reionization_ionization_force = 0.88f;
+            visual.reionization_front_anisotropy = 0.82f;
+            visual.halo_visibility = 0.90f;
+            visual.halo_axis_ratio = 1.10f;
+            break;
+        case 2: // Patchy EoR
+            visual.exposure_multiplier = 1.06f;
+            visual.volume_opacity_multiplier = 1.18f;
+            visual.cmb_visibility_width = 1.10f;
+            visual.cmb_flash_strength = 1.00f;
+            visual.reionization_ionization_force = 1.34f;
+            visual.reionization_front_anisotropy = 1.55f;
+            visual.halo_visibility = 1.14f;
+            visual.halo_axis_ratio = 1.34f;
+            break;
+        case 3: // AGN-heavy
+            visual.exposure_multiplier = 1.10f;
+            visual.volume_opacity_multiplier = 1.08f;
+            visual.cmb_visibility_width = 0.94f;
+            visual.cmb_flash_strength = 1.12f;
+            visual.reionization_ionization_force = 1.70f;
+            visual.reionization_front_anisotropy = 1.32f;
+            visual.halo_visibility = 1.30f;
+            visual.halo_axis_ratio = 1.48f;
+            break;
+        default:
+            visual.preset_index = 0;
+            break;
+    }
+}
+
+static bool compactSliderFloat(const char* label, const char* id, float& value,
+                               float min_value, float max_value, const char* format) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine(kCompactLabelX);
+    ImGui::SetNextItemWidth(-1.0f);
+    return ImGui::SliderFloat(id, &value, min_value, max_value, format);
+}
+
+static bool compactCombo(const char* label, const char* id, int& value,
+                         const char* const items[], int items_count) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine(kCompactLabelX);
+    ImGui::SetNextItemWidth(-1.0f);
+    return ImGui::Combo(id, &value, items, items_count);
+}
+
+static bool compactCheckbox(const char* label, const char* id, bool& value) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine(kCompactLabelX);
+    return ImGui::Checkbox(id, &value);
+}
+
 void RegimeOverlay::render(CosmicClock& clock, RegimeManager& mgr, Universe& universe, Camera& camera) {
     if (!visible) return;
 
     ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos({0, 0}, ImGuiCond_Always);
-    ImGui::SetNextWindowSize({static_cast<float>(io.DisplaySize.x), 200.0f}, ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.72f);
+    const OverlayWindowLayout hud_layout{
+        "##CosmicHUD",
+        {0.0f, 0.0f},
+        {static_cast<float>(io.DisplaySize.x), 150.0f},
+        0.72f,
+        ImGuiCond_Always,
+        ImGuiCond_Always,
+    };
+    const OverlayWindowLayout composition_layout{
+        "Cosmic Composition",
+        {10.0f, 160.0f},
+        {kSidePanelWidth, 210.0f},
+        0.72f,
+        ImGuiCond_FirstUseEver,
+        ImGuiCond_FirstUseEver,
+    };
+    const OverlayWindowLayout late_tuning_layout{
+        "##Late Regime Tuning",
+        {10.0f, 360.0f},
+        {kSidePanelWidth, kLateTuningHeight},
+        0.72f,
+        ImGuiCond_FirstUseEver,
+        ImGuiCond_Always,
+    };
+    const OverlayWindowLayout perf_layout{
+        "##Perf",
+        {io.DisplaySize.x - 250.0f, 160.0f},
+        {230.0f, 96.0f},
+        0.6f,
+        ImGuiCond_Always,
+        ImGuiCond_Always,
+    };
+
+    bool persist_layout = false;
+    static bool legacy_pruned = false;
+    if (!legacy_pruned) {
+        persist_layout |= clearLegacyWindowSettings("##Abundances");
+        persist_layout |= clearLegacyWindowSettings("##Cosmic Composition");
+        legacy_pruned = true;
+    }
+
+    const bool hud_changed = syncWindowSettings(hud_layout);
+    const bool composition_changed = syncWindowSettings(composition_layout);
+    const bool late_tuning_changed = syncWindowSettings(late_tuning_layout);
+    const bool perf_changed = syncWindowSettings(perf_layout);
+    persist_layout |= hud_changed || composition_changed || late_tuning_changed || perf_changed;
+
+    primeWindowLayout(hud_layout, hud_changed);
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
                            | ImGuiWindowFlags_NoMove   | ImGuiWindowFlags_NoScrollbar;
@@ -129,22 +298,31 @@ void RegimeOverlay::render(CosmicClock& clock, RegimeManager& mgr, Universe& uni
     ImGui::End();
 
     // Painel de composição (visível em todos os regimes)
-    ImGui::SetNextWindowPos({10, 210}, ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize({300, 220}, ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowBgAlpha(0.72f);
+    primeWindowLayout(composition_layout, composition_changed);
     if (ImGui::Begin("Cosmic Composition", nullptr, ImGuiWindowFlags_NoCollapse)) {
         drawCompositionTable(mgr, universe);
     }
     ImGui::End();
 
+    if (universe.regime_index >= 5) {
+        primeWindowLayout(late_tuning_layout, late_tuning_changed);
+        if (ImGui::Begin("##Late Regime Tuning", nullptr,
+                         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove )) {
+            drawVisualTuning(universe);
+        }
+        ImGui::End();
+    }
+
     // Overlay de desempenho (canto superior direito)
-    ImGui::SetNextWindowPos({io.DisplaySize.x - 245.0f, 210.0f}, ImGuiCond_Always);
-    ImGui::SetNextWindowSize({226, 96}, ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.6f);
+    primeWindowLayout(perf_layout, perf_changed);
     if (ImGui::Begin("##Perf", nullptr, flags)) {
         drawPerformanceStats(universe);
     }
     ImGui::End();
+
+    if (persist_layout && io.IniFilename && io.IniFilename[0] != '\0') {
+        ImGui::SaveIniSettingsToDisk(io.IniFilename);
+    }
 }
 
 void RegimeOverlay::drawTimeline(CosmicClock& clock, RegimeManager& mgr) {
@@ -532,7 +710,6 @@ void RegimeOverlay::drawCompositionTable(const RegimeManager& mgr, const Univers
     } else if (regime == 6) {
         renderType(ParticleType::DARK_MATTER,   "Dark Matter");
         renderType(ParticleType::GAS,           "Neutral Gas");
-        renderType(ParticleType::PHOTON,        "CMB Photons");
     } else if (regime == 7) {
         renderType(ParticleType::DARK_MATTER,   "Dark Matter");
         renderType(ParticleType::GAS,           "Ionized Gas");
@@ -651,6 +828,7 @@ void RegimeOverlay::drawPerformanceStats(const Universe& universe) {
         ImGui::Text("Active particles: %d", total_active);
         coloredStat(particleColor(ParticleType::DARK_MATTER), "Dark Matter: %d", counts[ParticleType::DARK_MATTER]);
         coloredStat(particleColor(ParticleType::GAS), "Neutral Gas: %d", counts[ParticleType::GAS]);
+        ImGui::TextDisabled("CMB desacoplado; a cena mostra gas neutro e materia escura.");
     } else if (universe.regime_index == 7) {
         ImGui::Text("Active particles: %d", total_active);
         coloredStat(particleColor(ParticleType::STAR), "First Stars: %d", counts[ParticleType::STAR]);
@@ -663,5 +841,51 @@ void RegimeOverlay::drawPerformanceStats(const Universe& universe) {
         coloredStat(particleColor(ParticleType::BLACKHOLE), "Black Holes: %d", counts[ParticleType::BLACKHOLE]);
     } else {
         ImGui::Text("Active particles: %d", total_active);
+    }
+}
+
+void RegimeOverlay::drawVisualTuning(Universe& universe) {
+    auto& visual = universe.visual;
+    bool custom_edit = false;
+
+    if (ImGui::Button("Reset visual")) {
+        visual = Universe::VisualTuning{};
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Planck")) {
+        applyLateRegimePreset(visual, 1);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Patchy")) {
+        applyLateRegimePreset(visual, 2);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("AGN")) {
+        applyLateRegimePreset(visual, 3);
+    }
+
+    if (compactCombo("Preset", "##LatePreset", visual.preset_index,
+                     LATE_TUNING_PRESETS,
+                     static_cast<int>(std::size(LATE_TUNING_PRESETS)))) {
+        applyLateRegimePreset(visual, visual.preset_index);
+    }
+
+    ImGui::SeparatorText("Post-process");
+    custom_edit |= compactSliderFloat("Exposure", "##Exposure", visual.exposure_multiplier, 0.35f, 2.50f, "%.2fx");
+    custom_edit |= compactSliderFloat("Vol. opacity", "##VolumeOpacity", visual.volume_opacity_multiplier, 0.20f, 2.50f, "%.2fx");
+    custom_edit |= compactSliderFloat("CMB width", "##CmbWidth", visual.cmb_visibility_width, 0.35f, 2.50f, "%.2fx");
+    custom_edit |= compactSliderFloat("Flash gain", "##CmbFlashStrength", visual.cmb_flash_strength, 0.20f, 2.50f, "%.2fx");
+
+    ImGui::SeparatorText("Reionization");
+    custom_edit |= compactSliderFloat("Ionization", "##IonizationForce", visual.reionization_ionization_force, 0.15f, 3.00f, "%.2fx");
+    custom_edit |= compactSliderFloat("Anisotropy", "##FrontAnisotropy", visual.reionization_front_anisotropy, 0.00f, 2.50f, "%.2fx");
+
+    ImGui::SeparatorText("Halos");
+    custom_edit |= compactCheckbox("Show halos", "##ShowHalos", visual.show_halos);
+    custom_edit |= compactSliderFloat("Halo gain", "##HaloVisibility", visual.halo_visibility, 0.0f, 2.5f, "%.2fx");
+    custom_edit |= compactSliderFloat("Axis ratio", "##HaloAxisRatio", visual.halo_axis_ratio, 0.65f, 2.40f, "%.2fx");
+
+    if (custom_edit) {
+        visual.preset_index = 0;
     }
 }

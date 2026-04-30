@@ -18,19 +18,22 @@ set of user controls for fast exploration and reproducible diagnostics.
 
 ## What's New
 
-- Expanded timeline to 7 playable regimes (Dark Ages and Reionization are now distinct stages).
+- Expanded timeline to 9 playable phases spanning inflation through mature structure formation.
+- Early-universe flow now separates Reheating and the Lepton/Electroweak era before the QGP and BBN stages.
 - Automatic regime transitions with smooth cross-fade and continuity-preserving state handoff.
 - Runtime-safe CPU path: portable SSE2 baseline plus AVX2 dispatch for hot loops when available.
 - Fixed-step simulation update loop with overload protection for stable dynamics under low FPS.
 - Improved camera workflow: scene auto-framing, quick recenter, and nearest-particle tracking.
 - Runtime resource path resolution anchored to executable directory (more reliable launches from different working directories).
-- Richer HUD: transition-aware timeline, speed presets, log-scale speed multiplier, and composition/performance panels.
+- Richer HUD: transition-aware timeline, speed presets, log-scale speed multiplier, composition/performance panels, and late-regime visual tuning presets.
 
 ## Simulated Regimes
 
 | Epoch | Physics |
 |-------|---------|
 | Inflation | Rapid exponential expansion, vacuum energy |
+| Reheating | Post-inflation particle seeding and thermalisation |
+| Lepton / Electroweak Era | Relativistic lepton-boson plasma before confinement |
 | Quark-Gluon Plasma (QGP) | Colour deconfinement + simplified QCD color state |
 | Big Bang Nucleosynthesis (BBN) | Proton/neutron fusion network |
 | Photon-Baryon Plasma | Radiation-dominated era, fluid grid + recombination dynamics |
@@ -108,9 +111,9 @@ cd build && cmake .. -DNATIVE_OPT=ON
 |-------|--------|
 | `Space` | Pause / resume simulation |
 | `.` | Advance one fixed simulation step |
-| `1`..`7` | Jump directly to a regime |
-| `[` or `,` | Decrease time scale |
-| `]` or `;` | Increase time scale |
+| `1`..`9` | Jump directly to a phase |
+| `[` or `,` | Increase time scale |
+| `]` or `;` | Decrease time scale |
 | `Tab` | Cycle camera mode |
 | `T` | Toggle nearest-particle tracking |
 | `C` | Recenter camera to current scene extent |
@@ -122,15 +125,18 @@ cd build && cmake .. -DNATIVE_OPT=ON
 | `W/A/S/D/Q/E` | Free-flight camera movement |
 | Left-drag | Orbit camera |
 | Scroll wheel | Zoom |
-| ImGui panel | Timeline + jump controls, speed presets, physics/composition/perf stats |
+| ImGui panel | Timeline + jump controls, speed presets, physics/composition/perf stats, late-regime tuning |
+
+Note: punctuation shortcuts follow the typed character via GLFW's char callback, so `,`, `.`, `;`, `[` and `]` keep working on non-US keyboard layouts too.
 
 ## Physics + Rendering Highlights
 
 - Cosmology backbone: Friedmann solver (`Lambda`CDM, RK4 integration).
+- Early relativistic phases cover reheating, electroweak/lepton plasma, and QGP with recipe-driven particle seeding.
 - QGP regime includes simplified QCD color tagging/tinting for quarks and gluons.
 - BBN network tracks `n`, `p`, `D`, `He3`, `He4`, `Li7` abundances.
 - Plasma regime evolves baryon fluid on 3D grid with Poisson solve and recombination behavior.
-- Structure regimes use Barnes-Hut N-body with phase-specific evolution and halo logic.
+- Dark Ages, Reionization, and mature Structure formation share a phased Barnes-Hut N-body evolution with halo and ionization logic.
 - Renderer includes HDR pipeline, bloom passes, volume rendering, and regime transition blending.
 
 ## Project Structure
@@ -140,7 +146,7 @@ Cosmos/
 ├── src/
 │   ├── core/        — CosmicClock, RegimeManager, Universe state, Camera
 │   ├── physics/     — Friedmann solver, N-body, FluidGrid, NuclearNetwork
-│   ├── regimes/     — Per-epoch logic (Inflation, QGP, BBN, Plasma, Dark Ages, Reionization, Structure)
+│   ├── regimes/     — Per-epoch and multi-phase logic (Inflation, Reheating, Lepton era, QGP, BBN, Plasma, Dark Ages, Reionization, Structure)
 │   ├── render/      — Renderer, ParticleRenderer, VolumeRenderer, PostProcess
 │   └── shaders/     — GLSL vertex / fragment shaders for particles, volume, post-process
 ├── libs/

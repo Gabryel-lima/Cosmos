@@ -116,6 +116,7 @@ private:
     void setupFBOs();
     void applyPostProcess();
     void setVec3Uniform(GLuint program, const char* name, const glm::vec3& value) const;
+    void syncVisualTuning(const Universe& universe);
 
     int width_ = 1280, height_ = 720;
     float last_gpu_ms_ = 0.0f;
@@ -130,7 +131,14 @@ private:
     int   blend_from_  = 0;
     int   blend_to_    = 0;
     float blend_t_     = 0.0f;
+    int   current_regime_ = 0;
     float render_opacity_ = 1.0f;
+    float exposure_multiplier_ = 1.0f;
+    float volume_opacity_multiplier_ = 1.0f;
+    float cmb_flash_strength_ = 1.0f;
+    float halo_visibility_ = 1.0f;
+    float halo_axis_ratio_ = 1.28f;
+    bool  halos_enabled_ = true;
 
     // Shaders
     GlShader particle_shader_;

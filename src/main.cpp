@@ -436,6 +436,22 @@ static std::filesystem::path resolveExecutablePath(const char* argv0) {
     return std::filesystem::current_path();
 }
 
+static std::filesystem::path resolveLayoutIniPath(const std::filesystem::path& executable_dir) {
+    std::error_code ec;
+    for (std::filesystem::path probe = executable_dir; !probe.empty(); ) {
+        if (std::filesystem::is_regular_file(probe / "CMakeLists.txt", ec)) {
+            return probe / "imgui.ini";
+        }
+        ec.clear();
+        const std::filesystem::path parent = probe.parent_path();
+        if (parent.empty() || parent == probe) {
+            break;
+        }
+        probe = parent;
+    }
+    return executable_dir / "imgui.ini";
+}
+
 static void configureRuntimePaths(const char* argv0) {
     std::error_code ec;
     const std::filesystem::path executable_path = resolveExecutablePath(argv0);
@@ -453,7 +469,7 @@ static void configureRuntimePaths(const char* argv0) {
             ec.clear();
         }
 
-        g_imgui_ini_path = (executable_dir / "imgui.ini").string();
+        g_imgui_ini_path = resolveLayoutIniPath(executable_dir).string();
         std::printf("[main] Runtime directory: %s\n", executable_dir.string().c_str());
         std::printf("[main] ImGui layout file: %s\n", g_imgui_ini_path.c_str());
     }

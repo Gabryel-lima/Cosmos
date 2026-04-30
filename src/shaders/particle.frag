@@ -14,12 +14,14 @@ uniform float u_halo_softness;
 uniform float u_core_boost;
 uniform float u_sparkle_gain;
 uniform float u_streak_gain;
+uniform float u_halo_axis_ratio;
 
 const float TAG_GLUON = 1.0;
 const float TAG_PHOTON = 2.0;
 const float TAG_GAS = 3.0;
 const float TAG_STAR = 4.0;
 const float TAG_BLACK_HOLE = 5.0;
+const float TAG_HALO = 6.0;
 
 float sparkleMask(vec2 p) {
     float a = atan(p.y, p.x);
@@ -52,6 +54,7 @@ void main() {
     bool isGas = abs(tag - TAG_GAS) < 0.25;
     bool isStar = abs(tag - TAG_STAR) < 0.25;
     bool isBlackHole = abs(tag - TAG_BLACK_HOLE) < 0.25;
+    bool isHalo = abs(tag - TAG_HALO) < 0.25;
 
     vec3 color = v_color.rgb * mix(vec3(1.0), u_particle_tint, 0.35);
     float vivid = 1.0 - smoothstep(0.18, 0.72, alpha);
@@ -128,6 +131,20 @@ void main() {
         vec3 lens = vec3(0.03, 0.04, 0.07) * (1.0 - core_shadow);
         frag_color = vec4((accretion * size_comp + lens + rim_light * 0.35) * u_opacity,
                           min(ring * 0.9 + (1.0 - core_shadow) * 0.2, 0.95) * u_opacity);
+        return;
+    }
+
+    if (isHalo) {
+        vec2 halo_uv = center;
+        halo_uv.x *= clamp(u_halo_axis_ratio, 0.65, 2.4);
+        halo_uv.y *= mix(1.18, 0.82, clamp(u_halo_axis_ratio - 1.0, -0.6, 1.4));
+        float halo_d = length(halo_uv) * 2.0;
+        float shell = smoothstep(0.30, 0.42, halo_d) - smoothstep(0.76, 0.92, halo_d);
+        float inner_shell = smoothstep(0.18, 0.26, halo_d) - smoothstep(0.48, 0.60, halo_d);
+        float haze = exp(-2.1 * halo_d * halo_d) * 0.16;
+        vec3 halo_glow = mix(color, vec3(1.0), 0.12);
+        frag_color = vec4((halo_glow * shell * 1.18 + halo_glow * inner_shell * 0.55 + halo_glow * haze + rim_light * 0.75) * u_opacity,
+                          min(shell * 0.68 + inner_shell * 0.18 + haze, 0.74) * u_opacity);
         return;
     }
 

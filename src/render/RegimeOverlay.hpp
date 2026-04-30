@@ -19,6 +19,7 @@ private:
     void drawPhysicsInfo(const CosmicClock& clock, const RegimeManager& mgr, const Universe& universe);
     void drawCompositionTable(const RegimeManager& mgr, const Universe& universe);
     void drawPerformanceStats(const Universe& universe);
+    void drawVisualTuning(Universe& universe);
 
     // Estado do ciclo de predefinições de velocidade
     int speed_preset_index_ = 1;  // NORMAL

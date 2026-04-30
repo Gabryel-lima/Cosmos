@@ -18,7 +18,8 @@ enum class ParticleShaderTag : int {
     Photon = 2,
     Gas = 3,
     Star = 4,
-    BlackHole = 5
+    BlackHole = 5,
+    Halo = 6
 };
 
 struct RegimeVisualProfile {
@@ -103,6 +104,10 @@ ParticleShaderTag particleShaderTag(ParticleType type) {
 
 float particleShaderTagValue(ParticleType type) {
     return static_cast<float>(static_cast<int>(particleShaderTag(type)));
+}
+
+float particleShaderTagValue(ParticleShaderTag tag) {
+    return static_cast<float>(static_cast<int>(tag));
 }
 
 RegimeVisualProfile visualProfileForRegime(int regime_index) {
@@ -192,25 +197,25 @@ RegimeVisualProfile visualProfileForRegime(int regime_index) {
             profile.highlight_tint = glm::vec3(1.05f, 1.04f, 0.96f);
             break;
         case 6:
-            profile.particle_tint = glm::vec3(0.80f, 0.88f, 1.08f);
-            profile.particle_halo_softness = 0.28f;
-            profile.particle_core_boost = 0.94f;
-            profile.particle_sparkle = 0.04f;
-            profile.particle_streak = 0.02f;
-            profile.volume_cold = glm::vec3(0.005f, 0.015f, 0.035f);
-            profile.volume_warm = glm::vec3(0.06f, 0.12f, 0.22f);
-            profile.volume_hot = glm::vec3(0.22f, 0.38f, 0.62f);
-            profile.volume_core = glm::vec3(0.78f, 0.88f, 1.0f);
-            profile.volume_density_scale = 11.5f;
-            profile.volume_opacity_scale = 0.38f;
-            profile.volume_edge_boost = 1.4f;
-            profile.exposure = 0.78f;
-            profile.saturation = 0.78f;
-            profile.contrast = 1.12f;
-            profile.vignette = 1.08f;
-            profile.grain = 0.006f;
-            profile.shadow_tint = glm::vec3(0.84f, 0.90f, 1.10f);
-            profile.highlight_tint = glm::vec3(0.96f, 1.00f, 1.06f);
+            profile.particle_tint = glm::vec3(0.98f, 1.04f, 1.18f);
+            profile.particle_halo_softness = 0.18f;
+            profile.particle_core_boost = 1.14f;
+            profile.particle_sparkle = 0.06f;
+            profile.particle_streak = 0.04f;
+            profile.volume_cold = glm::vec3(0.016f, 0.032f, 0.064f);
+            profile.volume_warm = glm::vec3(0.12f, 0.24f, 0.38f);
+            profile.volume_hot = glm::vec3(0.36f, 0.56f, 0.82f);
+            profile.volume_core = glm::vec3(0.92f, 0.97f, 1.0f);
+            profile.volume_density_scale = 14.0f;
+            profile.volume_opacity_scale = 0.92f;
+            profile.volume_edge_boost = 2.2f;
+            profile.exposure = 1.08f;
+            profile.saturation = 0.98f;
+            profile.contrast = 1.24f;
+            profile.vignette = 0.86f;
+            profile.grain = 0.008f;
+            profile.shadow_tint = glm::vec3(0.90f, 0.96f, 1.14f);
+            profile.highlight_tint = glm::vec3(1.02f, 1.08f, 1.12f);
             break;
         case 7:
             profile.particle_tint = glm::vec3(0.96f, 1.08f, 1.16f);
@@ -343,6 +348,16 @@ Renderer::Renderer() = default;
 
 void Renderer::setVec3Uniform(GLuint program, const char* name, const glm::vec3& value) const {
     glUniform3f(glGetUniformLocation(program, name), value.x, value.y, value.z);
+}
+
+void Renderer::syncVisualTuning(const Universe& universe) {
+    current_regime_ = universe.regime_index;
+    exposure_multiplier_ = std::clamp(universe.visual.exposure_multiplier, 0.35f, 3.0f);
+    volume_opacity_multiplier_ = std::clamp(universe.visual.volume_opacity_multiplier, 0.20f, 3.0f);
+    cmb_flash_strength_ = std::clamp(universe.visual.cmb_flash_strength, 0.20f, 3.0f);
+    halo_visibility_ = std::clamp(universe.visual.halo_visibility, 0.0f, 3.0f);
+    halo_axis_ratio_ = std::clamp(universe.visual.halo_axis_ratio, 0.65f, 2.4f);
+    halos_enabled_ = universe.visual.show_halos;
 }
 
 bool Renderer::init(int width, int height) {
@@ -605,6 +620,7 @@ void Renderer::setRenderOpacity(float opacity) {
 void Renderer::renderInflationField(const Universe& universe) {
     if (universe.phi_field.empty()) return;
     if (!inflation_shader_.id) return;
+    syncVisualTuning(universe);
     const RegimeVisualProfile profile = visualProfileForRegime(universe.regime_index);
 
     // Enviar campo 2D para textura
@@ -644,6 +660,7 @@ void Renderer::renderInflationField(const Universe& universe) {
 void Renderer::renderParticles(const Universe& universe) {
     const ParticlePool& p = universe.particles;
     if (p.x.empty() || !particle_shader_.id) return;
+    syncVisualTuning(universe);
 
     size_t n = p.x.size();
 
@@ -680,6 +697,13 @@ void Renderer::renderParticles(const Universe& universe) {
         float visual_scale = ParticlePool::defaultVisualScale(p.type[i], p.flags[i]);
         float screen_space_size = std::max(camera_dist, 1e-5f) * min_screen_radius_ndc / proj_scale;
         float particle_sz = std::max(extent_size * visual_scale, screen_space_size * visual_scale);
+        if (universe.regime_index == 6) {
+            if (p.type[i] == ParticleType::GAS) {
+                particle_sz *= 1.28f;
+            } else if (p.type[i] == ParticleType::DARK_MATTER) {
+                particle_sz *= 1.12f;
+            }
+        }
         pos_data.push_back(rx); pos_data.push_back(ry);
         pos_data.push_back(rz); pos_data.push_back(particle_sz);
         // Use the alpha slot as a stable shader tag instead of the raw enum id,
@@ -687,6 +711,17 @@ void Renderer::renderParticles(const Universe& universe) {
         float color_r = p.color_r[i] * p.luminosity[i];
         float color_g = p.color_g[i] * p.luminosity[i];
         float color_b = p.color_b[i] * p.luminosity[i];
+        if (universe.regime_index == 6) {
+            if (p.type[i] == ParticleType::GAS) {
+                color_r *= 1.45f;
+                color_g *= 1.55f;
+                color_b *= 1.70f;
+            } else if (p.type[i] == ParticleType::DARK_MATTER) {
+                color_r *= 1.18f;
+                color_g *= 1.12f;
+                color_b *= 1.28f;
+            }
+        }
         boostDimColor(color_r, color_g, color_b, std::min(p.luminosity[i], 1.0f));
         col_data.push_back(color_r);
         col_data.push_back(color_g);
@@ -723,6 +758,7 @@ void Renderer::renderParticles(const Universe& universe) {
     glUniform1f(glGetUniformLocation(particle_shader_.id, "u_core_boost"), profile.particle_core_boost);
     glUniform1f(glGetUniformLocation(particle_shader_.id, "u_sparkle_gain"), profile.particle_sparkle);
     glUniform1f(glGetUniformLocation(particle_shader_.id, "u_streak_gain"), profile.particle_streak);
+    glUniform1f(glGetUniformLocation(particle_shader_.id, "u_halo_axis_ratio"), halo_axis_ratio_);
 
     glBindVertexArray(particle_vao_.id);
     glEnable(GL_BLEND);
@@ -747,6 +783,7 @@ void Renderer::renderParticles(const Universe& universe) {
 void Renderer::renderVolumeField(const Universe& universe) {
     const GridData& field = universe.density_field;
     if (field.data.empty() || !volume_shader_.id) return;
+    syncVisualTuning(universe);
     const RegimeVisualProfile profile = visualProfileForRegime(universe.regime_index);
 
     // Determine the box size based on the current cosmic regime.
@@ -767,7 +804,7 @@ void Renderer::renderVolumeField(const Universe& universe) {
     glUniform1i(glGetUniformLocation(volume_shader_.id, "u_density_tex"), 0);
     glUniform1i(glGetUniformLocation(volume_shader_.id, "u_regime"), universe.regime_index);
     glUniform1f(glGetUniformLocation(volume_shader_.id, "u_density_scale"), profile.volume_density_scale);
-    glUniform1f(glGetUniformLocation(volume_shader_.id, "u_opacity_scale"), profile.volume_opacity_scale);
+    glUniform1f(glGetUniformLocation(volume_shader_.id, "u_opacity_scale"), profile.volume_opacity_scale * volume_opacity_multiplier_);
     glUniform1f(glGetUniformLocation(volume_shader_.id, "u_opacity"), render_opacity_);
     glUniform1f(glGetUniformLocation(volume_shader_.id, "u_edge_boost"), profile.volume_edge_boost);
     glUniform3f(glGetUniformLocation(volume_shader_.id, "u_cam_world_pos"), 
@@ -806,12 +843,79 @@ void Renderer::renderNuclearAbundances(const NuclearAbundances& /*ab*/) {}
 void Renderer::renderCMBFlash(float t) {
     // Armazena a intensidade do flash para aplicar aditivamente durante o post-process (ACES)
     // ao invés de aplicar recursivamente sobre o HDR fbo enquanto ele ainda está vinculado.
-    cmb_flash_alpha_ = std::max(0.0f, 1.0f - t) * 5.0f;
+    cmb_flash_alpha_ = std::max(0.0f, 1.0f - t) * 5.0f * cmb_flash_strength_;
 }
 
 // ── Halos de galáxias (esferas em wireframe) ───────────────────────────────────────
-void Renderer::renderGalaxyHalos(const HaloInfo* /*halos*/, int /*count*/) {
-    // TODO Fase 2: desenhar contornos de halos FoF
+void Renderer::renderGalaxyHalos(const HaloInfo* halos, int count) {
+    if (!halos_enabled_ || halo_visibility_ <= 0.01f || halos == nullptr || count <= 0 || !particle_shader_.id) {
+        return;
+    }
+
+    std::vector<float> pos_data;
+    std::vector<float> col_data;
+    pos_data.reserve(static_cast<size_t>(count) * 4);
+    col_data.reserve(static_cast<size_t>(count) * 4);
+
+    const float regime_mix = std::clamp((static_cast<float>(current_regime_) - 6.0f) / 2.0f, 0.0f, 1.0f);
+    const glm::vec3 halo_color = glm::mix(glm::vec3(0.22f, 0.58f, 1.00f), glm::vec3(1.00f, 0.78f, 0.36f), regime_mix);
+
+    for (int i = 0; i < count; ++i) {
+        float rx = static_cast<float>(halos[i].cx - cam_world_pos_.x);
+        float ry = static_cast<float>(halos[i].cy - cam_world_pos_.y);
+        float rz = static_cast<float>(halos[i].cz - cam_world_pos_.z);
+        float member_scale = std::log1pf(static_cast<float>(std::max(halos[i].member_count, 1)));
+        float mass_scale = std::log10(static_cast<float>(std::max(halos[i].mass, 1.0)) + 1.0f);
+        float halo_size = std::clamp((0.45f + member_scale * 0.28f + mass_scale * 0.06f) * halo_visibility_, 0.35f, 3.50f);
+
+        pos_data.push_back(rx);
+        pos_data.push_back(ry);
+        pos_data.push_back(rz);
+        pos_data.push_back(halo_size);
+
+        float glow = std::clamp(0.55f + member_scale * 0.08f, 0.45f, 1.25f);
+        col_data.push_back(halo_color.r * glow);
+        col_data.push_back(halo_color.g * glow);
+        col_data.push_back(halo_color.b * glow);
+        col_data.push_back(particleShaderTagValue(ParticleShaderTag::Halo));
+    }
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, particle_pos_ssbo_.id);
+    glBufferData(GL_SHADER_STORAGE_BUFFER,
+                 static_cast<GLsizeiptr>(pos_data.size() * sizeof(float)),
+                 pos_data.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particle_pos_ssbo_.id);
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, particle_col_ssbo_.id);
+    glBufferData(GL_SHADER_STORAGE_BUFFER,
+                 static_cast<GLsizeiptr>(col_data.size() * sizeof(float)),
+                 col_data.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, particle_col_ssbo_.id);
+
+    const RegimeVisualProfile profile = visualProfileForRegime(current_regime_);
+    glUseProgram(particle_shader_.id);
+    glUniformMatrix4fv(glGetUniformLocation(particle_shader_.id, "u_view"),
+                       1, GL_FALSE, glm::value_ptr(view_mat_));
+    glUniformMatrix4fv(glGetUniformLocation(particle_shader_.id, "u_proj"),
+                       1, GL_FALSE, glm::value_ptr(proj_mat_));
+    glUniform1f(glGetUniformLocation(particle_shader_.id, "u_opacity"), render_opacity_ * std::clamp(0.65f + halo_visibility_ * 0.20f, 0.25f, 1.0f));
+    glUniform1i(glGetUniformLocation(particle_shader_.id, "u_regime"), current_regime_);
+    setVec3Uniform(particle_shader_.id, "u_particle_tint", glm::mix(profile.particle_tint, halo_color, 0.45f));
+    glUniform1f(glGetUniformLocation(particle_shader_.id, "u_halo_softness"), 0.15f);
+    glUniform1f(glGetUniformLocation(particle_shader_.id, "u_core_boost"), 0.85f);
+    glUniform1f(glGetUniformLocation(particle_shader_.id, "u_sparkle_gain"), 0.0f);
+    glUniform1f(glGetUniformLocation(particle_shader_.id, "u_streak_gain"), 0.0f);
+    glUniform1f(glGetUniformLocation(particle_shader_.id, "u_halo_axis_ratio"), halo_axis_ratio_);
+
+    glBindVertexArray(particle_vao_.id);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, count);
+    glDepthMask(GL_TRUE);
+    glBindVertexArray(0);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 }
 
 // ── Passagem de pós-processamento ──────────────────────────────────────────────────
@@ -838,7 +942,7 @@ void Renderer::applyPostProcess() {
         visualProfileForRegime(blend_to_),
         std::clamp(blend_t_, 0.0f, 1.0f));
     glUniform1i(glGetUniformLocation(tonemap_shader_.id, "u_hdr_tex"), 0);
-    glUniform1f(glGetUniformLocation(tonemap_shader_.id, "u_exposure"), profile.exposure);
+    glUniform1f(glGetUniformLocation(tonemap_shader_.id, "u_exposure"), profile.exposure * exposure_multiplier_);
     glUniform1f(glGetUniformLocation(tonemap_shader_.id, "u_cmb_flash"), cmb_flash_alpha_);
     glUniform1f(glGetUniformLocation(tonemap_shader_.id, "u_blend_t"), blend_t_);
     glUniform1f(glGetUniformLocation(tonemap_shader_.id, "u_saturation"), profile.saturation);

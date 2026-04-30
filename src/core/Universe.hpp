@@ -86,6 +86,19 @@ struct Universe {
     double cosmic_time     = 0.0;
     int    regime_index    = 0;
 
+    struct VisualTuning {
+        int   preset_index = 0;
+        float exposure_multiplier = 1.0f;
+        float volume_opacity_multiplier = 1.0f;
+        float cmb_visibility_width = 1.0f;
+        float cmb_flash_strength = 1.0f;
+        float reionization_ionization_force = 1.0f;
+        float reionization_front_anisotropy = 1.0f;
+        float halo_visibility = 1.0f;
+        float halo_axis_ratio = 1.28f;
+        bool  show_halos = true;
+    } visual;
+
     // Específico da inflação: campo escalar 2D φ(x,y)
     std::vector<float> phi_field;      // 256*256 floats
     std::vector<float> phi_dot_field;

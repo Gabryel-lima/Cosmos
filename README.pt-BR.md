@@ -15,19 +15,22 @@ independente com render em tempo real (OpenGL 4.3), HUD em Dear ImGui e
 controles simples para exploração e diagnósticos reproduzíveis.
 ## Novidades
 
-- Linha do tempo expandida para 7 regimes jogáveis (Idades Escuras e Reionização agora são estágios distintos).
+- Linha do tempo expandida para 9 fases jogáveis, cobrindo da inflação até a formação madura de estruturas.
+- O início do universo agora separa Reaquecimento e a era Leptônica/Eletrofraca antes de QGP e BBN.
 - Transições automáticas entre regimes com cross-fade suave e transferência de estado que preserva a continuidade.
 - Caminho de CPU seguro em tempo de execução: base portátil SSE2 com despacho AVX2 para loops críticos quando disponível.
 - Loop de atualização da simulação com passo fixo e proteção contra sobrecarga para dinâmica estável em FPS baixo.
 - Fluxo de câmera aprimorado: enquadramento automático da cena, recentralização rápida e rastreamento da partícula mais próxima.
 - Resolução de caminhos de recursos em tempo de execução ancorada ao diretório do executável, para lançamentos mais confiáveis a partir de diretórios diferentes.
-- HUD mais rico: linha do tempo ciente de transições, presets de velocidade, multiplicador de velocidade em escala logarítmica e painéis de composição/desempenho.
+- HUD mais rico: linha do tempo ciente de transições, presets de velocidade, multiplicador de velocidade em escala logarítmica, painéis de composição/desempenho e presets visuais para regimes tardios.
 
 ## Regimes Simulados
 
 | Época | Física |
 |-------|--------|
 | Inflação | Expansão exponencial rápida, energia de vácuo |
+| Reaquecimento | Semeadura de partículas e termalização após a inflação |
+| Era Leptônica / Eletrofraca | Plasma relativístico de léptons e bósons antes do confinamento |
 | Plasma de Quarks e Glúons (QGP) | Desconfinamento de cor + estado de cor QCD simplificado |
 | Nucleossíntese do Big Bang (BBN) | Rede de fusão próton/nêutron |
 | Plasma Fóton-Bárion | Era dominada por radiação, grade de fluido + dinâmica de recombinação |
@@ -105,9 +108,9 @@ cd build && cmake .. -DNATIVE_OPT=ON
 |---------|------|
 | `Space` | Pausar / retomar simulação |
 | `.` | Avançar um passo fixo da simulação |
-| `1`..`7` | Ir diretamente para um regime |
-| `[` ou `,` | Diminuir a velocidade do relógio |
-| `]` ou `;` | Aumentar a velocidade do relógio |
+| `1`..`9` | Ir diretamente para uma fase |
+| `[` ou `,` | Aumentar a velocidade do relógio |
+| `]` ou `;` | Diminuir a velocidade do relógio |
 | `Tab` | Alternar modo da câmera |
 | `T` | Alternar rastreamento da partícula mais próxima |
 | `C` | Recentrar a câmera para a extensão atual da cena |
@@ -119,17 +122,18 @@ cd build && cmake .. -DNATIVE_OPT=ON
 | `W/A/S/D/Q/E` | Movimento livre da câmera |
 | Arrastar com o botão esquerdo | Orbitar a câmera |
 | Roda do mouse | Zoom |
-| Painel ImGui | Linha do tempo + controles de salto, presets de velocidade, estatísticas de física/composição/desempenho |
+| Painel ImGui | Linha do tempo + controles de salto, presets de velocidade, estatísticas de física/composição/desempenho e ajuste visual tardio |
 
 Observação: os atalhos com pontuação seguem o caractere digitado, então `,`, `.`, `;`, `[` e `]` funcionam corretamente mesmo em layouts não-US, como pt-BR.
 
 ## Destaques de Física e Renderização
 
 - Base cosmológica: resolvedor de Friedmann (`Lambda`CDM, integração RK4).
+- As fases relativísticas iniciais cobrem reaquecimento, era eletrofraca/leptônica e QGP com semeadura de partículas orientada por receitas.
 - O regime de QGP inclui marcação/tintura simplificada de cor QCD para quarks e glúons.
 - A rede de BBN rastreia abundâncias de `n`, `p`, `D`, `He3`, `He4` e `Li7`.
 - O regime de plasma evolui o fluido bariônico em uma grade 3D com solução de Poisson e comportamento de recombinação.
-- Os regimes de estrutura usam gravidade N-body com Barnes-Hut, além de lógica por fase para halos.
+- Idades Escuras, Reionização e Estrutura madura compartilham uma evolução N-body com Barnes-Hut, incluindo lógica por fase para halos e ionização.
 - O renderizador inclui pipeline HDR, passes de bloom, renderização volumétrica e blend de transição entre regimes.
 
 ## Estrutura do Projeto
@@ -139,7 +143,7 @@ Cosmos/
 ├── src/
 │   ├── core/        — CosmicClock, RegimeManager, estado do Universo, Camera
 │   ├── physics/     — resolvedor de Friedmann, N-body, FluidGrid, NuclearNetwork
-│   ├── regimes/     — lógica por época (Inflação, QGP, BBN, Plasma, Idades Escuras, Reionização, Estrutura)
+│   ├── regimes/     — lógica por época e por fases compartilhadas (Inflação, Reaquecimento, era Leptônica, QGP, BBN, Plasma, Idades Escuras, Reionização, Estrutura)
 │   ├── render/      — Renderer, ParticleRenderer, VolumeRenderer, PostProcess
 │   └── shaders/     — shaders GLSL vertex / fragment para partículas, volume e pós-processamento
 ├── libs/

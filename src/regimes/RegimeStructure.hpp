@@ -24,6 +24,7 @@ public:
                 Universe& universe) override;
     void render(Renderer& renderer, const Universe& universe) override;
     std::string getName() const override;
+    void applyRadiativeFeedback(Universe& universe, double dt);
 
 private:
     void leapfrogKick(Universe& universe, double dt);

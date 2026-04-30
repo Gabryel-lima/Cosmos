@@ -62,6 +62,29 @@ double wrapPosition(double value, double box_size) {
 float phaseWave(double cosmic_time, double seed, double frequency) {
     return 0.5f + 0.5f * static_cast<float>(std::sin(cosmic_time * frequency + seed));
 }
+
+glm::dvec3 safeNormalize(const glm::dvec3& value, const glm::dvec3& fallback) {
+    double len2 = glm::dot(value, value);
+    if (len2 <= 1e-12 || !std::isfinite(len2)) return fallback;
+    return value / std::sqrt(len2);
+}
+
+glm::dvec3 preferredFrontDirection(const ParticlePool& particles, size_t index, StructurePhase phase) {
+    const glm::dvec3 velocity = {particles.vx[index], particles.vy[index], particles.vz[index]};
+    const double seed = static_cast<double>(index) * 0.131;
+    const glm::dvec3 seeded = safeNormalize(
+        glm::dvec3(std::sin(seed), std::cos(seed * 1.7), std::sin(seed * 0.7 + 1.2)),
+        glm::dvec3(0.0, 0.0, 1.0));
+    if (glm::dot(velocity, velocity) > 1e-8) {
+        return safeNormalize(velocity, seeded);
+    }
+
+    const glm::dvec3 radial = {particles.x[index], particles.y[index], particles.z[index]};
+    if (phase == StructurePhase::REIONIZATION) {
+        return safeNormalize(radial + seeded * 0.35, seeded);
+    }
+    return safeNormalize(seeded, glm::dvec3(0.0, 0.0, 1.0));
+}
 }
 
 std::string RegimeStructure::getName() const {
@@ -70,6 +93,54 @@ std::string RegimeStructure::getName() const {
         case StructurePhase::REIONIZATION:return "Reionization";
         case StructurePhase::MATURE:      return "Structure Formation";
         default:                          return "Structure Formation";
+    }
+}
+
+void RegimeStructure::applyRadiativeFeedback(Universe& universe, double dt) {
+    if (phase_ == StructurePhase::DARK_AGES || dt <= 0.0) return;
+
+    ParticlePool& p = universe.particles;
+    const double force = std::clamp(static_cast<double>(universe.visual.reionization_ionization_force), 0.15, 3.5);
+    const double anisotropy = std::clamp(static_cast<double>(universe.visual.reionization_front_anisotropy), 0.0, 2.5);
+    const double base_radius = (phase_ == StructurePhase::REIONIZATION) ? 1.6 : 1.1;
+    size_t processed_sources = 0;
+
+    for (size_t i = 0; i < p.x.size(); ++i) {
+        if (!(p.flags[i] & PF_ACTIVE)) continue;
+        if (p.type[i] != ParticleType::STAR && p.type[i] != ParticleType::BLACKHOLE) continue;
+        if (phase_ == StructurePhase::MATURE && p.type[i] == ParticleType::STAR && (i % 3) != 0) continue;
+        if (++processed_sources > 96) break;
+
+        const double source_weight = (p.type[i] == ParticleType::BLACKHOLE) ? 1.55 : 1.0;
+        const double radius = base_radius * source_weight * force;
+        const double radius2 = radius * radius;
+        const glm::dvec3 front_dir = preferredFrontDirection(p, i, phase_);
+
+        for (size_t j = 0; j < p.x.size(); ++j) {
+            if (i == j || !(p.flags[j] & PF_ACTIVE) || p.type[j] != ParticleType::GAS) continue;
+
+            glm::dvec3 delta = {p.x[j] - p.x[i], p.y[j] - p.y[i], p.z[j] - p.z[i]};
+            const double dist2 = glm::dot(delta, delta);
+            if (dist2 > radius2 || dist2 <= 1e-10) continue;
+
+            const double dist = std::sqrt(dist2);
+            const glm::dvec3 radial = safeNormalize(delta, front_dir);
+            const double forward = std::max(0.0, glm::dot(radial, front_dir));
+            const double directional_boost = 1.0 + anisotropy * forward * forward;
+            const double kick = dt * force * source_weight * directional_boost / (dist + 0.25)
+                              * ((phase_ == StructurePhase::REIONIZATION) ? 0.16 : 0.09);
+
+            p.vx[j] += (front_dir.x * 0.72 + radial.x * 0.38) * kick;
+            p.vy[j] += (front_dir.y * 0.72 + radial.y * 0.38) * kick;
+            p.vz[j] += (front_dir.z * 0.72 + radial.z * 0.38) * kick;
+            p.luminosity[j] = std::max(p.luminosity[j], static_cast<float>((phase_ == StructurePhase::REIONIZATION ? 0.28 : 0.20) + kick * 1.8));
+
+            if (phase_ == StructurePhase::REIONIZATION) {
+                p.color_r[j] = std::clamp(p.color_r[j] * 0.72f + 0.26f * static_cast<float>(forward), 0.0f, 1.0f);
+                p.color_g[j] = std::clamp(p.color_g[j] * 0.78f + 0.40f * static_cast<float>(forward), 0.0f, 1.0f);
+                p.color_b[j] = std::clamp(p.color_b[j] * 0.88f + 0.55f * static_cast<float>(forward), 0.0f, 1.0f);
+            }
+        }
     }
 }
 
@@ -90,10 +161,10 @@ void RegimeStructure::applyPhasePalette(Universe& state) const {
             case StructurePhase::DARK_AGES:
                 if (p.type[i] == ParticleType::GAS) {
                     p.color_r[i] = 0.24f; p.color_g[i] = 0.55f; p.color_b[i] = 0.95f;
-                    p.luminosity[i] = std::max(0.18f, p.luminosity[i] * 0.35f);
+                    p.luminosity[i] = std::max(0.34f, p.luminosity[i] * 0.60f);
                 } else if (p.type[i] == ParticleType::DARK_MATTER) {
                     p.color_r[i] = 0.45f; p.color_g[i] = 0.18f; p.color_b[i] = 0.78f;
-                    p.luminosity[i] = 0.05f;
+                    p.luminosity[i] = 0.08f;
                 }
                 break;
             case StructurePhase::REIONIZATION:
@@ -139,12 +210,12 @@ void RegimeStructure::animatePhaseEmission(Universe& universe, double cosmic_tim
         switch (phase_) {
             case StructurePhase::DARK_AGES:
                 if (p.type[i] == ParticleType::GAS) {
-                    p.luminosity[i] = std::max(0.10f, 0.16f + pulse * 0.10f);
-                    p.color_r[i] = 0.10f + 0.06f * pulse;
-                    p.color_g[i] = 0.18f + 0.14f * pulse;
-                    p.color_b[i] = 0.32f + 0.28f * pulse;
+                    p.luminosity[i] = std::max(0.26f, 0.36f + pulse * 0.16f);
+                    p.color_r[i] = 0.15f + 0.10f * pulse;
+                    p.color_g[i] = 0.28f + 0.18f * pulse;
+                    p.color_b[i] = 0.46f + 0.32f * pulse;
                 } else if (p.type[i] == ParticleType::DARK_MATTER) {
-                    p.luminosity[i] = 0.03f + pulse * 0.02f;
+                    p.luminosity[i] = 0.06f + pulse * 0.03f;
                 }
                 break;
             case StructurePhase::REIONIZATION:
@@ -190,6 +261,8 @@ void RegimeStructure::rebuildDensityField(Universe& universe, double cosmic_time
     std::fill(vy.data.begin(), vy.data.end(), 0.0f);
     std::fill(vz.data.begin(), vz.data.end(), 0.0f);
     std::vector<float> weight(field.data.size(), 0.0f);
+    const float ionization_force = std::clamp(universe.visual.reionization_ionization_force, 0.15f, 3.5f);
+    const float front_anisotropy = std::clamp(universe.visual.reionization_front_anisotropy, 0.0f, 2.5f);
 
     const double box_size = RegimeConfig::STRUCT_BOX_SIZE_MPC;
     const double inv_box = 1.0 / box_size;
@@ -220,6 +293,37 @@ void RegimeStructure::rebuildDensityField(Universe& universe, double cosmic_time
         }
     };
 
+    auto depositFrontKernel = [&](const glm::dvec3& pos, const glm::dvec3& dir,
+                                  float strength, int reach, float length_bias, float width_falloff) {
+        double px = (wrapPosition(pos.x, box_size) * inv_box + 0.5) * static_cast<double>(N);
+        double py = (wrapPosition(pos.y, box_size) * inv_box + 0.5) * static_cast<double>(N);
+        double pz = (wrapPosition(pos.z, box_size) * inv_box + 0.5) * static_cast<double>(N);
+        int cx = static_cast<int>(std::floor(px));
+        int cy = static_cast<int>(std::floor(py));
+        int cz = static_cast<int>(std::floor(pz));
+        glm::dvec3 ndir = safeNormalize(dir, glm::dvec3(0.0, 0.0, 1.0));
+
+        for (int dz = -reach; dz <= reach; ++dz)
+        for (int dy = -reach; dy <= reach; ++dy)
+        for (int dx = -reach; dx <= reach; ++dx) {
+            glm::dvec3 cell_offset(dx, dy, dz);
+            double longitudinal = glm::dot(cell_offset, ndir);
+            if (longitudinal < -1.0) continue;
+            double perp2 = std::max(0.0, glm::dot(cell_offset, cell_offset) - longitudinal * longitudinal);
+            float forward = std::clamp(static_cast<float>((longitudinal + 1.0) / (static_cast<double>(reach) + 1.0)), 0.0f, 1.0f);
+            float cone = std::exp(-static_cast<float>(perp2) * width_falloff)
+                       * std::exp(-static_cast<float>((longitudinal - static_cast<double>(reach) * length_bias)
+                                                     * (longitudinal - static_cast<double>(reach) * length_bias)) * 0.14f);
+            int ix = (cx + dx + N) % N;
+            int iy = (cy + dy + N) % N;
+            int iz = (cz + dz + N) % N;
+            size_t idx = static_cast<size_t>(ix + N * (iy + N * iz));
+            float contribution = strength * cone * (0.20f + 0.80f * forward);
+            field.data[idx] += contribution;
+            weight[idx] += cone * 0.35f;
+        }
+    };
+
     ParticlePool& p = universe.particles;
     for (size_t i = 0; i < p.x.size(); ++i) {
         if (!(p.flags[i] & PF_ACTIVE)) continue;
@@ -231,9 +335,9 @@ void RegimeStructure::rebuildDensityField(Universe& universe, double cosmic_time
 
         switch (p.type[i]) {
             case ParticleType::GAS:
-                density_weight = (phase_ == StructurePhase::DARK_AGES) ? 1.15f : 0.95f;
+                density_weight = (phase_ == StructurePhase::DARK_AGES) ? 1.55f : 0.95f;
                 radius = (phase_ == StructurePhase::MATURE) ? 2 : 1;
-                falloff = (phase_ == StructurePhase::DARK_AGES) ? 0.95f : 0.72f;
+                falloff = (phase_ == StructurePhase::DARK_AGES) ? 0.82f : 0.72f;
                 break;
             case ParticleType::DARK_MATTER:
                 density_weight = 0.55f;
@@ -244,13 +348,15 @@ void RegimeStructure::rebuildDensityField(Universe& universe, double cosmic_time
                 density_weight = 1.4f;
                 radius = (phase_ == StructurePhase::REIONIZATION) ? 3 : 2;
                 falloff = 0.58f;
-                ionization = (phase_ == StructurePhase::REIONIZATION) ? (0.4f + 0.5f * phaseWave(cosmic_time, static_cast<double>(i), 2.4e-15)) : 0.12f;
+                ionization = (phase_ == StructurePhase::REIONIZATION)
+                    ? (0.4f + 0.5f * phaseWave(cosmic_time, static_cast<double>(i), 2.4e-15)) * ionization_force
+                    : 0.12f * ionization_force;
                 break;
             case ParticleType::BLACKHOLE:
                 density_weight = 2.2f;
                 radius = (phase_ == StructurePhase::MATURE) ? 3 : 2;
                 falloff = 0.44f;
-                ionization = 0.35f + 0.35f * phaseWave(cosmic_time, static_cast<double>(i) * 0.37, 3.2e-15);
+                ionization = (0.35f + 0.35f * phaseWave(cosmic_time, static_cast<double>(i) * 0.37, 3.2e-15)) * ionization_force;
                 break;
             default:
                 continue;
@@ -258,6 +364,16 @@ void RegimeStructure::rebuildDensityField(Universe& universe, double cosmic_time
 
         depositKernel({p.x[i], p.y[i], p.z[i]}, {p.vx[i], p.vy[i], p.vz[i]},
                       density_weight, radius, falloff, ionization);
+
+        if (phase_ == StructurePhase::REIONIZATION && (p.type[i] == ParticleType::STAR || p.type[i] == ParticleType::BLACKHOLE)) {
+            const glm::dvec3 front_dir = preferredFrontDirection(p, i, phase_);
+            const float source_strength = (p.type[i] == ParticleType::BLACKHOLE ? 1.1f : 0.7f) * ionization_force;
+            depositFrontKernel({p.x[i], p.y[i], p.z[i]}, front_dir,
+                               source_strength,
+                               p.type[i] == ParticleType::BLACKHOLE ? 6 : 5,
+                               0.45f + 0.20f * front_anisotropy,
+                               0.52f / std::max(front_anisotropy, 0.25f));
+        }
     }
 
     for (const Halo& halo : halos_) {
@@ -265,16 +381,24 @@ void RegimeStructure::rebuildDensityField(Universe& universe, double cosmic_time
         float ionization = (phase_ == StructurePhase::REIONIZATION) ? halo_strength * 0.45f : halo_strength * 0.10f;
         depositKernel({halo.cx, halo.cy, halo.cz}, {0.0, 0.0, 0.0},
                       halo_strength, (phase_ == StructurePhase::MATURE) ? 4 : 3, 0.26f, ionization);
+        if (phase_ == StructurePhase::REIONIZATION) {
+            const glm::dvec3 halo_dir = safeNormalize(glm::dvec3(halo.cx, halo.cy, halo.cz), glm::dvec3(0.0, 0.0, 1.0));
+            depositFrontKernel({halo.cx, halo.cy, halo.cz}, halo_dir,
+                               halo_strength * 0.45f * ionization_force,
+                               5, 0.52f + 0.16f * front_anisotropy,
+                               0.45f / std::max(front_anisotropy, 0.25f));
+        }
     }
 
-    const float base_floor = (phase_ == StructurePhase::DARK_AGES) ? 0.008f : (phase_ == StructurePhase::REIONIZATION ? 0.015f : 0.010f);
+    const float base_floor = (phase_ == StructurePhase::DARK_AGES) ? 0.020f : (phase_ == StructurePhase::REIONIZATION ? 0.015f : 0.010f);
+    const float field_gain = (phase_ == StructurePhase::DARK_AGES) ? 0.14f : 0.08f;
     for (size_t idx = 0; idx < field.data.size(); ++idx) {
         float w = std::max(weight[idx], 1e-4f);
         vx.data[idx] /= w;
         vy.data[idx] /= w;
         vz.data[idx] /= w;
         float micro = phaseWave(cosmic_time, static_cast<double>(idx) * 0.013, 4.5e-16) - 0.5f;
-        field.data[idx] = std::max(base_floor, field.data[idx] * 0.08f + micro * base_floor * 0.4f + base_floor);
+        field.data[idx] = std::max(base_floor, field.data[idx] * field_gain + micro * base_floor * 0.4f + base_floor);
     }
 }
 
@@ -562,6 +686,8 @@ void RegimeStructure::update(double cosmic_dt, double scale_factor, double temp_
             updateStellarEvolution(universe, sub_stellar_dt);
         }
     }
+
+    applyRadiativeFeedback(universe, total_visual_dt);
 
     animatePhaseEmission(universe, universe.cosmic_time);
 

@@ -79,6 +79,14 @@ double interpolatePositive(double start, double end, double alpha) {
     return a0 * std::pow(a1 / a0, t);
 }
 
+double recombinationVisibilityPulse(double ionized_fraction, double neutral_fraction, float width_multiplier) {
+    const double center = RegimeConfig::PLASMA_RECOMBINATION_TRIGGER_XE * 0.92;
+    const double sigma = std::max(0.015, 0.045 * static_cast<double>(std::clamp(width_multiplier, 0.35f, 2.5f)));
+    const double delta = (ionized_fraction - center) / sigma;
+    const double gaussian = std::exp(-delta * delta);
+    return gaussian * std::clamp(0.35 + neutral_fraction * 1.15, 0.0, 1.4);
+}
+
 ParticleType normalizedFusionType(ParticleType type) {
     return (type == ParticleType::GAS) ? ParticleType::PROTON : type;
 }
@@ -529,6 +537,8 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
         baryon_density_ = FluidGrid::baryonDensity(a_step);
         double X_e = computeIonizationFraction(T_K, baryon_density_);
         double neutral_fraction = std::clamp(1.0 - X_e, 0.0, 1.0);
+        double visibility_pulse = recombinationVisibilityPulse(X_e, neutral_fraction, universe.visual.cmb_visibility_width);
+        double flash_gain = std::clamp(static_cast<double>(universe.visual.cmb_flash_strength), 0.20, 3.0);
 
         if (sub_visual_dt > 0.0) {
             fluid_solver.step(universe, sub_visual_dt, a_step, H, sub_temp_keV);
@@ -570,7 +580,8 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
                     particles.vz[i] += (tangent.z * swirl * RegimeConfig::PLASMA_PHOTON_SWIRL_FORCE
                                       + radial.z * pulse * RegimeConfig::PLASMA_PHOTON_PULSE_FORCE) * sub_visual_dt;
                     particles.luminosity[i] = RegimeConfig::PLASMA_PHOTON_LUMINOSITY_BASE
-                                            + RegimeConfig::PLASMA_PHOTON_LUMINOSITY_SWIRL * static_cast<float>(0.5 + 0.5 * swirl);
+                                            + RegimeConfig::PLASMA_PHOTON_LUMINOSITY_SWIRL * static_cast<float>(0.5 + 0.5 * swirl)
+                                            + static_cast<float>(visibility_pulse * 1.6 * flash_gain);
                     break;
                 case ParticleType::ELECTRON:
                     particles.vx[i] += (-tangent.x * swirl * RegimeConfig::PLASMA_ELECTRON_SWIRL_FORCE
@@ -589,6 +600,10 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
                     particles.vx[i] += radial.x * swirl * sub_visual_dt * RegimeConfig::PLASMA_BARYON_SWIRL_FORCE;
                     particles.vy[i] += radial.y * swirl * sub_visual_dt * RegimeConfig::PLASMA_BARYON_SWIRL_FORCE;
                     particles.vz[i] += radial.z * swirl * sub_visual_dt * RegimeConfig::PLASMA_BARYON_SWIRL_FORCE;
+                    if (particles.type[i] == ParticleType::GAS || (particles.flags[i] & PF_BOUND) != 0u) {
+                        particles.luminosity[i] = std::max(particles.luminosity[i],
+                                                           static_cast<float>(0.22 + visibility_pulse * 0.85));
+                    }
                     break;
                 default:
                     break;
@@ -603,7 +618,7 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
         }
 
         // Verifica recombinação via equação de Saha
-        if (X_e < RegimeConfig::PLASMA_RECOMBINATION_TRIGGER_XE && !cmb_flash_triggered_) {
+        if ((X_e < RegimeConfig::PLASMA_RECOMBINATION_TRIGGER_XE || visibility_pulse > 0.55) && !cmb_flash_triggered_) {
             cmb_flash_triggered_ = true;
             cmb_flash_t_         = 0.0f;
         }
@@ -643,7 +658,8 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
         }
 
         if (cmb_flash_triggered_ && cmb_flash_t_ < 1.0f) {
-            cmb_flash_t_ += static_cast<float>(sub_visual_dt * RegimeConfig::PLASMA_CMB_FLASH_RATE);
+            cmb_flash_t_ += static_cast<float>(sub_visual_dt * RegimeConfig::PLASMA_CMB_FLASH_RATE
+                                             * (0.55 + visibility_pulse * flash_gain));
             cmb_flash_t_  = std::min(cmb_flash_t_, 1.0f);
         }
     }
