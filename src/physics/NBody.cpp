@@ -146,22 +146,16 @@ void NBodySolver::insertParticle(OctreeNode& node, int idx,
         node.particle_index = -1;
         int oct_old = octant(node, pool.x[old_idx], pool.y[old_idx], pool.z[old_idx]);
         if (!node.children[oct_old]) {
-            double h = node.half * 0.5;
-            double cx = node.cx + ((oct_old & 1) ? h : -h);
-            double cy = node.cy + ((oct_old & 2) ? h : -h);
-            double cz = node.cz + ((oct_old & 4) ? h : -h);
-            node.children[oct_old] = allocateNode(cx, cy, cz, h);
+            OctreeNode child = makeChild(node, oct_old);
+            node.children[oct_old] = allocateNode(child.cx, child.cy, child.cz, child.half);
         }
         insertParticle(*node.children[oct_old], old_idx, pool, depth + 1);
     }
 
     int oct = octant(node, pool.x[idx], pool.y[idx], pool.z[idx]);
     if (!node.children[oct]) {
-        double h = node.half * 0.5;
-        double cx = node.cx + ((oct & 1) ? h : -h);
-        double cy = node.cy + ((oct & 2) ? h : -h);
-        double cz = node.cz + ((oct & 4) ? h : -h);
-        node.children[oct] = allocateNode(cx, cy, cz, h);
+        OctreeNode child = makeChild(node, oct);
+        node.children[oct] = allocateNode(child.cx, child.cy, child.cz, child.half);
     }
     insertParticle(*node.children[oct], idx, pool, depth + 1);
 }
