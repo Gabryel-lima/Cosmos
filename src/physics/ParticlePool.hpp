@@ -110,6 +110,21 @@ struct ParticlePool {
     void resize(size_t n);
     void clear();
 
+    /// Reserve capacity for n particles without changing logical size.
+    void reserve(size_t n);
+
+    /// Number of allocated slots (vector size()).
+    size_t size() const;
+
+    /// Number of active particles (PF_ACTIVE set).
+    size_t activeCount() const;
+
+    /// Fast erase by swapping with last element (order not preserved).
+    void swapRemove(size_t i);
+
+    /// Shrink to fit storage.
+    void shrink_to_fit();
+
     /// Adicionar uma partícula; retorna seu índice. Define a flag PF_ACTIVE.
     size_t add(double px, double py, double pz,
                double pvx, double pvy, double pvz,

@@ -114,10 +114,10 @@ if(COMPILER_SUPPORTS_AVX2 AND NOT NATIVE_OPT)
         src/physics/NBody_avx.cpp
     )
 
-    # Objeto separado: compilado com -mavx2 -mfma, sem contaminar o restante
+    # Objeto separado: mantemos flags baseline aqui e ativamos AVX2/FMA apenas
+    # na função hot via target attribute, evitando SIGILL em inicialização global.
     add_library(cosmos_avx OBJECT ${AVX_SOURCES})
     target_compile_options(cosmos_avx PRIVATE
-        -mavx2 -mfma
         -O3               # vale otimização agressiva aqui pois o caminho é guardado
         -mno-avx512f      # evita AVX-512 mesmo em compiladores que o suportam
     )
@@ -130,7 +130,7 @@ if(COMPILER_SUPPORTS_AVX2 AND NOT NATIVE_OPT)
     # Informa ao dispatcher que a implementação AVX está disponível
     target_compile_definitions(cosmos PRIVATE COSMOS_HAS_AVX2=1)
 
-    message(STATUS "cosmos: AVX2 dispatch object compiled (-mavx2 -mfma)")
+    message(STATUS "cosmos: AVX2 dispatch object enabled (AVX2/FMA only on guarded hot path)")
 else()
     message(STATUS "cosmos: AVX2 not available — SSE2-only build")
 endif()

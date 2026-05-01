@@ -18,7 +18,8 @@ struct OctreeNode {
 
     // Nó folha (particle_index >= 0) ou nó interno (filhos definidos)
     int particle_index = -1;  // -1 = nó interno
-    std::unique_ptr<OctreeNode> children[8];
+    OctreeNode* children[8] = {nullptr, nullptr, nullptr, nullptr,
+                               nullptr, nullptr, nullptr, nullptr};
 
     bool is_leaf() const { return particle_index >= 0 || total_mass == 0.0; }
 };
@@ -44,7 +45,11 @@ private:
                               const ParticlePool& pool,
                               double& ax, double& ay, double& az) const;
 
-    std::unique_ptr<OctreeNode> root_;
+    // Node pool to avoid per-frame heap allocations. root_ points into node_pool.
+    OctreeNode* root_ = nullptr;
+    std::vector<OctreeNode> node_pool;
+    // Allocate a new node from the pool and return pointer.
+    OctreeNode* allocateNode(double cx, double cy, double cz, double half);
 };
 
 // Fachada pública (dispatcher AVX/SSE2)

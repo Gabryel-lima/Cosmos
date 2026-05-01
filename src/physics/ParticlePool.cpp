@@ -18,6 +18,9 @@ void ParticlePool::resize(size_t n) {
     star_age.resize(n, 0.0);
     flags.resize(n, 0u);
     capacity = n;
+    // When explicitly resizing, consider new slots active by default.
+    // Keep semantic: active reflects number of initialized slots.
+    active = n;
 }
 
 void ParticlePool::clear() {
@@ -32,6 +35,63 @@ void ParticlePool::clear() {
     flags.clear();
     capacity = 0;
     active   = 0;
+}
+
+void ParticlePool::reserve(size_t n) {
+    x.reserve(n); y.reserve(n); z.reserve(n);
+    vx.reserve(n); vy.reserve(n); vz.reserve(n);
+    mass.reserve(n);
+    type.reserve(n);
+    charge.reserve(n);
+    color_r.reserve(n); color_g.reserve(n); color_b.reserve(n);
+    qcd_color.reserve(n); qcd_anticolor.reserve(n);
+    luminosity.reserve(n); temp_particle.reserve(n);
+    star_state.reserve(n); star_age.reserve(n);
+    flags.reserve(n);
+    capacity = std::max(capacity, n);
+}
+
+size_t ParticlePool::size() const { return x.size(); }
+
+size_t ParticlePool::activeCount() const { return active; }
+
+void ParticlePool::swapRemove(size_t i) {
+    size_t n = x.size();
+    if (i >= n) return;
+    size_t last = n - 1;
+    if (i != last) {
+        x[i] = x[last]; y[i] = y[last]; z[i] = z[last];
+        vx[i] = vx[last]; vy[i] = vy[last]; vz[i] = vz[last];
+        mass[i] = mass[last];
+        type[i] = type[last];
+        charge[i] = charge[last];
+        color_r[i] = color_r[last]; color_g[i] = color_g[last]; color_b[i] = color_b[last];
+        qcd_color[i] = qcd_color[last]; qcd_anticolor[i] = qcd_anticolor[last];
+        luminosity[i] = luminosity[last]; temp_particle[i] = temp_particle[last];
+        star_state[i] = star_state[last]; star_age[i] = star_age[last];
+        flags[i] = flags[last];
+    }
+    x.pop_back(); y.pop_back(); z.pop_back();
+    vx.pop_back(); vy.pop_back(); vz.pop_back();
+    mass.pop_back(); type.pop_back(); charge.pop_back();
+    color_r.pop_back(); color_g.pop_back(); color_b.pop_back();
+    qcd_color.pop_back(); qcd_anticolor.pop_back();
+    luminosity.pop_back(); temp_particle.pop_back();
+    star_state.pop_back(); star_age.pop_back(); flags.pop_back();
+    capacity = x.size();
+    // Recompute active conservatively: clamp
+    if (active > capacity) active = capacity;
+}
+
+void ParticlePool::shrink_to_fit() {
+    x.shrink_to_fit(); y.shrink_to_fit(); z.shrink_to_fit();
+    vx.shrink_to_fit(); vy.shrink_to_fit(); vz.shrink_to_fit();
+    mass.shrink_to_fit(); type.shrink_to_fit(); charge.shrink_to_fit();
+    color_r.shrink_to_fit(); color_g.shrink_to_fit(); color_b.shrink_to_fit();
+    qcd_color.shrink_to_fit(); qcd_anticolor.shrink_to_fit();
+    luminosity.shrink_to_fit(); temp_particle.shrink_to_fit();
+    star_state.shrink_to_fit(); star_age.shrink_to_fit(); flags.shrink_to_fit();
+    capacity = x.size();
 }
 
 size_t ParticlePool::add(double px, double py, double pz,

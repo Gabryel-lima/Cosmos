@@ -1,5 +1,6 @@
 // src/physics/NBody_avx.cpp
-// Compilado isoladamente com -mavx2 -mfma pelo CMake.
+// Compilado com flags baseline; AVX2/FMA fica restrito a nbody_step_avx2
+// via target attribute para manter a inicialização da TU segura.
 // NUNCA inclua este arquivo em outro .cpp.
 #include <immintrin.h>
 #include <vector>
@@ -14,6 +15,9 @@
 
 static NBodySolver g_solver_avx;
 
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((target("avx2,fma")))
+#endif
 void nbody_step_avx2(ParticlePool& pool, float dt) {
     const size_t n = pool.x.size();
     if (n == 0) return;
