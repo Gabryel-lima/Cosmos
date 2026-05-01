@@ -226,7 +226,7 @@ void RegimeOverlay::render(CosmicClock& clock, RegimeManager& mgr, Universe& uni
     const OverlayWindowLayout composition_layout{
         "##Cosmic Composition",
         {10.0f, 160.0f},
-        {kSidePanelWidth, 210.0f},
+        {kSidePanelWidth, 230.0f},
         0.72f,
         ImGuiCond_FirstUseEver,
         ImGuiCond_FirstUseEver,
@@ -242,7 +242,7 @@ void RegimeOverlay::render(CosmicClock& clock, RegimeManager& mgr, Universe& uni
     const OverlayWindowLayout perf_layout{
         "##Perf",
         {io.DisplaySize.x - 250.0f, 160.0f},
-        {230.0f, 130.0f},
+        {230.0f, 180.0f},
         0.6f,
         ImGuiCond_Always,
         ImGuiCond_Always,
@@ -795,7 +795,7 @@ void RegimeOverlay::drawPerformanceStats(const Universe& universe) {
         ImGui::Text("Active particles: %d", total_active);
         coloredStat(particleColor(ParticleType::DARK_MATTER), "Dark Matter: %d", counts[ParticleType::DARK_MATTER]);
         coloredStat(particleColor(ParticleType::GAS), "Neutral Gas: %d", counts[ParticleType::GAS]);
-        ImGui::TextDisabled("CMB desacoplado; a cena mostra gas neutro e materia escura.");
+        ImGui::TextDisabled("CMB desacoplado;\na cena 'mostra'\ngas neutro e\nmateria escura.");
     } else if (universe.regime_index == 7) {
         ImGui::Text("Active particles: %d", total_active);
         coloredStat(particleColor(ParticleType::STAR), "First Stars: %d", counts[ParticleType::STAR]);

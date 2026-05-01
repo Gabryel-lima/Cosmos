@@ -96,6 +96,11 @@ target_link_libraries(cosmos PRIVATE
     dl
 )
 
+# Small prototype executable demonstrating SoA + ThreadPool (DOTS ideas)
+add_executable(dots_prototype src/prototypes/DOTSPrototype.cpp)
+target_include_directories(dots_prototype PRIVATE src)
+target_link_libraries(dots_prototype PRIVATE Threads::Threads)
+
 # ── Dispatcher AVX em runtime ────────────────────────────────────────────────
 # Verifica se o compilador consegue emitir AVX2 (só capacidade do compilador,
 # não da CPU do host).  O binário resultante carrega AMBAS as implementações;
