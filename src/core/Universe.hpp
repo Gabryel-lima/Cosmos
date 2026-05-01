@@ -77,6 +77,7 @@ struct Universe {
 
     // Perfil de qualidade efetivo definido no build (QUALITY=...)
     struct QualityProfile {
+        const char *name       = RegimeConfig::QualityProfile::name;
         int   N_particles      = RegimeConfig::QualityProfile::N_particles;
         int   grid_res         = RegimeConfig::QualityProfile::grid_res;
         float barnes_hut_theta = RegimeConfig::QualityProfile::barnes_hut_theta;

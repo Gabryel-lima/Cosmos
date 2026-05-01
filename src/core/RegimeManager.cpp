@@ -428,6 +428,13 @@ double targetTemperatureForRegime(int regime_index) {
     }
 }
 
+void syncUniverseClockState(Universe& universe, const CosmicClock& clock, int regime_index) {
+    universe.scale_factor = clock.getScaleFactor();
+    universe.temperature_keV = clock.getTemperatureKeV();
+    universe.cosmic_time = clock.getCosmicTime();
+    universe.regime_index = regime_index;
+}
+
 void copyParticleState(ParticlePool& pool, size_t idx, ParticleType type,
                        double mass, float luminosity, float charge,
                        StarState star_state = StarState::NONE)
@@ -1475,6 +1482,7 @@ void RegimeManager::beginTransition(int from, int to, Universe& universe,
     InitialState st = buildInitialState(to);
     inheritStateAcrossTransition(from, to, universe, st);
     applyInitialState(to, st, universe);
+    syncUniverseClockState(universe, clock, to);
     std::printf("[REGIME] Entering regime %d with active_particles=%d\n",
                 to,
                 static_cast<int>(std::count_if(universe.particles.flags.begin(),
@@ -1497,13 +1505,24 @@ void RegimeManager::beginTransition(int from, int to, Universe& universe,
 
 void RegimeManager::jumpToRegime(int index, CosmicClock& clock, Universe& universe) {
     int idx = std::clamp(index, 0, CosmicClock::LAST_REGIME_INDEX);
+    int source_regime = active_index_;
+    const bool needs_plasma_bootstrap = (idx == 5 && source_regime < 4 && universe.particles.x.empty());
     if (regimes_[active_index_]) regimes_[active_index_]->onExit();
 
     clock.jumpToRegime(idx);
 
     InitialState st = buildInitialState(idx);
-    inheritStateAcrossTransition(active_index_, idx, universe, st);
+    if (needs_plasma_bootstrap) {
+        InitialState precursor = buildInitialState(4);
+        Universe bootstrap_universe;
+        applyInitialState(4, precursor, bootstrap_universe);
+        bootstrap_universe.abundances = chemistry::inferAbundances(bootstrap_universe.particles);
+        inheritStateAcrossTransition(4, idx, bootstrap_universe, st);
+    } else {
+        inheritStateAcrossTransition(source_regime, idx, universe, st);
+    }
     applyInitialState(idx, st, universe);
+    syncUniverseClockState(universe, clock, idx);
     active_index_ = idx;
     in_transition_ = false;
     regime_elapsed_real_ = 0.0f;

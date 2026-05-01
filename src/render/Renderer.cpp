@@ -290,6 +290,19 @@ static std::string readFile(const std::string& path) {
 GLuint Renderer::compileShader(GLenum type, const std::string& path) {
     std::string src = readFile(path);
     if (src.empty()) return 0;
+    #if defined(QUALITY_SAFE)
+        if (path.find("volume.frag") != std::string::npos) {
+            constexpr const char* safe_volume_preamble =
+                "#define COSMOS_VOLUME_MAX_STEPS 128\n"
+                "#define COSMOS_VOLUME_STEP_SIZE 0.0075\n"
+                "#define COSMOS_VOLUME_FBM_OCTAVES 2\n"
+                "#define COSMOS_VOLUME_ALPHA_COMPENSATION 1.35\n";
+            const std::size_t version_end = src.find('\n');
+            if (src.rfind("#version", 0) == 0 && version_end != std::string::npos) {
+                src.insert(version_end + 1, safe_volume_preamble);
+            }
+        }
+    #endif
     const char* csrc = src.c_str();
     GLuint sh = glCreateShader(type);
     glShaderSource(sh, 1, &csrc, nullptr);
@@ -358,6 +371,13 @@ void Renderer::syncVisualTuning(const Universe& universe) {
     halo_visibility_ = std::clamp(universe.visual.halo_visibility, 0.0f, 3.0f);
     halo_axis_ratio_ = std::clamp(universe.visual.halo_axis_ratio, 0.65f, 2.4f);
     halos_enabled_ = universe.visual.show_halos;
+    #if defined(QUALITY_SAFE)
+        if (universe.regime_index >= 6) {
+            volume_opacity_multiplier_ = std::min(volume_opacity_multiplier_, 0.35f);
+            halo_visibility_ = 0.0f;
+            halos_enabled_ = false;
+        }
+    #endif
 }
 
 bool Renderer::init(int width, int height) {
@@ -505,6 +525,10 @@ void Renderer::setupFBOs() {
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
                            GL_TEXTURE_2D, hdr_depth_tex_.id, 0);
 
+    const GLenum hdr_draw_buffers[] = {GL_COLOR_ATTACHMENT0};
+    glDrawBuffers(1, hdr_draw_buffers);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     // FBOs de bloom (meia resolução)
@@ -609,13 +633,16 @@ void Renderer::endFrame() {
     timer_idx_ = 1 - timer_idx_;
 
     // Ler temporizador do quadro anterior (evitar travamento)
-    GLint available = 0;
-    glGetQueryObjectiv(timer_query_[timer_idx_], GL_QUERY_RESULT_AVAILABLE, &available);
-    if (available) {
-        GLuint64 ns = 0;
-        glGetQueryObjectui64v(timer_query_[timer_idx_], GL_QUERY_RESULT, &ns);
-        last_gpu_ms_ = static_cast<float>(ns) * 1e-6f;
+    if (timer_history_ready_) {
+        GLint available = 0;
+        glGetQueryObjectiv(timer_query_[timer_idx_], GL_QUERY_RESULT_AVAILABLE, &available);
+        if (available) {
+            GLuint64 ns = 0;
+            glGetQueryObjectui64v(timer_query_[timer_idx_], GL_QUERY_RESULT, &ns);
+            last_gpu_ms_ = static_cast<float>(ns) * 1e-6f;
+        }
     }
+    timer_history_ready_ = true;
 }
 
 void Renderer::setViewProjection(const glm::mat4& view, const glm::mat4& proj,
@@ -729,6 +756,15 @@ void Renderer::renderParticles(const Universe& universe) {
                 particle_sz *= (universe.regime_index == 7) ? 0.92f : 1.00f;
             }
         }
+        #if defined(QUALITY_SAFE)
+            if (universe.regime_index >= 6) {
+                if (p.type[i] == ParticleType::GAS) {
+                    particle_sz *= 1.25f;
+                } else if (p.type[i] == ParticleType::STAR || p.type[i] == ParticleType::BLACKHOLE) {
+                    particle_sz *= 1.12f;
+                }
+            }
+        #endif
         pos_data.push_back(rx); pos_data.push_back(ry);
         pos_data.push_back(rz); pos_data.push_back(particle_sz);
         // Use the alpha slot as a stable shader tag instead of the raw enum id,
@@ -761,6 +797,23 @@ void Renderer::renderParticles(const Universe& universe) {
                 color_b *= (universe.regime_index == 7) ? 0.90f : 0.84f;
             }
         }
+        #if defined(QUALITY_SAFE)
+            if (universe.regime_index >= 6) {
+                if (p.type[i] == ParticleType::GAS) {
+                    color_r *= 1.35f;
+                    color_g *= 1.35f;
+                    color_b *= 1.45f;
+                } else if (p.type[i] == ParticleType::STAR) {
+                    color_r *= 1.10f;
+                    color_g *= 1.08f;
+                    color_b *= 1.08f;
+                } else if (p.type[i] == ParticleType::BLACKHOLE) {
+                    color_r *= 1.18f;
+                    color_g *= 1.12f;
+                    color_b *= 1.12f;
+                }
+            }
+        #endif
         boostDimColor(color_r, color_g, color_b, std::min(p.luminosity[i], 1.0f));
         col_data.push_back(color_r);
         col_data.push_back(color_g);
@@ -815,6 +868,8 @@ void Renderer::renderParticles(const Universe& universe) {
     glBindVertexArray(0);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    glUseProgram(0);
+    glActiveTexture(GL_TEXTURE0);
 }
 
 // ── Volume field rendering (raymarched density) ───────────────────────────────
@@ -823,6 +878,9 @@ void Renderer::renderVolumeField(const Universe& universe) {
     const GridData& field = universe.density_field;
     if (field.data.empty() || !volume_shader_.id) return;
     syncVisualTuning(universe);
+    #if defined(QUALITY_SAFE)
+        if (universe.regime_index >= 5) return;
+    #endif
     const RegimeVisualProfile profile = visualProfileForRegime(universe.regime_index);
     const GridData* ionization = (universe.ionization_field.data.size() == field.data.size())
         ? &universe.ionization_field
@@ -905,6 +963,13 @@ void Renderer::renderVolumeField(const Universe& universe) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE);
     glEnable(GL_DEPTH_TEST);
     glBindVertexArray(0);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_3D, 0);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_3D, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_3D, 0);
+    glUseProgram(0);
 }
 
 // ── Exibição de abundâncias nucleares ──────────────────────────────────────────────────
@@ -1006,6 +1071,8 @@ void Renderer::applyPostProcess() {
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, width_, height_);
+    glDrawBuffer(GL_BACK);
+    glReadBuffer(GL_BACK);
     glClear(GL_COLOR_BUFFER_BIT);
     glDisable(GL_DEPTH_TEST);
 

@@ -475,6 +475,7 @@ void RegimePlasma::onEnter(Universe& state) {
     cmb_flash_t_         = 0.0f;
     recombined_fraction_ = 0.0;
     wave_phase_          = 0.0f;
+    volume_warmup_frames_ = 3;
     baryon_density_      = FluidGrid::baryonDensity(state.scale_factor);
 
     // Inicializa a grade fluida se ainda não estiver definida
@@ -671,7 +672,11 @@ void RegimePlasma::update(double cosmic_dt, double scale_factor, double temp_keV
 }
 
 void RegimePlasma::render(Renderer& renderer, const Universe& universe) {
-    renderer.renderVolumeField(universe);
+    if (volume_warmup_frames_ > 0) {
+        --volume_warmup_frames_;
+    } else {
+        renderer.renderVolumeField(universe);
+    }
     renderer.renderParticles(universe);
     if (cmb_flash_triggered_) {
         renderer.renderCMBFlash(cmb_flash_t_);

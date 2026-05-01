@@ -10,6 +10,7 @@ class RegimeOverlay {
 public:
     /// Renderiza todos os painéis ImGui. Chamar entre ImGui::NewFrame() e ImGui::Render().
     void render(CosmicClock& clock, RegimeManager& mgr, Universe& universe, Camera& camera);
+    int consumePendingJumpRegime();
 
     bool visible = true;  // alternar com a tecla H
 
@@ -20,7 +21,9 @@ private:
     void drawCompositionTable(const RegimeManager& mgr, const Universe& universe);
     void drawPerformanceStats(const Universe& universe);
     void drawVisualTuning(Universe& universe);
+    void requestJumpToRegime(int regime_index);
 
     // Estado do ciclo de predefinições de velocidade
     int speed_preset_index_ = 1;  // NORMAL
+    int pending_jump_regime_ = -1;
 };

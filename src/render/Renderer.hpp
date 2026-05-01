@@ -182,4 +182,5 @@ private:
     // Consultas do temporizador GPU
     GLuint timer_query_[2] = {0, 0};
     int    timer_idx_      = 0;
+    bool   timer_history_ready_ = false;
 };

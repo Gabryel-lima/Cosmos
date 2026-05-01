@@ -78,12 +78,12 @@ static void nbody_step_sse2(ParticlePool& pool, float dt);
 // ─────────────────────────────────────────────────────────────────────────────
 
 void NBody::step(ParticlePool& pool, float dt) {
-#if defined(COSMOS_HAS_AVX2)
-    if (cpu::has_avx2()) {
-        nbody_step_avx2(pool, dt);
-        return;
-    }
-#endif
+    #if defined(COSMOS_HAS_AVX2)
+        if (cpu::has_avx2()) {
+            nbody_step_avx2(pool, dt);
+            return;
+        }
+    #endif
     nbody_step_sse2(pool, dt);   // fallback: sempre seguro em qualquer x86-64
 }
 

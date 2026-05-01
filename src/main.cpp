@@ -174,6 +174,7 @@ struct AppState {
     Camera         camera;
     Renderer       renderer;
     RegimeOverlay  overlay;
+    int            deferred_jump_regime = -1;
     bool           running  = true;
 };
 
@@ -185,6 +186,10 @@ static void recenterCameraToScene(AppState& app, int regime_index) {
 static void jumpToRegimeAndFrame(AppState& app, int regime_index) {
     app.mgr.jumpToRegime(regime_index, app.clock, app.universe);
     recenterCameraToScene(app, regime_index);
+}
+
+static void requestDeferredRegimeJump(AppState& app, int regime_index) {
+    app.deferred_jump_regime = CosmicClock::clampRegimeIndex(regime_index);
 }
 
 static void toggleNearestTracking(AppState& app) {
@@ -290,15 +295,15 @@ static void on_key(GLFWwindow* /*w*/, int key, int /*sc*/, int action, int mods)
             break;
         }
 
-        case GLFW_KEY_1: jumpToRegimeAndFrame(*g_app, 0); break;
-        case GLFW_KEY_2: jumpToRegimeAndFrame(*g_app, 1); break;
-        case GLFW_KEY_3: jumpToRegimeAndFrame(*g_app, 2); break;
-        case GLFW_KEY_4: jumpToRegimeAndFrame(*g_app, 3); break;
-        case GLFW_KEY_5: jumpToRegimeAndFrame(*g_app, 4); break;
-        case GLFW_KEY_6: jumpToRegimeAndFrame(*g_app, 5); break;
-        case GLFW_KEY_7: jumpToRegimeAndFrame(*g_app, 6); break;
-        case GLFW_KEY_8: jumpToRegimeAndFrame(*g_app, 7); break;
-        case GLFW_KEY_9: jumpToRegimeAndFrame(*g_app, 8); break;
+        case GLFW_KEY_1: requestDeferredRegimeJump(*g_app, 0); break;
+        case GLFW_KEY_2: requestDeferredRegimeJump(*g_app, 1); break;
+        case GLFW_KEY_3: requestDeferredRegimeJump(*g_app, 2); break;
+        case GLFW_KEY_4: requestDeferredRegimeJump(*g_app, 3); break;
+        case GLFW_KEY_5: requestDeferredRegimeJump(*g_app, 4); break;
+        case GLFW_KEY_6: requestDeferredRegimeJump(*g_app, 5); break;
+        case GLFW_KEY_7: requestDeferredRegimeJump(*g_app, 6); break;
+        case GLFW_KEY_8: requestDeferredRegimeJump(*g_app, 7); break;
+        case GLFW_KEY_9: requestDeferredRegimeJump(*g_app, 8); break;
 
         case GLFW_KEY_C:
             recenterCameraToScene(*g_app, g_app->mgr.getCurrentRegimeIndex());
@@ -411,14 +416,14 @@ static bool parseArgs(int argc, char** argv) {
 }
 
 static std::filesystem::path resolveExecutablePath(const char* argv0) {
-#ifdef __linux__
-    std::vector<char> buffer(4096, '\0');
-    const ssize_t length = ::readlink("/proc/self/exe", buffer.data(), buffer.size() - 1);
-    if (length > 0) {
-        buffer[static_cast<size_t>(length)] = '\0';
-        return std::filesystem::path(buffer.data());
-    }
-#endif
+    #ifdef __linux__
+        std::vector<char> buffer(4096, '\0');
+        const ssize_t length = ::readlink("/proc/self/exe", buffer.data(), buffer.size() - 1);
+        if (length > 0) {
+            buffer[static_cast<size_t>(length)] = '\0';
+            return std::filesystem::path(buffer.data());
+        }
+    #endif
 
     if (argv0 && *argv0) {
         std::error_code ec;
@@ -484,9 +489,9 @@ static bool initGLFW(AppState& app) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-#ifdef __APPLE__
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-#endif
+    #ifdef __APPLE__
+        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    #endif
     glfwWindowHint(GLFW_SAMPLES, 4);  // MSAA ×4 (suavização de bordas)
 
     GLFWmonitor* mon = g_fullscreen ? glfwGetPrimaryMonitor() : nullptr;
@@ -564,7 +569,7 @@ int main(int argc, char** argv) {
     app.mgr.jumpToRegime(app.clock.getCurrentRegimeIndex(), app.clock, app.universe);
 
     // Enquadrar a cena inicial a partir do conteúdo real do regime.
-    recenterCameraToScene(app, app.clock.getCurrentRegimeIndex());
+    recenterCameraToScene(app, app.mgr.getCurrentRegimeIndex());
 
     std::printf("[main] Build quality=%s | structure particles=%d | plasma grid=%d^3 | Barnes-Hut theta=%.2f\n",
                 RegimeConfig::BUILD_QUALITY_NAME,
@@ -607,6 +612,12 @@ int main(int argc, char** argv) {
         }
 
         glfwPollEvents();
+
+        if (app.deferred_jump_regime >= 0) {
+            jumpToRegimeAndFrame(app, app.deferred_jump_regime);
+            app.deferred_jump_regime = -1;
+            sim_accumulator = 0.0;
+        }
 
         // Recarregar shaders sob demanda
         if (g_reload_shaders) {
@@ -718,7 +729,14 @@ int main(int argc, char** argv) {
         app.overlay.render(app.clock, app.mgr, app.universe, app.camera);
 
         ImGui::Render();
+        int pending_jump_regime = app.overlay.consumePendingJumpRegime();
+        if (pending_jump_regime >= 0) {
+            app.deferred_jump_regime = pending_jump_regime;
+        }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDrawBuffer(GL_BACK);
+        glReadBuffer(GL_BACK);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         if (!video_exporter.captureFrame()) {

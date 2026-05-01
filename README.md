@@ -23,11 +23,14 @@ set of user controls for fast exploration and reproducible diagnostics.
 - Automatic regime transitions with smooth cross-fade and continuity-preserving state handoff.
 - Late macro regimes now use a richer volume-driven look: neutral gas fog, ionization fronts, emissivity fields, and gradual condensation into luminous sources.
 - Quality presets were rebalanced around the new macro renderer, and a new `SAFE` tier targets weak CPUs / integrated GPUs.
+- `SAFE` now also swaps in a cheaper volume-shader configuration, so weak machines get relief from both particle counts and volumetric raymarch cost.
 - Runtime-safe CPU path: portable SSE2 baseline plus AVX2 dispatch for hot loops when available.
 - Fixed-step simulation update loop with overload protection for stable dynamics under low FPS.
 - Improved camera workflow: scene auto-framing, quick recenter, and nearest-particle tracking.
 - Runtime resource path resolution anchored to executable directory (more reliable launches from different working directories).
-- Richer HUD: transition-aware timeline, speed presets, log-scale speed multiplier, composition/performance panels, and late-regime visual tuning presets.
+- Jump requests from keyboard/HUD are now applied safely on the next frame, which keeps regime changes consistent with the simulation loop and camera framing.
+- Richer HUD: transition-aware timeline, speed presets, log-scale speed multiplier, composition/performance panels, and late-regime visual tuning presets (`Planck-like`, `Patchy EoR`, `AGN-heavy`).
+- Startup diagnostics now print the active build quality, structure particle count, plasma grid size, and Barnes-Hut theta for easier reproducibility.
 
 ## Simulated Regimes
 
@@ -83,6 +86,8 @@ make QUALITY=ULTRA    # maximum detail — demands a capable CPU and GPU
 
 `SAFE` reduces CPU-heavy particle counts aggressively in the late N-body stages while keeping a minimal 3D field resolution so the smoke-like macro gas remains readable.
 
+In current builds, `SAFE` also lowers the cost of the late volumetric pass itself by trimming raymarch steps and shader noise complexity, which makes it the recommended first option on weak hardware.
+
 ### Native-speed build (optional)
 
 If your CPU supports AVX2 and you want compiler auto-vectorisation to exploit
@@ -130,9 +135,11 @@ cd build && cmake .. -DNATIVE_OPT=ON
 | `W/A/S/D/Q/E` | Free-flight camera movement |
 | Left-drag | Orbit camera |
 | Scroll wheel | Zoom |
-| ImGui panel | Timeline + jump controls, speed presets, physics/composition/perf stats, late-regime tuning |
+| ImGui panel | Timeline + jump controls, speed presets, physics/composition/perf stats, late-regime tuning + visual presets |
 
 Note: punctuation shortcuts follow the typed character via GLFW's char callback, so `,`, `.`, `;`, `[` and `]` keep working on non-US keyboard layouts too.
+
+The jump controls are queued and executed on the following frame instead of inside the raw key callback, which avoids mid-frame state changes during heavy transitions.
 
 ## Physics + Rendering Highlights
 
@@ -213,6 +220,7 @@ Note: some hosting platforms (including GitHub) may restrict autoplay and certai
 
 - Application crashes on start / blank window: verify GPU drivers and OpenGL 4.3 support. On Debian/Ubuntu, ensure `libgl1-mesa-dri` and `libglfw3` are installed.
 - Low FPS / UI choppiness: try `make QUALITY=SAFE` first on weak integrated GPUs, then `LOW` if you still want a bit more fidelity.
+- Need a stable baseline on weak hardware: start with `SAFE`; it is the only profile that reduces both late-era particle load and the volumetric shader workload.
 - Video export fails immediately: confirm that `ffmpeg` is installed and available on `PATH`.
 - SIGILL (illegal instruction) after building with native optimizations: you probably built with `-DNATIVE_OPT=ON`. Rebuild without native optimizations or use a portable build:
 

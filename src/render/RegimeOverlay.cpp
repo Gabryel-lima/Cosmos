@@ -122,37 +122,6 @@ struct OverlayWindowLayout {
     ImGuiCond size_condition;
 };
 
-static short iniCoord(float value) {
-    return static_cast<short>(std::lround(value));
-}
-
-static bool syncWindowSettings(const OverlayWindowLayout& layout) {
-    ImGuiWindowSettings* settings = ImGui::FindWindowSettingsByID(ImHashStr(layout.name));
-    if (!settings) {
-        settings = ImGui::CreateNewWindowSettings(layout.name);
-    }
-
-    const ImVec2ih desired_pos(iniCoord(layout.pos.x), iniCoord(layout.pos.y));
-    const ImVec2ih desired_size(iniCoord(layout.size.x), iniCoord(layout.size.y));
-    const bool changed = settings->Pos.x != desired_pos.x || settings->Pos.y != desired_pos.y
-                      || settings->Size.x != desired_size.x || settings->Size.y != desired_size.y;
-    if (changed) {
-        settings->Pos = desired_pos;
-        settings->Size = desired_size;
-        settings->Collapsed = false;
-    }
-    return changed;
-}
-
-static bool clearLegacyWindowSettings(const char* name) {
-    ImGuiWindowSettings* settings = ImGui::FindWindowSettingsByID(ImHashStr(name));
-    if (!settings || settings->WantDelete) {
-        return false;
-    }
-    ImGui::ClearWindowSettings(name);
-    return true;
-}
-
 static void primeWindowLayout(const OverlayWindowLayout& layout, bool force_defaults) {
     ImGui::SetNextWindowPos(layout.pos, force_defaults ? ImGuiCond_Always : layout.pos_condition);
     ImGui::SetNextWindowSize(layout.size, force_defaults ? ImGuiCond_Always : layout.size_condition);
@@ -232,6 +201,16 @@ static bool compactCheckbox(const char* label, const char* id, bool& value) {
     return ImGui::Checkbox(id, &value);
 }
 
+int RegimeOverlay::consumePendingJumpRegime() {
+    int pending = pending_jump_regime_;
+    pending_jump_regime_ = -1;
+    return pending;
+}
+
+void RegimeOverlay::requestJumpToRegime(int regime_index) {
+    pending_jump_regime_ = std::clamp(regime_index, 0, CosmicClock::LAST_REGIME_INDEX);
+}
+
 void RegimeOverlay::render(CosmicClock& clock, RegimeManager& mgr, Universe& universe, Camera& camera) {
     if (!visible) return;
 
@@ -245,7 +224,7 @@ void RegimeOverlay::render(CosmicClock& clock, RegimeManager& mgr, Universe& uni
         ImGuiCond_Always,
     };
     const OverlayWindowLayout composition_layout{
-        "Cosmic Composition",
+        "##Cosmic Composition",
         {10.0f, 160.0f},
         {kSidePanelWidth, 210.0f},
         0.72f,
@@ -263,30 +242,17 @@ void RegimeOverlay::render(CosmicClock& clock, RegimeManager& mgr, Universe& uni
     const OverlayWindowLayout perf_layout{
         "##Perf",
         {io.DisplaySize.x - 250.0f, 160.0f},
-        {230.0f, 96.0f},
+        {230.0f, 130.0f},
         0.6f,
         ImGuiCond_Always,
         ImGuiCond_Always,
     };
 
-    bool persist_layout = false;
-    static bool legacy_pruned = false;
-    if (!legacy_pruned) {
-        persist_layout |= clearLegacyWindowSettings("##Abundances");
-        persist_layout |= clearLegacyWindowSettings("##Cosmic Composition");
-        legacy_pruned = true;
-    }
-
-    const bool hud_changed = syncWindowSettings(hud_layout);
-    const bool composition_changed = syncWindowSettings(composition_layout);
-    const bool late_tuning_changed = syncWindowSettings(late_tuning_layout);
-    const bool perf_changed = syncWindowSettings(perf_layout);
-    persist_layout |= hud_changed || composition_changed || late_tuning_changed || perf_changed;
-
-    primeWindowLayout(hud_layout, hud_changed);
+    primeWindowLayout(hud_layout, false);
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
-                           | ImGuiWindowFlags_NoMove   | ImGuiWindowFlags_NoScrollbar;
+                           | ImGuiWindowFlags_NoMove   | ImGuiWindowFlags_NoScrollbar
+                           | ImGuiWindowFlags_NoSavedSettings;
 
     if (ImGui::Begin("##CosmicHUD", nullptr, flags)) {
         drawTimeline(clock, mgr);
@@ -298,31 +264,30 @@ void RegimeOverlay::render(CosmicClock& clock, RegimeManager& mgr, Universe& uni
     ImGui::End();
 
     // Painel de composição (visível em todos os regimes)
-    primeWindowLayout(composition_layout, composition_changed);
-    if (ImGui::Begin("Cosmic Composition", nullptr, ImGuiWindowFlags_NoCollapse)) {
+    primeWindowLayout(composition_layout, false);
+    if (ImGui::Begin("##Cosmic Composition", nullptr, 
+                        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
+                        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) {
         drawCompositionTable(mgr, universe);
     }
     ImGui::End();
 
     if (universe.regime_index >= 5) {
-        primeWindowLayout(late_tuning_layout, late_tuning_changed);
+        primeWindowLayout(late_tuning_layout, false);
         if (ImGui::Begin("##Late Regime Tuning", nullptr,
-                         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove )) {
+                         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
+                         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) {
             drawVisualTuning(universe);
         }
         ImGui::End();
     }
 
     // Overlay de desempenho (canto superior direito)
-    primeWindowLayout(perf_layout, perf_changed);
+    primeWindowLayout(perf_layout, false);
     if (ImGui::Begin("##Perf", nullptr, flags)) {
         drawPerformanceStats(universe);
     }
     ImGui::End();
-
-    if (persist_layout && io.IniFilename && io.IniFilename[0] != '\0') {
-        ImGui::SaveIniSettingsToDisk(io.IniFilename);
-    }
 }
 
 void RegimeOverlay::drawTimeline(CosmicClock& clock, RegimeManager& mgr) {
@@ -411,6 +376,8 @@ void RegimeOverlay::drawTimeline(CosmicClock& clock, RegimeManager& mgr) {
 }
 
 void RegimeOverlay::drawTimeControls(CosmicClock& clock, RegimeManager& mgr, Universe& universe, Camera& camera) {
+    (void)universe;
+    (void)camera;
     ImGui::BeginGroup();
 
     // Reproduzir/Pausar
@@ -424,9 +391,7 @@ void RegimeOverlay::drawTimeControls(CosmicClock& clock, RegimeManager& mgr, Uni
     ImGui::SameLine();
     if (ImGui::Button("<< PREV REGIME")) {
         int rewind_regime = std::max(0, mgr.getVisualRegimeIndex() - 1);
-        mgr.jumpToRegime(rewind_regime, clock, universe);
-        SceneFrame scene_frame = Camera::estimateSceneFrame(universe);
-        camera.applyState(camera.getSceneFittedState(rewind_regime, scene_frame));
+        requestJumpToRegime(rewind_regime);
     }
 
     // Predefinições de velocidade
@@ -459,9 +424,7 @@ void RegimeOverlay::drawTimeControls(CosmicClock& clock, RegimeManager& mgr, Uni
     for (int i = 0; i < CosmicClock::REGIME_COUNT; ++i) {
         if (i > 0) ImGui::SameLine();
         if (ImGui::SmallButton(REGIME_NAMES[i])) {
-            mgr.jumpToRegime(i, clock, universe);
-            SceneFrame scene_frame = Camera::estimateSceneFrame(universe);
-            camera.applyState(camera.getSceneFittedState(i, scene_frame));
+            requestJumpToRegime(i);
         }
     }
 
@@ -731,6 +694,7 @@ void RegimeOverlay::drawPerformanceStats(const Universe& universe) {
         ImGui::TextColored(color, fmt, args...);
     };
 
+    ImGui::Text("Quality: %s", universe.quality.name);
     ImGui::Text("FPS: %.1f", universe.fps);
     ImGui::Text("GPU: %.2f ms", universe.gpu_time_ms);
 

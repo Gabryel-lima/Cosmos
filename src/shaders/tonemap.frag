@@ -29,14 +29,25 @@ float luminance(vec3 c) {
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
 
+float sanitizeScalar(float value) {
+    return (isnan(value) || isinf(value)) ? 0.0 : value;
+}
+
+vec3 sanitizeVec3(vec3 value) {
+    return vec3(sanitizeScalar(value.x),
+                sanitizeScalar(value.y),
+                sanitizeScalar(value.z));
+}
+
 void main() {
-    vec3 hdr = texture(u_hdr_tex, v_uv).rgb * u_exposure;
+    vec3 hdr = sanitizeVec3(texture(u_hdr_tex, v_uv).rgb) * sanitizeScalar(u_exposure);
+    hdr = clamp(hdr, vec3(0.0), vec3(65504.0));
 
     // Adicionar flash do CMB (pulso branco brilhante)
     hdr += vec3(u_cmb_flash * 3.0);
 
     // Mapeamento de tons ACES
-    vec3 ldr = aces_tonemap(hdr);
+    vec3 ldr = sanitizeVec3(aces_tonemap(hdr));
 
     float luma = luminance(ldr);
     float shadow_mix = smoothstep(0.55, 0.0, luma);
@@ -57,6 +68,7 @@ void main() {
     // Granulação sutil de filme
     float grain = fract(sin(dot(v_uv + u_exposure, vec2(12.9898, 78.233))) * 43758.5453);
     ldr += (grain - 0.5) * u_grain_strength * mix(1.0, 0.7, u_blend_t);
+    ldr = sanitizeVec3(ldr);
 
     frag_color = vec4(clamp(ldr, 0.0, 1.0), 1.0);
 }

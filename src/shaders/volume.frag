@@ -21,8 +21,21 @@ uniform vec3      u_color_warm;
 uniform vec3      u_color_hot;
 uniform vec3      u_color_core;
 
-#define MAX_STEPS 256
-#define STEP_SIZE 0.005     // volume step size
+#ifndef COSMOS_VOLUME_MAX_STEPS
+#define COSMOS_VOLUME_MAX_STEPS 256
+#endif
+
+#ifndef COSMOS_VOLUME_STEP_SIZE
+#define COSMOS_VOLUME_STEP_SIZE 0.005
+#endif
+
+#ifndef COSMOS_VOLUME_FBM_OCTAVES
+#define COSMOS_VOLUME_FBM_OCTAVES 4
+#endif
+
+#ifndef COSMOS_VOLUME_ALPHA_COMPENSATION
+#define COSMOS_VOLUME_ALPHA_COMPENSATION 1.0
+#endif
 
 float hash13(vec3 p) {
     p = fract(p * 0.1031);
@@ -56,7 +69,7 @@ float noise3(vec3 p) {
 float fbm(vec3 p) {
     float value = 0.0;
     float amplitude = 0.5;
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < COSMOS_VOLUME_FBM_OCTAVES; ++i) {
         value += noise3(p) * amplitude;
         p = p * 2.03 + vec3(11.0, 7.0, 5.0);
         amplitude *= 0.5;
@@ -151,10 +164,10 @@ void main() {
     t_enter = max(t_enter, 0.0);
 
     vec4 accum = vec4(0.0);
-    float step_world = u_box_size * STEP_SIZE;
+    float step_world = u_box_size * COSMOS_VOLUME_STEP_SIZE;
     float t = t_enter + step_world * hash13(vec3(v_uv, t_enter + u_regime * 0.17));
     
-    for (int i = 0; i < MAX_STEPS; ++i) {
+    for (int i = 0; i < COSMOS_VOLUME_MAX_STEPS; ++i) {
         if (t > t_exit || accum.a > 0.99) break;
         vec3 pos_world = ray_origin + ray_dir * t;
         
@@ -176,6 +189,7 @@ void main() {
             float ahead_ionization = texture(u_ionization_tex, clamp(pos_vol + ray_tex_step, 0.0, 1.0)).r;
             float edge = clamp((abs(ahead_density - density) + abs(ahead_ionization - ionization) * 0.85) * u_edge_boost * 4.0, 0.0, 1.0);
             vec4 sample_col = transferFunction(density, ionization, emissivity, edge, pos_vol);
+            sample_col.a = min(sample_col.a * COSMOS_VOLUME_ALPHA_COMPENSATION, 0.9);
             // Composição frente-para-trás
             accum.rgb += (1.0 - accum.a) * sample_col.a * sample_col.rgb;
             accum.a   += (1.0 - accum.a) * sample_col.a;

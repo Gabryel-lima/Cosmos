@@ -20,11 +20,14 @@ controles simples para exploração e diagnósticos reproduzíveis.
 - Transições automáticas entre regimes com cross-fade suave e transferência de estado que preserva a continuidade.
 - Os regimes macro tardios agora usam um visual mais volumétrico: neblina de gás neutro, frentes de ionização, campos de emissividade e condensação gradual em fontes luminosas.
 - Os presets de qualidade foram rebalanceados para esse novo render macro, e um nível `SAFE` foi adicionado para CPUs fracas e GPUs integradas.
+- O modo `SAFE` agora também usa uma configuração mais barata do shader de volume, aliviando máquinas fracas tanto no custo de partículas quanto no raymarch volumétrico.
 - Caminho de CPU seguro em tempo de execução: base portátil SSE2 com despacho AVX2 para loops críticos quando disponível.
 - Loop de atualização da simulação com passo fixo e proteção contra sobrecarga para dinâmica estável em FPS baixo.
 - Fluxo de câmera aprimorado: enquadramento automático da cena, recentralização rápida e rastreamento da partícula mais próxima.
 - Resolução de caminhos de recursos em tempo de execução ancorada ao diretório do executável, para lançamentos mais confiáveis a partir de diretórios diferentes.
-- HUD mais rico: linha do tempo ciente de transições, presets de velocidade, multiplicador de velocidade em escala logarítmica, painéis de composição/desempenho e presets visuais para regimes tardios.
+- Pedidos de salto de fase pelo teclado/HUD agora são aplicados com segurança no quadro seguinte, mantendo consistência no loop da simulação e no enquadramento da câmera.
+- HUD mais rico: linha do tempo ciente de transições, presets de velocidade, multiplicador de velocidade em escala logarítmica, painéis de composição/desempenho e presets visuais para regimes tardios (`Planck-like`, `Patchy EoR`, `AGN-heavy`).
+- Diagnóstico inicial mais completo: o app agora imprime o preset de qualidade ativo, a contagem de partículas estruturais, o tamanho da grade de plasma e o theta de Barnes-Hut.
 
 ## Regimes Simulados
 
@@ -80,6 +83,8 @@ make QUALITY=ULTRA    # detalhe máximo — exige CPU e GPU mais fortes
 
 O preset `SAFE` derruba agressivamente as contagens de partículas pesadas em CPU nos estágios N-body, mas preserva uma resolução 3D mínima para o gás macro continuar legível.
 
+Nos builds atuais, `SAFE` também reduz o custo do passe volumétrico tardio ao cortar passos de raymarch e simplificar o ruído do shader, então ele é a melhor primeira opção em hardware fraco.
+
 ### Build com otimização nativa (opcional)
 
 Se a sua CPU suportar AVX2 e você quiser que a auto-vetorização do compilador
@@ -127,9 +132,11 @@ cd build && cmake .. -DNATIVE_OPT=ON
 | `W/A/S/D/Q/E` | Movimento livre da câmera |
 | Arrastar com o botão esquerdo | Orbitar a câmera |
 | Roda do mouse | Zoom |
-| Painel ImGui | Linha do tempo + controles de salto, presets de velocidade, estatísticas de física/composição/desempenho e ajuste visual tardio |
+| Painel ImGui | Linha do tempo + controles de salto, presets de velocidade, estatísticas de física/composição/desempenho e ajuste visual tardio + presets visuais |
 
 Observação: os atalhos com pontuação seguem o caractere digitado, então `,`, `.`, `;`, `[` e `]` funcionam corretamente mesmo em layouts não-US, como pt-BR.
+
+Os controles de salto são enfileirados e executados no frame seguinte, em vez de ocorrerem dentro do callback bruto do teclado, evitando mudanças de estado no meio de transições pesadas.
 
 ## Destaques de Física e Renderização
 
@@ -210,6 +217,7 @@ Observação: algumas plataformas de hospedagem (incluindo o GitHub) podem restr
 
 - Aplicação trava ao iniciar / janela em branco: verifique drivers da GPU e suporte a OpenGL 4.3. No Debian/Ubuntu, confirme que `libgl1-mesa-dri` e `libglfw3` estão instalados.
 - FPS baixo / interface travando: tente `make QUALITY=SAFE` primeiro em iGPU fraca; se ainda quiser mais fidelidade, suba para `LOW`.
+- Precisa de uma base estável em hardware fraco: comece por `SAFE`; é o único perfil que reduz ao mesmo tempo a carga de partículas tardias e o custo do shader volumétrico.
 - Exportação de vídeo falha logo ao iniciar: confirme que `ffmpeg` está instalado e acessível no `PATH`.
 - SIGILL (instrução ilegal) após compilar com otimizações nativas: provavelmente você compilou com `-DNATIVE_OPT=ON`. Recompile sem otimizações nativas:
 

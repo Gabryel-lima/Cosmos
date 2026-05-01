@@ -24,4 +24,5 @@ private:
     double recombined_fraction_  = 0.0;
     double prev_scale_factor_    = 0.0;
     float  wave_phase_           = 0.0f;
+    int    volume_warmup_frames_ = 0;
 };
