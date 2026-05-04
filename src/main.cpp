@@ -26,6 +26,7 @@
 #include <cmath>
 #include <filesystem>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -47,12 +48,121 @@ static std::string g_imgui_ini_path = "imgui.ini";
 
 struct VideoExportConfig {
     bool enabled = false;
+    bool panoramic_camera = false;
+    std::string panoramic_preset = "cinematic";
+    PanoramicAutoFrameSettings panoramic_settings;
     int capture_fps = 30;
     int output_fps = 60;
     std::filesystem::path output_path = "cosmos_video.mp4";
 };
 
 static VideoExportConfig g_video_export;
+
+struct PanoramicSettingsOverrides {
+    std::optional<double> orbit_speed;
+    std::optional<double> distance_multiplier;
+    std::optional<double> zoom_multiplier;
+    std::optional<double> elevation_bias;
+    std::optional<double> elevation_amplitude;
+    std::optional<double> target_lift_scale;
+    std::optional<double> lateral_sway_scale;
+    std::optional<double> smoothing;
+};
+
+static bool parseDoubleArg(const char* value, double& out) {
+    if (!value) return false;
+    char* end = nullptr;
+    out = std::strtod(value, &end);
+    return end && *end == '\0' && std::isfinite(out);
+}
+
+static PanoramicAutoFrameSettings makePanoramicPreset(const std::string& preset_name) {
+    PanoramicAutoFrameSettings settings;
+    if (preset_name == "gentle") {
+        settings.orbit_speed = 0.65;
+        settings.distance_multiplier = 1.20;
+        settings.zoom_multiplier = 0.95;
+        settings.elevation_bias = 0.18;
+        settings.elevation_amplitude = 0.08;
+        settings.target_lift_scale = 0.10;
+        settings.lateral_sway_scale = 0.04;
+        settings.smoothing = 2.0;
+        settings.phase_frequency = 0.16;
+        settings.regime_phase_boost = 0.010;
+        settings.elevation_frequency = 0.18;
+        settings.distance_frequency = 0.14;
+        settings.target_lift_frequency = 0.12;
+        settings.lateral_sway_frequency = 0.22;
+    } else if (preset_name == "orbit") {
+        settings.orbit_speed = 1.10;
+        settings.distance_multiplier = 1.05;
+        settings.zoom_multiplier = 1.05;
+        settings.elevation_bias = 0.24;
+        settings.elevation_amplitude = 0.10;
+        settings.target_lift_scale = 0.12;
+        settings.lateral_sway_scale = 0.03;
+        settings.smoothing = 2.8;
+        settings.phase_frequency = 0.28;
+        settings.regime_phase_boost = 0.020;
+        settings.elevation_frequency = 0.24;
+        settings.distance_frequency = 0.18;
+        settings.target_lift_frequency = 0.16;
+        settings.lateral_sway_frequency = 0.20;
+    } else if (preset_name == "flyby") {
+        settings.orbit_speed = 1.45;
+        settings.distance_multiplier = 0.88;
+        settings.zoom_multiplier = 1.22;
+        settings.elevation_bias = 0.14;
+        settings.elevation_amplitude = 0.22;
+        settings.target_lift_scale = 0.20;
+        settings.lateral_sway_scale = 0.16;
+        settings.smoothing = 3.2;
+        settings.phase_frequency = 0.20;
+        settings.regime_phase_boost = 0.022;
+        settings.elevation_frequency = 0.36;
+        settings.distance_frequency = 0.31;
+        settings.target_lift_frequency = 0.24;
+        settings.lateral_sway_frequency = 0.58;
+    } else if (preset_name == "inspect") {
+        settings.orbit_speed = 0.85;
+        settings.distance_multiplier = 0.72;
+        settings.zoom_multiplier = 1.55;
+        settings.elevation_bias = 0.28;
+        settings.elevation_amplitude = 0.14;
+        settings.target_lift_scale = 0.08;
+        settings.lateral_sway_scale = 0.05;
+        settings.smoothing = 3.6;
+        settings.phase_frequency = 0.12;
+        settings.regime_phase_boost = 0.008;
+        settings.elevation_frequency = 0.16;
+        settings.distance_frequency = 0.12;
+        settings.target_lift_frequency = 0.10;
+        settings.lateral_sway_frequency = 0.16;
+    }
+    return settings;
+}
+
+static bool isKnownPanoramicPreset(const std::string& preset_name) {
+    return preset_name == "cinematic" ||
+           preset_name == "gentle" ||
+           preset_name == "orbit" ||
+           preset_name == "flyby" ||
+           preset_name == "inspect";
+}
+
+static PanoramicAutoFrameSettings resolvePanoramicSettings(const std::string& preset_name,
+                                                           const PanoramicSettingsOverrides& overrides) {
+    PanoramicAutoFrameSettings settings = makePanoramicPreset(preset_name);
+    if (overrides.orbit_speed) settings.orbit_speed = *overrides.orbit_speed;
+    if (overrides.distance_multiplier) settings.distance_multiplier = *overrides.distance_multiplier;
+    if (overrides.zoom_multiplier) settings.zoom_multiplier = *overrides.zoom_multiplier;
+    if (overrides.elevation_bias) settings.elevation_bias = *overrides.elevation_bias;
+    if (overrides.elevation_amplitude) settings.elevation_amplitude = *overrides.elevation_amplitude;
+    if (overrides.target_lift_scale) settings.target_lift_scale = *overrides.target_lift_scale;
+    if (overrides.lateral_sway_scale) settings.lateral_sway_scale = *overrides.lateral_sway_scale;
+    if (overrides.smoothing) settings.smoothing = *overrides.smoothing;
+    return settings;
+}
 
 static std::string shellQuote(const std::string& value) {
     std::string quoted = "'";
@@ -388,6 +498,7 @@ static void on_cursor_pos(GLFWwindow* /*w*/, double xpos, double ypos) {
 // ── Inicialização ───────────────────────────────────────────────────────────────────
 
 static bool parseArgs(int argc, char** argv) {
+    PanoramicSettingsOverrides panoramic_overrides;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--fullscreen" || arg == "-f") g_fullscreen = true;
@@ -403,6 +514,15 @@ static bool parseArgs(int argc, char** argv) {
                 g_video_export.output_path = argv[++i];
             }
         }
+        if (arg == "--video-panorama" || arg == "--video-autocam") {
+            g_video_export.enabled = true;
+            g_video_export.panoramic_camera = true;
+        }
+        if (arg == "--video-panorama-preset" && i + 1 < argc) {
+            g_video_export.enabled = true;
+            g_video_export.panoramic_camera = true;
+            g_video_export.panoramic_preset = argv[++i];
+        }
         if (arg == "--video-capture-fps" && i + 1 < argc) {
             g_video_export.enabled = true;
             g_video_export.capture_fps = std::max(1, std::atoi(argv[++i]));
@@ -411,7 +531,63 @@ static bool parseArgs(int argc, char** argv) {
             g_video_export.enabled = true;
             g_video_export.output_fps = std::max(1, std::atoi(argv[++i]));
         }
+        if ((arg == "--video-panorama-speed" || arg == "--video-autocam-speed") && i + 1 < argc) {
+            double value = 0.0;
+            if (parseDoubleArg(argv[++i], value)) {
+                g_video_export.enabled = true;
+                g_video_export.panoramic_camera = true;
+                panoramic_overrides.orbit_speed = value;
+            }
+        }
+        if ((arg == "--video-panorama-distance" || arg == "--video-autocam-distance") && i + 1 < argc) {
+            double value = 0.0;
+            if (parseDoubleArg(argv[++i], value)) {
+                g_video_export.enabled = true;
+                g_video_export.panoramic_camera = true;
+                panoramic_overrides.distance_multiplier = value;
+            }
+        }
+        if ((arg == "--video-panorama-zoom" || arg == "--video-autocam-zoom") && i + 1 < argc) {
+            double value = 0.0;
+            if (parseDoubleArg(argv[++i], value)) {
+                g_video_export.enabled = true;
+                g_video_export.panoramic_camera = true;
+                panoramic_overrides.zoom_multiplier = value;
+            }
+        }
+        if ((arg == "--video-panorama-height" || arg == "--video-autocam-height") && i + 1 < argc) {
+            double value = 0.0;
+            if (parseDoubleArg(argv[++i], value)) {
+                g_video_export.enabled = true;
+                g_video_export.panoramic_camera = true;
+                panoramic_overrides.target_lift_scale = value;
+            }
+        }
+        if ((arg == "--video-panorama-sway" || arg == "--video-autocam-sway") && i + 1 < argc) {
+            double value = 0.0;
+            if (parseDoubleArg(argv[++i], value)) {
+                g_video_export.enabled = true;
+                g_video_export.panoramic_camera = true;
+                panoramic_overrides.lateral_sway_scale = value;
+            }
+        }
+        if ((arg == "--video-panorama-smooth" || arg == "--video-autocam-smooth") && i + 1 < argc) {
+            double value = 0.0;
+            if (parseDoubleArg(argv[++i], value)) {
+                g_video_export.enabled = true;
+                g_video_export.panoramic_camera = true;
+                panoramic_overrides.smoothing = value;
+            }
+        }
     }
+    if (!isKnownPanoramicPreset(g_video_export.panoramic_preset)) {
+        std::fprintf(stderr,
+                     "[video] Unknown panoramic preset '%s'. Falling back to 'cinematic'. Available presets: cinematic, gentle, orbit, flyby, inspect\n",
+                     g_video_export.panoramic_preset.c_str());
+        g_video_export.panoramic_preset = "cinematic";
+    }
+    g_video_export.panoramic_settings = resolvePanoramicSettings(g_video_export.panoramic_preset,
+                                                                 panoramic_overrides);
     return true;
 }
 
@@ -582,6 +758,16 @@ int main(int argc, char** argv) {
     if (g_video_export.enabled) {
         std::printf("[main] Video mode enabled. Simulation advances deterministically at %d capture fps and exports with ffmpeg to %d fps.\n",
                     g_video_export.capture_fps, g_video_export.output_fps);
+        if (g_video_export.panoramic_camera) {
+            std::printf("[main] Panoramic autonomous camera enabled for video capture. preset=%s speed=%.2f distance=%.2f zoom=%.2f height=%.2f sway=%.2f smooth=%.2f\n",
+                        g_video_export.panoramic_preset.c_str(),
+                        g_video_export.panoramic_settings.orbit_speed,
+                        g_video_export.panoramic_settings.distance_multiplier,
+                        g_video_export.panoramic_settings.zoom_multiplier,
+                        g_video_export.panoramic_settings.target_lift_scale,
+                        g_video_export.panoramic_settings.lateral_sway_scale,
+                        g_video_export.panoramic_settings.smoothing);
+        }
     }
 
     // ── Loop principal ──────────────────────────────────────────────────────────────
@@ -590,6 +776,7 @@ int main(int argc, char** argv) {
     float fps_acc  = 0.0f;
     int   fps_frames = 0;
     double sim_accumulator = 0.0;
+    double panoramic_camera_time = 0.0;
     constexpr double kFixedSimDt = 1.0 / 60.0;
     constexpr int kMaxSimStepsPerFrame = 3;
 
@@ -633,7 +820,16 @@ int main(int argc, char** argv) {
         in.d = glfwGetKey(app.window, GLFW_KEY_D) == GLFW_PRESS;
         in.q = glfwGetKey(app.window, GLFW_KEY_Q) == GLFW_PRESS;
         in.e = glfwGetKey(app.window, GLFW_KEY_E) == GLFW_PRESS;
-        app.camera.processKeyboard(in, real_dt);
+        const bool panoramic_video_camera = g_video_export.enabled && g_video_export.panoramic_camera;
+        if (panoramic_video_camera) {
+            app.camera.enableAutoFrame();
+            if (app.camera.tracked_id != std::numeric_limits<uint32_t>::max()) {
+                app.camera.releaseTracking();
+            }
+            panoramic_camera_time += static_cast<double>(real_dt);
+        } else {
+            app.camera.processKeyboard(in, real_dt);
+        }
 
         // Atualizar câmera de rastreamento (manter câmera atrás da partícula seguida)
         if (app.camera.tracked_id != std::numeric_limits<uint32_t>::max()) {
@@ -702,10 +898,19 @@ int main(int argc, char** argv) {
         if (app.camera.tracked_id == std::numeric_limits<uint32_t>::max() &&
             app.camera.isAutoFrameEnabled()) {
             SceneFrame scene_frame = Camera::estimateSceneFrame(app.universe);
-            app.camera.updateAutoFrame(app.mgr.getCurrentRegimeIndex(),
-                                       scene_frame.center,
-                                       scene_frame.radius,
-                                       real_dt);
+            if (panoramic_video_camera) {
+                app.camera.updatePanoramicAutoFrame(app.mgr.getCurrentRegimeIndex(),
+                                                    scene_frame.center,
+                                                    scene_frame.radius,
+                                                    real_dt,
+                                                    panoramic_camera_time,
+                                                    g_video_export.panoramic_settings);
+            } else {
+                app.camera.updateAutoFrame(app.mgr.getCurrentRegimeIndex(),
+                                           scene_frame.center,
+                                           scene_frame.radius,
+                                           real_dt);
+            }
         }
 
         // ── Renderização ─────────────────────────────────────────────────────────────

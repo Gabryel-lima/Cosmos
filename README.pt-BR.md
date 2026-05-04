@@ -102,15 +102,43 @@ cd build && cmake .. -DNATIVE_OPT=ON
 ## Argumentos de Execução
 
 ```bash
-./build/cosmos [--fullscreen|-f] [--width W] [--height H] [--seed N] [--video [ARQUIVO.mp4]] [--video-capture-fps N] [--video-fps N]
+./build/cosmos [--fullscreen|-f] [--width W] [--height H] [--seed N] [--video [ARQUIVO.mp4]] [--video-panorama] [--video-panorama-preset NOME] [--video-panorama-speed N] [--video-panorama-distance N] [--video-panorama-zoom N] [--video-panorama-height N] [--video-panorama-sway N] [--video-panorama-smooth N] [--video-capture-fps N] [--video-fps N]
 ```
 
 - `--fullscreen`, `-f`: inicia em tela cheia.
 - `--width`, `--height`: sobrescrevem o tamanho inicial da janela.
 - `--seed`: define uma semente determinística para a simulação.
 - `--video [ARQUIVO.mp4]`: ativa a exportação determinística de vídeo via `ffmpeg`. A simulação passa a avançar um quadro fixo de captura por vez, então FPS baixo na execução ao vivo não distorce o diagnóstico gravado. Se omitido, o arquivo de saída padrão é `cosmos_video.mp4`.
+- `--video-panorama` / `--video-autocam`: mantém a exportação determinística, mas entrega o movimento da câmera a um voo panorâmico autônomo que orbita a cena atual e varia ângulo, altura e proximidade conforme a extensão do regime ativo.
+- `--video-panorama-preset NOME`: carrega um perfil nomeado de voo antes de aplicar overrides manuais. Presets disponíveis: `cinematic`, `gentle`, `orbit`, `flyby`, `inspect`.
+- `--video-panorama-speed N`: multiplica a velocidade de deslocamento da câmera pela cena.
+- `--video-panorama-distance N`: escala a distância da órbita em relação ao enquadramento automático da cena.
+- `--video-panorama-zoom N`: escala o zoom visual. Valores acima de `1.0` fecham mais o enquadramento; valores abaixo de `1.0` deixam a tomada mais aberta.
+- `--video-panorama-height N`: escala a variação vertical da trajetória.
+- `--video-panorama-sway N`: escala a oscilação lateral usada para evitar uma órbita rígida.
+- `--video-panorama-smooth N`: controla a suavização da interpolação enquanto a câmera autônoma segue a trajetória.
 - `--video-capture-fps`: cadência de captura usada no render offline. Padrão: `30`.
 - `--video-fps`: taxa final do vídeo codificado. Quando maior que a cadência de captura, o `ffmpeg` aplica interpolação de movimento (`minterpolate`). Padrão: `60`.
+
+Visão geral dos presets:
+
+- `cinematic`: caminho equilibrado com órbita moderada, variação de zoom e leve oscilação lateral.
+- `gentle`: enquadramento mais lento e aberto, com movimento vertical e lateral mais suaves.
+- `orbit`: movimento orbital mais limpo, com menos sway e enquadramento mais estável.
+- `flyby`: movimento mais rápido, mais próximo e mais enérgico para passagens dinâmicas.
+- `inspect`: enquadramento mais lento e fechado para permanecer perto de objetos e regiões densas.
+
+Exemplo:
+
+```bash
+./build/cosmos --video cosmos_panorama.mp4 --video-panorama --video-capture-fps 30 --video-fps 60
+```
+
+Exemplo com customização:
+
+```bash
+./build/cosmos --video cosmos_flyby.mp4 --video-panorama --video-panorama-preset flyby --video-panorama-speed 1.35 --video-panorama-distance 0.85 --video-panorama-zoom 1.20 --video-panorama-height 0.24 --video-panorama-sway 0.18 --video-panorama-smooth 3.0
+```
 
 ## Controles
 

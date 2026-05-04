@@ -105,15 +105,43 @@ cd build && cmake .. -DNATIVE_OPT=ON
 ## Run Arguments
 
 ```bash
-./build/cosmos [--fullscreen -f] [--width W] [--height H] [--seed N] [--video [FILE.mp4]] [--video-capture-fps N] [--video-fps N]
+./build/cosmos [--fullscreen -f] [--width W] [--height H] [--seed N] [--video [FILE.mp4]] [--video-panorama] [--video-panorama-preset NAME] [--video-panorama-speed N] [--video-panorama-distance N] [--video-panorama-zoom N] [--video-panorama-height N] [--video-panorama-sway N] [--video-panorama-smooth N] [--video-capture-fps N] [--video-fps N]
 ```
 
 - `--fullscreen`, `-f`: start in fullscreen.
 - `--width`, `--height`: override initial window size.
 - `--seed`: set deterministic simulation seed.
 - `--video [FILE.mp4]`: enable deterministic video export through `ffmpeg`. The simulation advances one fixed capture frame at a time, so slow live rendering does not distort the diagnostic output. If omitted, the output file defaults to `cosmos_video.mp4`.
+- `--video-panorama` / `--video-autocam`: keep the video export deterministic, but hand camera motion over to an autonomous panoramic flight that orbits the current scene, varying angle, height, and proximity while tracking the active regime extent.
+- `--video-panorama-preset NAME`: load a named flight profile before applying manual overrides. Available presets: `cinematic`, `gentle`, `orbit`, `flyby`, `inspect`.
+- `--video-panorama-speed N`: multiplies the camera travel speed around the scene.
+- `--video-panorama-distance N`: scales the orbit distance from the framed scene.
+- `--video-panorama-zoom N`: scales the visual zoom. Values above `1.0` move to a tighter framing; values below `1.0` keep the shot wider.
+- `--video-panorama-height N`: scales the vertical lift of the trajectory.
+- `--video-panorama-sway N`: scales the lateral sway used to avoid a rigid orbit.
+- `--video-panorama-smooth N`: controls interpolation smoothness while the autonomous camera follows the path.
 - `--video-capture-fps`: capture cadence used for the offline render. Default: `30`.
 - `--video-fps`: final encoded frame rate. When greater than the capture cadence, `ffmpeg` applies motion interpolation (`minterpolate`). Default: `60`.
+
+Preset overview:
+
+- `cinematic`: balanced default path with moderate orbit, zoom variation, and sway.
+- `gentle`: slower and wider framing with softer vertical and lateral motion.
+- `orbit`: cleaner orbital movement with less sway and more stable framing.
+- `flyby`: faster, closer, and more energetic motion for dynamic passes.
+- `inspect`: slower and tighter framing for lingering near objects and dense regions.
+
+Example:
+
+```bash
+./build/cosmos --video cosmos_panorama.mp4 --video-panorama --video-capture-fps 30 --video-fps 60
+```
+
+Customized example:
+
+```bash
+./build/cosmos --video cosmos_flyby.mp4 --video-panorama --video-panorama-preset flyby --video-panorama-speed 1.35 --video-panorama-distance 0.85 --video-panorama-zoom 1.20 --video-panorama-height 0.24 --video-panorama-sway 0.18 --video-panorama-smooth 3.0
+```
 
 ## Controls
 

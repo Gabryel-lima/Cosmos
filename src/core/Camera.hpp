@@ -23,6 +23,23 @@ struct SceneFrame {
     double radius = 0.0;
 };
 
+struct PanoramicAutoFrameSettings {
+    double orbit_speed = 1.0;
+    double distance_multiplier = 1.0;
+    double zoom_multiplier = 1.0;
+    double elevation_bias = 0.20;
+    double elevation_amplitude = 0.16;
+    double target_lift_scale = 0.18;
+    double lateral_sway_scale = 0.08;
+    double smoothing = 2.4;
+    double phase_frequency = 0.22;
+    double regime_phase_boost = 0.015;
+    double elevation_frequency = 0.31;
+    double distance_frequency = 0.23;
+    double target_lift_frequency = 0.17;
+    double lateral_sway_frequency = 0.41;
+};
+
 class Camera {
 public:
     enum class Mode { COSMIC, GALACTIC, STELLAR, ATOMIC };
@@ -68,6 +85,9 @@ public:
     State getSceneFittedState(int regime_index, const SceneFrame& scene_frame) const;
     void updateAutoFrame(int regime_index, const glm::dvec3& scene_center,
                          double scene_radius, float dt);
+    void updatePanoramicAutoFrame(int regime_index, const glm::dvec3& scene_center,
+                                  double scene_radius, float dt, double travel_time,
+                                  const PanoramicAutoFrameSettings& settings);
 
     // ── Atualizar posição da partícula rastreada ─────────────────────────────────
     void updateTracking(glm::dvec3 target_world_pos);

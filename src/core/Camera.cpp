@@ -218,6 +218,72 @@ void Camera::updateAutoFrame(int regime_index, const glm::dvec3& scene_center,
     updateMode();
 }
 
+void Camera::updatePanoramicAutoFrame(int regime_index, const glm::dvec3& scene_center,
+                                      double scene_radius, float dt, double travel_time,
+                                      const PanoramicAutoFrameSettings& settings) {
+    if (!auto_frame_enabled_ || orbiting_) return;
+
+    SceneFrame scene_frame{scene_center, scene_radius};
+    Camera::State desired = getSceneFittedState(regime_index, scene_frame);
+    if (desired.ortho_mode) {
+        updateAutoFrame(regime_index, scene_center, scene_radius, dt);
+        return;
+    }
+
+    const double radius = std::max(scene_radius, 1e-6);
+    const double safe_zoom = std::clamp(settings.zoom_multiplier, 0.25, 4.0);
+    const double safe_distance = std::clamp(settings.distance_multiplier, 0.35, 6.0);
+    const double safe_speed = std::clamp(settings.orbit_speed, 0.05, 8.0);
+    const double phase = travel_time * safe_speed *
+        (settings.phase_frequency + settings.regime_phase_boost * static_cast<double>(std::clamp(regime_index, 0, 8)));
+    const double elevation = settings.elevation_bias +
+        settings.elevation_amplitude * std::sin(travel_time * safe_speed * settings.elevation_frequency + regime_index * 0.73);
+    const double distance_wave = 0.5 + 0.5 * std::sin(travel_time * safe_speed * settings.distance_frequency + regime_index * 0.91);
+    const double distance_scale = safe_distance * (0.82 + 0.28 * distance_wave) / safe_zoom;
+    const double orbit_distance = std::max(desired.zoom_distance * distance_scale, radius * 1.10 / safe_zoom);
+    const double target_lift = radius * settings.target_lift_scale *
+        std::sin(travel_time * safe_speed * settings.target_lift_frequency + regime_index * 0.53);
+    const double lateral_sway = radius * settings.lateral_sway_scale *
+        std::sin(travel_time * safe_speed * settings.lateral_sway_frequency + regime_index * 0.35);
+
+    glm::dvec3 orbit_target = scene_center + glm::dvec3(0.0, target_lift, 0.0);
+    glm::dvec3 orbit_dir(std::cos(elevation) * std::cos(phase),
+                         std::sin(elevation),
+                         std::cos(elevation) * std::sin(phase));
+    glm::dvec3 orbit_offset = orbit_dir * orbit_distance;
+    orbit_offset += glm::dvec3(std::sin(phase * 0.5) * lateral_sway,
+                               0.0,
+                               std::cos(phase * 0.5) * lateral_sway);
+
+    glm::dvec3 desired_position = orbit_target + orbit_offset;
+    glm::dvec3 desired_forward = orbit_target - desired_position;
+    if (glm::length(desired_forward) < 1e-9) {
+        desired_forward = {0.0, 0.0, -1.0};
+    } else {
+        desired_forward = glm::normalize(desired_forward);
+    }
+
+    const float smooth_t = 1.0f - std::exp(-std::max(dt, 0.0f) * static_cast<float>(std::max(settings.smoothing, 0.1)));
+    position = glm::mix(position, desired_position, static_cast<double>(smooth_t));
+    look_at_target_ = glm::mix(look_at_target_, orbit_target, static_cast<double>(smooth_t));
+
+    glm::dvec3 blended_forward = look_at_target_ - position;
+    if (glm::length(blended_forward) < 1e-9) {
+        blended_forward = desired_forward;
+    } else {
+        blended_forward = glm::normalize(blended_forward);
+    }
+
+    forward = glm::vec3(blended_forward);
+    up = glm::normalize(glm::mix(up, glm::vec3(0.0f, 1.0f, 0.0f), smooth_t));
+    zoom_distance += (orbit_distance - zoom_distance) * static_cast<double>(smooth_t);
+    zoom_distance = std::max(zoom_distance, radius * 1.05);
+    ortho_mode = false;
+    ortho_size = static_cast<float>(std::max(zoom_distance, radius * 1.2));
+    move_speed_ = static_cast<float>(zoom_distance) * 0.3f;
+    updateMode();
+}
+
 void Camera::updateTracking(glm::dvec3 target_world_pos) {
     if (!orbiting_) return;
     look_at_target_ = target_world_pos;
