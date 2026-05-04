@@ -230,16 +230,16 @@ Manual run (equivalent):
 ## Video Demo
 
 <video controls loop muted width="640">
-	<source src="assets/videos/demo.mp4" type="video/mp4">
-	Your browser does not support the video tag. You can open `assets/videos/demo.mp4` locally.
+	<source src="assets/videos/demo_safe_flyby.mp4" type="video/mp4">
+	Your browser does not support the video tag. You can open `assets/videos/demo_safe_flyby.mp4` locally.
 </video>
 
 If you prefer to open the video locally or from the repo clone, use one of these commands:
 
 ```bash
-xdg-open assets/videos/demo.mp4   # Linux desktop
-mpv assets/videos/demo.mp4        # Lightweight player (mpv)
-ffplay -autoexit assets/videos/demo.mp4  # quick check with ffmpeg tools
+xdg-open assets/videos/demo_safe_flyby.mp4   # Linux desktop
+mpv assets/videos/demo_safe_flyby.mp4        # Lightweight player (mpv)
+ffplay -autoexit assets/videos/demo_safe_flyby.mp4  # quick check with ffmpeg tools
 ```
 
 Note: some hosting platforms (including GitHub) may restrict autoplay and certain HTML features; if embedding does not autoplay, download or open the file locally.

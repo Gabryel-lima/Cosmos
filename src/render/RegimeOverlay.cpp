@@ -242,7 +242,7 @@ void RegimeOverlay::render(CosmicClock& clock, RegimeManager& mgr, Universe& uni
     const OverlayWindowLayout perf_layout{
         "##Perf",
         {io.DisplaySize.x - 250.0f, 160.0f},
-        {230.0f, 180.0f},
+        {230.0f, 200.0f},
         0.6f,
         ImGuiCond_Always,
         ImGuiCond_Always,
@@ -735,8 +735,17 @@ void RegimeOverlay::drawPerformanceStats(const Universe& universe) {
         coloredStat(particleColor(ParticleType::ELECTRON), "Leptons: %d", sumTypes({
             ParticleType::ELECTRON, ParticleType::POSITRON, ParticleType::MUON,
             ParticleType::ANTIMUON, ParticleType::TAU, ParticleType::ANTITAU}));
+        coloredStat(particleColor(ParticleType::NEUTRINO_E), "Neutrinos: %d", sumTypes({
+            ParticleType::NEUTRINO, ParticleType::NEUTRINO_E, ParticleType::ANTINEUTRINO_E,
+            ParticleType::NEUTRINO_MU, ParticleType::ANTINEUTRINO_MU,
+            ParticleType::NEUTRINO_TAU, ParticleType::ANTINEUTRINO_TAU}));
     } else if (universe.regime_index == 2) {
         ImGui::Text("Active particles: %d", total_active);
+        coloredStat(particleColor(ParticleType::QUARK_S), "Quarks: %d", sumTypes({
+            ParticleType::QUARK_U, ParticleType::QUARK_D, ParticleType::QUARK_S, ParticleType::QUARK_C,
+            ParticleType::ANTIQUARK_U, ParticleType::ANTIQUARK_D, ParticleType::ANTIQUARK_S, ParticleType::ANTIQUARK_C,
+            ParticleType::ANTIQUARK}));
+        coloredStat(particleColor(ParticleType::GLUON), "Gluons: %d", counts[ParticleType::GLUON]);
         coloredStat(particleColor(ParticleType::ELECTRON), "Charged leptons: %d", sumTypes({
             ParticleType::ELECTRON, ParticleType::POSITRON, ParticleType::MUON,
             ParticleType::ANTIMUON, ParticleType::TAU, ParticleType::ANTITAU}));
@@ -744,8 +753,9 @@ void RegimeOverlay::drawPerformanceStats(const Universe& universe) {
             ParticleType::NEUTRINO_E, ParticleType::ANTINEUTRINO_E,
             ParticleType::NEUTRINO_MU, ParticleType::ANTINEUTRINO_MU,
             ParticleType::NEUTRINO_TAU, ParticleType::ANTINEUTRINO_TAU}));
-        coloredStat(particleColor(ParticleType::GLUON), "Gluons: %d", counts[ParticleType::GLUON]);
-        coloredStat(particleColor(ParticleType::PHOTON), "Photons: %d", counts[ParticleType::PHOTON]);
+        coloredStat(particleColor(ParticleType::PHOTON), "Bosons: %d", sumTypes({
+            ParticleType::PHOTON, ParticleType::W_BOSON_POS,
+            ParticleType::W_BOSON_NEG, ParticleType::Z_BOSON}));
     } else if (universe.regime_index == 3) {
         int qu_u = counts[ParticleType::QUARK_U];
         int qu_d = counts[ParticleType::QUARK_D];
@@ -785,6 +795,10 @@ void RegimeOverlay::drawPerformanceStats(const Universe& universe) {
         ImGui::Text("Active particles: %d", total_active);
         coloredStat(particleColor(ParticleType::PROTON), "Protons: %d", protons);
         coloredStat(particleColor(ParticleType::NEUTRON), "Neutrons: %d", neutrons);
+        coloredStat(particleColor(ParticleType::DEUTERIUM), "Deuterium: %d", counts[ParticleType::DEUTERIUM]);
+        coloredStat(particleColor(ParticleType::HELIUM3), "Helium-3: %d", counts[ParticleType::HELIUM3]);
+        coloredStat(particleColor(ParticleType::HELIUM4NUCLEI), "He-4 Nuclei: %d", counts[ParticleType::HELIUM4NUCLEI]);
+        coloredStat(particleColor(ParticleType::LITHIUM7), "Lithium-7: %d", counts[ParticleType::LITHIUM7]);
         ImGui::Text("Abundances Xp: %.3f Xn: %.3f", universe.abundances.Xp, universe.abundances.Xn);
     } else if (universe.regime_index == 5) {
         ImGui::Text("Active particles: %d", total_active);
@@ -798,8 +812,9 @@ void RegimeOverlay::drawPerformanceStats(const Universe& universe) {
         ImGui::TextDisabled("CMB desacoplado;\na cena 'mostra'\ngas neutro e\nmateria escura.");
     } else if (universe.regime_index == 7) {
         ImGui::Text("Active particles: %d", total_active);
-        coloredStat(particleColor(ParticleType::STAR), "First Stars: %d", counts[ParticleType::STAR]);
+        coloredStat(particleColor(ParticleType::DARK_MATTER), "Dark Matter: %d", counts[ParticleType::DARK_MATTER]);
         coloredStat(particleColor(ParticleType::GAS), "Ionized Gas: %d", counts[ParticleType::GAS]);
+        coloredStat(particleColor(ParticleType::STAR), "First Stars: %d", counts[ParticleType::STAR]);
     } else if (universe.regime_index == 8) {
         ImGui::Text("Active particles: %d", total_active);
         coloredStat(particleColor(ParticleType::DARK_MATTER), "Dark Matter: %d", counts[ParticleType::DARK_MATTER]);

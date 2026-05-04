@@ -227,16 +227,16 @@ Execução manual (equivalente):
 ## Video De Demonstração
 
 <video controls loop muted width="640">
-	<source src="assets/videos/demo.mp4" type="video/mp4">
-	Seu navegador não suporta a tag de vídeo. Abra `assets/videos/demo.mp4` localmente.
+	<source src="assets/videos/demo_safe_flyby.mp4" type="video/mp4">
+	Seu navegador não suporta a tag de vídeo. Abra `assets/videos/demo_safe_flyby.mp4` localmente.
 </video>
 
 Para abrir o vídeo localmente a partir do clone do repositório, use um destes comandos:
 
 ```bash
-xdg-open assets/videos/demo.mp4   # Linux desktop
-mpv assets/videos/demo.mp4        # Player leve (mpv)
-ffplay -autoexit assets/videos/demo.mp4  # verificação rápida com ffmpeg
+xdg-open assets/videos/demo_safe_flyby.mp4   # Linux desktop
+mpv assets/videos/demo_safe_flyby.mp4        # Player leve (mpv)
+ffplay -autoexit assets/videos/demo_safe_flyby.mp4  # verificação rápida com ffmpeg
 ```
 
 Observação: algumas plataformas de hospedagem (incluindo o GitHub) podem restringir autoplay ou certas funcionalidades HTML; se a incorporação não reproduzir automaticamente, baixe ou abra o arquivo localmente.
