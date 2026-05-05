@@ -77,15 +77,34 @@ float fbm(vec3 p) {
     return value;
 }
 
+float ridgeNoise(float value) {
+    return 1.0 - abs(value * 2.0 - 1.0);
+}
+
+float foldedNebula(vec3 p, float tile_scale) {
+    vec3 q = abs(fract(p * tile_scale) * 2.0 - 1.0);
+    float accum = 0.0;
+    float amplitude = 0.65;
+    for (int i = 0; i < 3; ++i) {
+        float layer = ridgeNoise(noise3(q * (2.2 + float(i) * 0.9) + vec3(1.7, 3.1, 5.3)));
+        accum += layer * amplitude;
+        q = abs(q.yzx * 1.85 + vec3(0.21, 0.37, 0.53)) - 0.32;
+        amplitude *= 0.55;
+    }
+    return accum;
+}
+
 vec4 transferFunction(float density, float ionization, float emissivity, float edge, vec3 pos_vol) {
     float t = clamp(density * u_density_scale, 0.0, 1.0);
     float xion = clamp(ionization, 0.0, 1.0);
     float source = clamp(emissivity, 0.0, 1.0);
     float macro_noise = fbm(pos_vol * mix(6.0, 14.0, float(u_regime >= 7)) + vec3(0.0, 1.3, 2.1));
     float wispy_noise = fbm(pos_vol.zyx * 17.0 + vec3(4.0, 9.0, 2.0));
-    float dust = clamp(0.42 + macro_noise * 0.85 + wispy_noise * 0.35, 0.0, 1.6);
+    float folded = foldedNebula(pos_vol + vec3(0.07, 0.19, 0.13), mix(3.0, 5.4, float(u_regime >= 7)));
+    float filaments = ridgeNoise(clamp(fbm(pos_vol * 10.0 + vec3(folded, macro_noise, wispy_noise)), 0.0, 1.0));
+    float dust = clamp(0.34 + macro_noise * 0.72 + wispy_noise * 0.28 + folded * 0.34 + filaments * 0.18, 0.0, 1.7);
     float dense_core = smoothstep(0.16, 0.92, t + source * 0.25);
-    float void_mask = 1.0 - smoothstep(0.03, 0.24, t + macro_noise * 0.08);
+    float void_mask = 1.0 - smoothstep(0.03, 0.24, t + macro_noise * 0.08 - folded * 0.05);
     
     vec3 col_mix = mix(u_color_cold, u_color_warm, smoothstep(0.0, 0.4, t));
     col_mix = mix(col_mix, u_color_hot, smoothstep(0.4, 0.8, t));
@@ -93,37 +112,43 @@ vec4 transferFunction(float density, float ionization, float emissivity, float e
     vec3 ionized_glow = mix(vec3(0.12, 0.34, 0.85), vec3(0.80, 0.95, 1.00), smoothstep(0.15, 0.95, xion));
     vec3 source_glow = mix(vec3(0.95, 0.52, 0.16), u_color_core, smoothstep(0.05, 0.95, source));
     float bubble_shell = exp(-24.0 * (xion - 0.58) * (xion - 0.58));
+    float front_patch = smoothstep(0.18, 0.92, xion + folded * 0.16 - filaments * 0.10);
+    float front_shell = exp(-20.0 * (xion - (0.50 + filaments * 0.10)) * (xion - (0.50 + filaments * 0.10)));
     
     float alpha = 0.0;
     if (u_regime == 6) {
-        vec3 neutral_smoke = mix(u_color_cold, u_color_warm, smoothstep(0.04, 0.58, t + macro_noise * 0.12));
-        neutral_smoke = mix(neutral_smoke, u_color_hot, smoothstep(0.55, 1.0, t) * 0.28);
-        col_mix = neutral_smoke * mix(0.38, 1.22, dust);
-        col_mix *= 0.60 + dense_core * 0.30;
-        col_mix *= 1.0 - void_mask * 0.18;
-        col_mix += edge * u_color_warm * 0.10;
-        alpha = smoothstep(0.03, 0.68, t + macro_noise * 0.10) * (0.12 + dust * 0.12);
-        alpha += dense_core * 0.08;
+        vec3 neutral_smoke = mix(u_color_cold, u_color_warm, smoothstep(0.03, 0.52, t + macro_noise * 0.10 + folded * 0.06));
+        vec3 lane_tint = mix(neutral_smoke, u_color_hot, smoothstep(0.42, 1.0, filaments) * 0.22);
+        col_mix = lane_tint * mix(0.34, 1.18, dust);
+        col_mix *= 0.58 + dense_core * 0.28 + filaments * 0.10;
+        col_mix *= 1.0 - void_mask * 0.20;
+        col_mix += edge * mix(u_color_warm, u_color_hot, 0.35) * (0.08 + 0.10 * filaments);
+        alpha = smoothstep(0.025, 0.64, t + macro_noise * 0.08 + folded * 0.06) * (0.10 + dust * 0.11);
+        alpha += dense_core * 0.07 + filaments * 0.03;
     } else if (u_regime == 7) {
-        vec3 neutral_smoke = mix(u_color_cold, u_color_warm, smoothstep(0.03, 0.52, t + macro_noise * 0.10));
+        vec3 neutral_smoke = mix(u_color_cold, u_color_warm, smoothstep(0.03, 0.48, t + macro_noise * 0.08 + folded * 0.05));
         vec3 ion_shell = mix(vec3(0.30, 0.46, 0.74), vec3(0.86, 0.95, 1.00), smoothstep(0.15, 0.95, xion));
-        col_mix = neutral_smoke * mix(0.40, 1.12, dust);
-        col_mix = mix(col_mix, ion_shell, smoothstep(0.16, 0.86, xion) * 0.34);
-        col_mix += ion_shell * bubble_shell * 0.22;
-        col_mix += source_glow * (0.10 + 0.30 * source);
-        col_mix += edge * mix(u_color_warm, ion_shell, 0.65) * 0.20;
-        alpha = smoothstep(0.025, 0.62, t + macro_noise * 0.09) * (0.11 + dust * 0.10);
-        alpha += smoothstep(0.18, 0.95, xion) * 0.06;
+        vec3 patch_glow = mix(vec3(0.36, 0.58, 0.96), vec3(0.92, 0.98, 1.00), front_patch);
+        col_mix = neutral_smoke * mix(0.38, 1.08, dust);
+        col_mix = mix(col_mix, ion_shell, front_patch * 0.38);
+        col_mix += patch_glow * front_shell * (0.18 + folded * 0.14);
+        col_mix += ion_shell * bubble_shell * 0.16;
+        col_mix += source_glow * (0.12 + 0.34 * source);
+        col_mix += edge * mix(u_color_warm, patch_glow, 0.72) * (0.18 + 0.10 * filaments);
+        alpha = smoothstep(0.025, 0.58, t + macro_noise * 0.08 + folded * 0.05) * (0.10 + dust * 0.09);
+        alpha += front_patch * 0.06 + front_shell * 0.04;
         alpha += source * 0.08;
     } else if (u_regime >= 8) {
-        vec3 warm_filament = mix(u_color_cold, u_color_warm, smoothstep(0.02, 0.44, t + macro_noise * 0.08));
-        warm_filament = mix(warm_filament, u_color_hot, smoothstep(0.40, 0.90, t + source * 0.18));
-        col_mix = warm_filament * mix(0.42, 1.10, dust);
+        vec3 warm_filament = mix(u_color_cold, u_color_warm, smoothstep(0.02, 0.42, t + macro_noise * 0.06 + filaments * 0.10));
+        warm_filament = mix(warm_filament, u_color_hot, smoothstep(0.38, 0.92, t + source * 0.18 + folded * 0.08));
+        float dust_lane = smoothstep(0.40, 0.96, filaments + folded * 0.26) * (1.0 - smoothstep(0.16, 0.80, source));
+        col_mix = warm_filament * mix(0.40, 1.08, dust);
         col_mix = mix(col_mix, ionized_glow, smoothstep(0.24, 0.92, xion) * 0.18);
-        col_mix += source_glow * (0.14 + 0.48 * source);
-        col_mix += edge * mix(u_color_warm, u_color_hot, 0.6) * 0.26;
-        alpha = smoothstep(0.03, 0.74, t + macro_noise * 0.07) * (0.10 + dust * 0.09);
-        alpha += source * 0.10 + dense_core * 0.05;
+        col_mix += source_glow * (0.16 + 0.50 * source);
+        col_mix += edge * mix(u_color_warm, u_color_hot, 0.6) * (0.22 + 0.08 * filaments);
+        col_mix *= 1.0 - dust_lane * 0.18;
+        alpha = smoothstep(0.03, 0.70, t + macro_noise * 0.06 + folded * 0.05) * (0.10 + dust * 0.08);
+        alpha += source * 0.10 + dense_core * 0.05 + dust_lane * 0.04;
     } else {
         col_mix = mix(col_mix, ionized_glow, smoothstep(0.18, 0.92, xion) * 0.55);
         col_mix += source_glow * (0.18 + 0.52 * source);

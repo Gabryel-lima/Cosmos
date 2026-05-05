@@ -36,6 +36,11 @@ float sizeEnergyCompensation(float particleSize, int regime) {
     return inversesqrt(1.0 + metric * metric * 0.75);
 }
 
+float angularPulse(vec2 p, float spokes, float phase) {
+    float angle = atan(p.y, p.x);
+    return 0.5 + 0.5 * cos(angle * spokes + phase);
+}
+
 void main() {
     // Queda radial suave centralizada em (0.5, 0.5)
     vec2 center = v_uv - 0.5;
@@ -108,29 +113,44 @@ void main() {
 
     if (isGas) {
         float cloud = exp(-2.0 * d * d);
-        float rim = exp(-22.0 * (d - 0.72) * (d - 0.72));
-        vec3 gas_color = mix(color, color.bgr * vec3(0.9, 1.0, 1.1), 0.18);
-        frag_color = vec4((gas_color * cloud * 0.72 * size_comp + gas_color * rim * 0.65 + rim_light * 0.5) * u_opacity,
-                          min(cloud * 0.55 * size_comp + rim * 0.28, 0.82) * u_opacity);
+        float gas_rim = exp(-22.0 * (d - 0.72) * (d - 0.72));
+        float plume = exp(-4.5 * (center.x * center.x * 0.65 + center.y * center.y * 1.45));
+        float eddy = angularPulse(center, 3.0, d * 8.0);
+        float dust_lane = exp(-34.0 * (center.y + center.x * 0.35) * (center.y + center.x * 0.35)) * exp(-3.6 * d * d);
+        vec3 gas_color = mix(color, color.bgr * vec3(0.84, 1.02, 1.16), 0.24);
+        gas_color *= mix(0.84, 1.14, eddy);
+        vec3 gas_glow = gas_color * ((cloud * 0.58 + plume * 0.24) * size_comp + gas_rim * 0.42);
+        vec3 cool_rim = mix(gas_color, vec3(0.72, 0.86, 1.00), 0.24) * gas_rim * 0.42;
+        vec3 gas_rgb = max(gas_glow + cool_rim + rim_light * 0.45 - gas_color * dust_lane * 0.14, vec3(0.0));
+        frag_color = vec4(gas_rgb * u_opacity,
+                          min(cloud * 0.48 * size_comp + gas_rim * 0.30 + plume * 0.10, 0.82) * u_opacity);
         return;
     }
 
     if (isStar) {
-        float corona = exp(-2.8 * d * d);
-        float sparkle = sparkleMask(center) * u_sparkle_gain;
+        float corona = exp(-2.6 * d * d) + 0.24 * exp(-18.0 * (d - 0.46) * (d - 0.46));
+        float diffraction = sparkleMask(center) * (0.55 + 0.45 * angularPulse(center, 4.0, 0.0)) * u_sparkle_gain;
+        float hot_core = exp(-(18.0 + 6.0 * u_core_boost) * d * d);
         vec3 star_color = mix(color, vec3(1.0, 0.98, 0.92), 0.22);
-        frag_color = vec4((star_color * corona * 1.18 * size_comp + vec3(1.0, 0.95, 0.82) * sparkle * 2.2 + rim_light * 0.7) * u_opacity,
-                          min(corona * 0.95 + sparkle, 1.0) * u_opacity);
+        vec3 corona_color = mix(star_color, vec3(0.78, 0.88, 1.00), smoothstep(0.0, 1.0, 1.0 - d) * 0.20);
+        vec3 star_rgb = corona_color * corona * 1.12 * size_comp
+                      + mix(vec3(1.00, 0.96, 0.88), star_color, 0.65) * hot_core * 0.95
+                      + vec3(1.0, 0.95, 0.82) * diffraction * 2.1
+                      + rim_light * 0.7;
+        frag_color = vec4(star_rgb * u_opacity,
+                          min(corona * 0.92 + hot_core * 0.22 + diffraction, 1.0) * u_opacity);
         return;
     }
 
     if (isBlackHole) {
-        float ring = smoothstep(0.26, 0.34, d) - smoothstep(0.62, 0.70, d);
+        float ring = smoothstep(0.24, 0.34, d) - smoothstep(0.62, 0.72, d);
         float core_shadow = 1.0 - smoothstep(0.0, 0.18, d);
-        vec3 accretion = mix(color, vec3(1.0, 0.82, 0.56), 0.45) * ring * (1.2 + 0.6 * u_core_boost);
-        vec3 lens = vec3(0.03, 0.04, 0.07) * (1.0 - core_shadow);
+        float shear = angularPulse(center * vec2(1.4, 0.8), 2.0, d * 6.0);
+        float lens_ring = exp(-30.0 * (d - 0.52) * (d - 0.52));
+        vec3 accretion = mix(color, vec3(1.0, 0.82, 0.56), 0.45) * ring * (1.15 + 0.55 * u_core_boost) * mix(0.84, 1.18, shear);
+        vec3 lens = vec3(0.03, 0.04, 0.07) * (1.0 - core_shadow) + vec3(0.30, 0.34, 0.44) * lens_ring * 0.12;
         frag_color = vec4((accretion * size_comp + lens + rim_light * 0.35) * u_opacity,
-                          min(ring * 0.9 + (1.0 - core_shadow) * 0.2, 0.95) * u_opacity);
+                          min(ring * 0.88 + lens_ring * 0.12 + (1.0 - core_shadow) * 0.2, 0.95) * u_opacity);
         return;
     }
 
