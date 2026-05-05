@@ -1,5 +1,6 @@
 // src/render/RegimeOverlay.cpp — Implementação do HUD Dear ImGui.
 #include "RegimeOverlay.hpp"
+#include "ICosmicRenderer.hpp"
 #include "../core/Camera.hpp"
 #include "../core/CosmicClock.hpp"
 #include "../core/RegimeManager.hpp"
@@ -866,6 +867,26 @@ void RegimeOverlay::drawVisualTuning(Universe& universe) {
     custom_edit |= compactCheckbox("Show halos", "##ShowHalos", visual.show_halos);
     custom_edit |= compactSliderFloat("Halo gain", "##HaloVisibility", visual.halo_visibility, 0.0f, 2.5f, "%.2fx");
     custom_edit |= compactSliderFloat("Axis ratio", "##HaloAxisRatio", visual.halo_axis_ratio, 0.65f, 2.40f, "%.2fx");
+
+    if (universe.regime_index >= REGIME_DARK_AGES) {
+        ImGui::SeparatorText("Late FX");
+        custom_edit |= compactCheckbox("Gas splat",  "##GasSplat",  visual.show_gas_splat);
+        if (visual.show_gas_splat) {
+            custom_edit |= compactSliderFloat("Splat alpha",  "##SplatAlpha", visual.gas_splat_alpha, 0.0f, 2.0f, "%.2f");
+            custom_edit |= compactSliderFloat("Splat sigma",  "##SplatSigma", visual.gas_splat_sigma, 0.2f, 4.0f, "%.2f");
+        }
+        if (universe.regime_index >= REGIME_REIONIZATION) {
+            custom_edit |= compactCheckbox("Star glow",  "##StarGlow",  visual.show_star_glow);
+            custom_edit |= compactCheckbox("Stromgren",  "##Stromgren", visual.show_stromgren);
+            custom_edit |= compactCheckbox("Star FX",    "##StarFX",    visual.show_star_fx);
+        }
+        if (universe.regime_index >= REGIME_STRUCTURE) {
+            custom_edit |= compactCheckbox("Filaments",  "##Filaments", visual.show_filaments);
+            if (visual.show_filaments) {
+                custom_edit |= compactSliderFloat("Link len", "##FilamentLink", visual.filament_linking, 0.1f, 2.0f, "%.2f");
+            }
+        }
+    }
 
     if (custom_edit) {
         visual.preset_index = 0;

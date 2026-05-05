@@ -17,6 +17,13 @@ void ParticlePool::resize(size_t n) {
     star_state.resize(n, StarState::NONE);
     star_age.resize(n, 0.0);
     flags.resize(n, 0u);
+    // Campos novos — Regimes 7/8
+    smoothing_length.resize(n, 0.5f);
+    ionized.resize(n, 0);
+    ionization_time.resize(n, -1.0f);
+    visual_offset_x.resize(n, 0.0f);
+    visual_offset_y.resize(n, 0.0f);
+    visual_offset_z.resize(n, 0.0f);
     capacity = n;
     // When explicitly resizing, consider new slots active by default.
     // Keep semantic: active reflects number of initialized slots.
@@ -33,6 +40,10 @@ void ParticlePool::clear() {
     luminosity.clear(); temp_particle.clear();
     star_state.clear(); star_age.clear();
     flags.clear();
+    smoothing_length.clear();
+    ionized.clear();
+    ionization_time.clear();
+    visual_offset_x.clear(); visual_offset_y.clear(); visual_offset_z.clear();
     capacity = 0;
     active   = 0;
 }
@@ -48,6 +59,10 @@ void ParticlePool::reserve(size_t n) {
     luminosity.reserve(n); temp_particle.reserve(n);
     star_state.reserve(n); star_age.reserve(n);
     flags.reserve(n);
+    smoothing_length.reserve(n);
+    ionized.reserve(n);
+    ionization_time.reserve(n);
+    visual_offset_x.reserve(n); visual_offset_y.reserve(n); visual_offset_z.reserve(n);
     capacity = std::max(capacity, n);
 }
 
@@ -70,6 +85,14 @@ void ParticlePool::swapRemove(size_t i) {
         luminosity[i] = luminosity[last]; temp_particle[i] = temp_particle[last];
         star_state[i] = star_state[last]; star_age[i] = star_age[last];
         flags[i] = flags[last];
+        if (i < smoothing_length.size() && last < smoothing_length.size()) {
+            smoothing_length[i]  = smoothing_length[last];
+            ionized[i]           = ionized[last];
+            ionization_time[i]   = ionization_time[last];
+            visual_offset_x[i]   = visual_offset_x[last];
+            visual_offset_y[i]   = visual_offset_y[last];
+            visual_offset_z[i]   = visual_offset_z[last];
+        }
     }
     x.pop_back(); y.pop_back(); z.pop_back();
     vx.pop_back(); vy.pop_back(); vz.pop_back();
@@ -78,6 +101,12 @@ void ParticlePool::swapRemove(size_t i) {
     qcd_color.pop_back(); qcd_anticolor.pop_back();
     luminosity.pop_back(); temp_particle.pop_back();
     star_state.pop_back(); star_age.pop_back(); flags.pop_back();
+    if (!smoothing_length.empty()) {
+        smoothing_length.pop_back();
+        ionized.pop_back();
+        ionization_time.pop_back();
+        visual_offset_x.pop_back(); visual_offset_y.pop_back(); visual_offset_z.pop_back();
+    }
     capacity = x.size();
     // Recompute active conservatively: clamp
     if (active > capacity) active = capacity;
@@ -91,6 +120,10 @@ void ParticlePool::shrink_to_fit() {
     qcd_color.shrink_to_fit(); qcd_anticolor.shrink_to_fit();
     luminosity.shrink_to_fit(); temp_particle.shrink_to_fit();
     star_state.shrink_to_fit(); star_age.shrink_to_fit(); flags.shrink_to_fit();
+    smoothing_length.shrink_to_fit();
+    ionized.shrink_to_fit();
+    ionization_time.shrink_to_fit();
+    visual_offset_x.shrink_to_fit(); visual_offset_y.shrink_to_fit(); visual_offset_z.shrink_to_fit();
     capacity = x.size();
 }
 
@@ -114,6 +147,12 @@ size_t ParticlePool::add(double px, double py, double pz,
     star_state.push_back(StarState::NONE);
     star_age.push_back(0.0);
     flags.push_back(PF_ACTIVE);
+    smoothing_length.push_back(0.5f);
+    ionized.push_back(0);
+    ionization_time.push_back(-1.0f);
+    visual_offset_x.push_back(0.0f);
+    visual_offset_y.push_back(0.0f);
+    visual_offset_z.push_back(0.0f);
     capacity = x.size();
     ++active;
     return i;
@@ -151,6 +190,14 @@ void ParticlePool::compact() {
                 star_state[write]   = star_state[read];
                 star_age[write]     = star_age[read];
                 flags[write]        = flags[read];
+                if (read < smoothing_length.size()) {
+                    smoothing_length[write]  = smoothing_length[read];
+                    ionized[write]           = ionized[read];
+                    ionization_time[write]   = ionization_time[read];
+                    visual_offset_x[write]   = visual_offset_x[read];
+                    visual_offset_y[write]   = visual_offset_y[read];
+                    visual_offset_z[write]   = visual_offset_z[read];
+                }
             }
             ++write;
         }
@@ -163,6 +210,12 @@ void ParticlePool::compact() {
     luminosity.resize(write); temp_particle.resize(write);
     star_state.resize(write); star_age.resize(write);
     flags.resize(write);
+    if (!smoothing_length.empty()) {
+        smoothing_length.resize(write);
+        ionized.resize(write);
+        ionization_time.resize(write);
+        visual_offset_x.resize(write); visual_offset_y.resize(write); visual_offset_z.resize(write);
+    }
     capacity = write;
     active   = write;
 }

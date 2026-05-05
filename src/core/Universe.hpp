@@ -100,6 +100,15 @@ struct Universe {
         float halo_visibility = 1.0f;
         float halo_axis_ratio = 1.28f;
         bool  show_halos = true;
+        // ── Late-Regime FX (Regimes 6–8) ──────────────────
+        float gas_splat_alpha   = 1.0f;   // escala de opacidade do Gaussian splat de gás
+        float gas_splat_sigma   = 1.0f;   // escala do raio gaussiano
+        bool  show_gas_splat    = true;   // liga/desliga GasSplatRenderer
+        bool  show_star_glow    = true;   // liga/desliga StarGlowRenderer
+        bool  show_stromgren    = true;   // liga/desliga StromgrenRenderer
+        bool  show_star_fx      = true;   // liga/desliga StarFormationFX
+        bool  show_filaments    = true;   // liga/desliga FilamentRenderer
+        float filament_linking  = 0.5f;   // comprimento de ligação FoF
     } visual;
 
     // Específico da inflação: campo escalar 2D φ(x,y)

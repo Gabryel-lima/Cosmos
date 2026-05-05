@@ -103,6 +103,18 @@ struct ParticlePool {
     // Máscara de bits de flags
     std::vector<uint32_t> flags;
 
+    // === CAMPOS NOVOS — Regimes 7/8 (apenas acrescentar ao final) ================
+    // Comprimento de suavização SPH para Gaussian splat de gás
+    std::vector<float> smoothing_length;  // default 0.5
+    // Flag de ionização: 0=neutro, 1=ionizado (Strömgren)
+    std::vector<int>   ionized;           // default 0
+    // Tempo de simulação em que a partícula foi ionizada [Myr sim]
+    std::vector<float> ionization_time;   // default -1 (nunca)
+    // Offset visual para StarFormationFX (NÃO afeta posição física)
+    std::vector<float> visual_offset_x;
+    std::vector<float> visual_offset_y;
+    std::vector<float> visual_offset_z;
+
     // Capacidade total / contagem ativa
     size_t capacity = 0;
     size_t active   = 0;

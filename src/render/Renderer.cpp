@@ -418,6 +418,19 @@ bool Renderer::init(int width, int height) {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE);  // blend aditivo para partículas
 
+    // Late-Regime FX renderers (falha silenciosa — não bloqueia inicialização)
+    current_quality_ = DefaultQualityTierFromBuild();
+    if (!gas_splat_renderer_.Init(current_quality_))
+        std::fprintf(stderr, "[Renderer] GasSplatRenderer init failed (non-fatal).\n");
+    if (!star_glow_renderer_.Init(current_quality_))
+        std::fprintf(stderr, "[Renderer] StarGlowRenderer init failed (non-fatal).\n");
+    if (!stromgren_renderer_.Init(current_quality_))
+        std::fprintf(stderr, "[Renderer] StromgrenRenderer init failed (non-fatal).\n");
+    if (!star_fx_renderer_.Init(current_quality_))
+        std::fprintf(stderr, "[Renderer] StarFormationFX init failed (non-fatal).\n");
+    if (!filament_renderer_.Init(current_quality_))
+        std::fprintf(stderr, "[Renderer] FilamentRenderer init failed (non-fatal).\n");
+
     return true;
 }
 
@@ -484,6 +497,13 @@ void Renderer::shutdown() {
         timer_query_[0] = 0;
         timer_query_[1] = 0;
     }
+
+    // Late-Regime FX renderers
+    gas_splat_renderer_.Shutdown();
+    star_glow_renderer_.Shutdown();
+    stromgren_renderer_.Shutdown();
+    star_fx_renderer_.Shutdown();
+    filament_renderer_.Shutdown();
 }
 
 void Renderer::reloadShaders() {
@@ -1111,4 +1131,36 @@ void Renderer::applyPostProcess() {
     glEnable(GL_BLEND);
 
     glEnable(GL_DEPTH_TEST);
+}
+
+// ── Late-Regime FX renderers ─────────────────────────────────────────────────
+
+void Renderer::renderGasSplat(const Universe& universe, const Camera& cam) {
+    if (!universe.visual.show_gas_splat) return;
+    gas_splat_renderer_.Render(universe.particles, universe.regime_index, cam,
+                               static_cast<float>(universe.cosmic_time));
+}
+
+void Renderer::renderStarGlow(const Universe& universe, const Camera& cam) {
+    if (!universe.visual.show_star_glow) return;
+    star_glow_renderer_.Render(universe.particles, universe.regime_index, cam,
+                               static_cast<float>(universe.cosmic_time));
+}
+
+void Renderer::renderStromgren(const Universe& universe, const Camera& cam) {
+    if (!universe.visual.show_stromgren) return;
+    stromgren_renderer_.Render(universe.particles, universe.regime_index, cam,
+                               static_cast<float>(universe.cosmic_time));
+}
+
+void Renderer::renderStarFX(const Universe& universe, const Camera& cam) {
+    if (!universe.visual.show_star_fx) return;
+    star_fx_renderer_.Render(universe.particles, universe.regime_index, cam,
+                             static_cast<float>(universe.cosmic_time));
+}
+
+void Renderer::renderFilaments(const Universe& universe, const Camera& cam) {
+    if (!universe.visual.show_filaments) return;
+    filament_renderer_.Render(universe.particles, universe.regime_index, cam,
+                              static_cast<float>(universe.cosmic_time));
 }

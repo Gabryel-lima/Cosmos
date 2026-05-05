@@ -72,6 +72,12 @@ set(SOURCES
     src/regimes/RegimeNucleosynthesis.cpp
     src/regimes/RegimePlasma.cpp
     src/regimes/RegimeStructure.cpp
+    src/render/FilamentRenderer.cpp
+    src/render/GasSplatRenderer.cpp
+    src/render/ICosmicRenderer.cpp
+    src/render/StarFormationFX.cpp
+    src/render/StarGlowRenderer.cpp
+    src/render/StromgrenRenderer.cpp
     src/render/Renderer.cpp
     src/render/ParticleRenderer.cpp
     src/render/VolumeRenderer.cpp

@@ -6,6 +6,12 @@
 #include <glm/glm.hpp>
 #include <string>
 #include <vector>
+#include "ICosmicRenderer.hpp"
+#include "GasSplatRenderer.hpp"
+#include "StarGlowRenderer.hpp"
+#include "StromgrenRenderer.hpp"
+#include "StarFormationFX.hpp"
+#include "FilamentRenderer.hpp"
 
 struct Universe;
 struct NuclearAbundances;
@@ -97,6 +103,13 @@ public:
     void renderCMBFlash(float t);  // t: 0→1 progresso do flash
     void renderGalaxyHalos(const HaloInfo* halos, int count);
 
+    // ── Late-Regime FX (Regimes 6–8) ───────────────────────────────
+    void renderGasSplat(const Universe& universe, const Camera& cam);
+    void renderStarGlow(const Universe& universe, const Camera& cam);
+    void renderStromgren(const Universe& universe, const Camera& cam);
+    void renderStarFX(const Universe& universe, const Camera& cam);
+    void renderFilaments(const Universe& universe, const Camera& cam);
+
     /// Define as matrizes (chamado pelo laço principal após atualização da câmera).
     void setViewProjection(const glm::mat4& view, const glm::mat4& proj,
                            const glm::dvec3& cam_world_pos);
@@ -146,7 +159,13 @@ private:
     float halo_visibility_ = 1.0f;
     float halo_axis_ratio_ = 1.28f;
     bool  halos_enabled_ = true;
-
+    // ── Late-Regime FX renderers (regimes 6–8) ────────────────────────
+    GasSplatRenderer   gas_splat_renderer_;
+    StarGlowRenderer   star_glow_renderer_;
+    StromgrenRenderer  stromgren_renderer_;
+    StarFormationFX    star_fx_renderer_;
+    FilamentRenderer   filament_renderer_;
+    QualityTier        current_quality_ = QualityTier::MEDIUM;
     // Shaders
     GlShader particle_shader_;
     GlShader volume_shader_;
