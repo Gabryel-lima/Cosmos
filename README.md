@@ -134,13 +134,13 @@ Preset overview:
 Example:
 
 ```bash
-./build/cosmos --video cosmos_panorama.mp4 --video-panorama --video-capture-fps 30 --video-fps 60
+./build/cosmos --video ../cosmos_panorama.mp4 --video-panorama --video-capture-fps 30 --video-fps 60
 ```
 
 Customized example:
 
 ```bash
-./build/cosmos --video cosmos_flyby.mp4 --video-panorama --video-panorama-preset flyby --video-panorama-speed 1.35 --video-panorama-distance 0.85 --video-panorama-zoom 1.20 --video-panorama-height 0.24 --video-panorama-sway 0.18 --video-panorama-smooth 3.0
+./build/cosmos --video ../cosmos_flyby.mp4 --video-panorama --video-panorama-preset flyby --video-panorama-speed 1.35 --video-panorama-distance 0.85 --video-panorama-zoom 1.20 --video-panorama-height 0.24 --video-panorama-sway 0.18 --video-panorama-smooth 3.0
 ```
 
 ## Controls
