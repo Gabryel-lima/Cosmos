@@ -37,6 +37,10 @@ public:
 
     float linking_length = 0.5f;  // exposto para ajuste via ImGui
 
+    // Modo de preview: gera dados sintéticos para visualizar shaders
+    void SetPreviewMode(bool enable);
+    void GeneratePreviewData(int seed = 0, int complexity_scale = 1);
+
 private:
     struct HaloNode {
         glm::vec3 center;
@@ -93,4 +97,8 @@ private:
     int     screen_h_     = 720;
     bool    initialized_  = false;
     bool    vbo_dirty_    = true;
+    // Preview state
+    bool    preview_mode_      = false;
+    int     preview_seed_      = 0;
+    int     preview_complexity_ = 1;
 };

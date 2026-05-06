@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <numeric>
 #include <glm/gtc/type_ptr.hpp>
+#include <random>
 
 static std::string ResolveFLPath(const std::string& p) {
     for (const auto& prefix : {std::string(""), std::string("src/shaders/"), std::string("../src/shaders/")}) {
@@ -95,6 +96,98 @@ bool FilamentRenderer::Init(QualityTier quality) {
 
     initialized_ = true;
     return true;
+}
+
+// Ativar/desativar preview sintético
+void FilamentRenderer::SetPreviewMode(bool enable) {
+    preview_mode_ = enable;
+    if (preview_mode_) {
+        GeneratePreviewData(preview_seed_, preview_complexity_);
+    }
+}
+
+// Gera halos/arestas sintéticas para permitir pré-visualização dos shaders
+void FilamentRenderer::GeneratePreviewData(int seed, int complexity_scale) {
+    preview_seed_ = seed;
+    preview_complexity_ = complexity_scale;
+
+    halos_.clear();
+    edges_.clear();
+
+    // Número de halos: usar configuração atual ou fallback razoável
+    int nh = config_.max_halos > 0 ? config_.max_halos : 150;
+    nh = std::min(nh, 800);
+
+    std::mt19937 rng(static_cast<unsigned int>(seed));
+    std::uniform_real_distribution<float> posd(-200.0f, 200.0f);
+    std::uniform_real_distribution<float> massd(0.5f, 5.0f);
+
+    for (int i = 0; i < nh; ++i) {
+        halos_.push_back({ glm::vec3(posd(rng), posd(rng), posd(rng)), massd(rng) });
+    }
+
+    // Conectar vizinhos próximos (k nearest)
+    int k = 2 + complexity_scale * 2;
+    const int max_edges = config_.max_edges > 0 ? config_.max_edges : (int)std::min(3000, nh * k / 2);
+    for (int i = 0; i < nh && static_cast<int>(edges_.size()) < max_edges; ++i) {
+        // coletar distâncias
+        std::vector<std::pair<float,int>> d;
+        d.reserve(nh-1);
+        for (int j = 0; j < nh; ++j) if (j != i) {
+            glm::vec3 diff = halos_[j].center - halos_[i].center;
+            float dist2 = glm::dot(diff, diff);
+            d.emplace_back(dist2, j);
+        }
+        std::nth_element(d.begin(), d.begin() + std::min((int)d.size(), k), d.end());
+        int added = 0;
+        for (size_t t = 0; t < d.size() && added < k && static_cast<int>(edges_.size()) < max_edges; ++t) {
+            int j = d[t].second;
+            // evitar duplicatas (a < b)
+            int a = std::min(i, j), b = std::max(i, j);
+            // checar existência simples
+            bool exists = false;
+            for (const auto &e : edges_) if (e.a == a && e.b == b) { exists = true; break; }
+            if (!exists) {
+                edges_.push_back({ a, b, halos_[a].mass + halos_[b].mass });
+                ++added;
+            }
+        }
+    }
+
+    // Garantir VBOs existam (podemos estar em SAFE mode)
+    if (!vao_) {
+        const int segs = config_.segments_per_edge > 0 ? config_.segments_per_edge : 8;
+        const int max_verts = std::max(1, (int)edges_.size() * segs);
+
+        glGenVertexArrays(1, &vao_); glBindVertexArray(vao_);
+        glGenBuffers(1, &vbo_pos_a_); glGenBuffers(1, &vbo_pos_b_);
+        glGenBuffers(1, &vbo_mass_);  glGenBuffers(1, &vbo_t_);
+
+        glBindBuffer(GL_ARRAY_BUFFER, vbo_pos_a_);
+        glBufferData(GL_ARRAY_BUFFER, max_verts * 3 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+        glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+
+        glBindBuffer(GL_ARRAY_BUFFER, vbo_pos_b_);
+        glBufferData(GL_ARRAY_BUFFER, max_verts * 3 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+        glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+
+        glBindBuffer(GL_ARRAY_BUFFER, vbo_mass_);
+        glBufferData(GL_ARRAY_BUFFER, max_verts * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+        glEnableVertexAttribArray(2); glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 0, nullptr);
+
+        glBindBuffer(GL_ARRAY_BUFFER, vbo_t_);
+        glBufferData(GL_ARRAY_BUFFER, max_verts * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+        glEnableVertexAttribArray(3); glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 0, nullptr);
+
+        glBindVertexArray(0); glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+        buf_pos_a_.resize(max_verts * 3);
+        buf_pos_b_.resize(max_verts * 3);
+        buf_mass_.resize(max_verts);
+        buf_t_.resize(max_verts);
+    }
+
+    vbo_dirty_ = true;
 }
 
 void FilamentRenderer::OnQualityChanged(QualityTier new_quality) {
@@ -191,8 +284,9 @@ void FilamentRenderer::RebuildVBO() {
     vertex_count_ = 0;
     if (edges_.empty() || !vao_) return;
 
-    const int segs = config_.segments_per_edge;
-    const int max_verts = config_.max_edges * segs;
+    const int segs = config_.segments_per_edge > 0 ? config_.segments_per_edge : 8;
+    const int max_edges = config_.max_edges > 0 ? config_.max_edges : static_cast<int>(edges_.size());
+    const int max_verts = std::max(1, max_edges * segs);
 
     for (const auto& e : edges_) {
         if (vertex_count_ + segs > max_verts) break;
@@ -229,13 +323,13 @@ void FilamentRenderer::RebuildVBO() {
 // ── Update ────────────────────────────────────────────────────────────────────
 void FilamentRenderer::Update(float delta_time, const ParticlePool& particles, int regime) {
     if (regime != REGIME_STRUCTURE) return;
-    if (config_.max_halos == 0) return; // SAFE mode — sem FoF
+    if (config_.max_halos == 0 && !preview_mode_) return; // SAFE mode — sem FoF (a não ser preview)
 
     fof_cooldown_ -= delta_time;
     if (fof_cooldown_ > 0.0f) return;
     fof_cooldown_ = 1.0f;  // recalcular em 1s
 
-    RunFoF(particles);
+    if (!preview_mode_) RunFoF(particles);
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -246,7 +340,7 @@ void FilamentRenderer::Render(const ParticlePool& /*particles*/,
     // Regra 0.1: somente Regime 8
     if (regime != REGIME_STRUCTURE) return;
     if (!initialized_ || !prog_) return;
-    if (config_.max_halos == 0) return; // SAFE mode desabilitado
+    if (config_.max_halos == 0 && !preview_mode_) return; // SAFE mode desabilitado (exceto preview)
 
     if (vbo_dirty_) RebuildVBO();
     if (vertex_count_ == 0) return;

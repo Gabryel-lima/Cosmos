@@ -27,6 +27,8 @@ WGET := $(shell command -v wget 2>/dev/null)
 
 .PHONY: all setup build run clean distclean help
 
+.PHONY: preview preview-build preview-run
+
 # ── Alvo padrão ──────────────────────────────────────────────────────────────
 all: 
 	rm -rf $(PROJECT)
@@ -86,6 +88,18 @@ build: setup
 # ── execução ─────────────────────────────────────────────────────────────────
 run:
 	./$(BUILD)/$(PROJECT)
+
+# Build and run the shader preview binary (small GL app to inspect shaders)
+preview: preview-build
+	./$(BUILD)/shader_preview
+
+preview-build: setup
+	@mkdir -p $(BUILD)
+	@cmake -S . -B $(BUILD) -DQUALITY=$(QUALITY) -DBUILD_SHADER_PREVIEW=ON -DCMAKE_BUILD_TYPE=Release
+	@cmake --build $(BUILD) --parallel $(JOBS) --target shader_preview
+
+preview-run:
+	./$(BUILD)/shader_preview
 
 # ── limpeza ──────────────────────────────────────────────────────────────────
 clean:

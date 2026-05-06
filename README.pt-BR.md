@@ -65,6 +65,21 @@ make
 make run
 ```
 
+### Binário de preview de shaders (opcional)
+
+Existe um atalho `make` para facilitar a pré-visualização dos shaders sem executar a simulação inteira. Use o alvo `preview` para configurar, compilar e executar um binário leve que carrega os shaders do disco e permite ajustar `seed`/`complexity` via ImGui.
+
+```bash
+make preview          # configura, compila shader_preview e executa
+make preview-build    # apenas configura + compila shader_preview
+make preview-run      # executa shader_preview já compilado
+# Exemplo com preset de qualidade
+make preview QUALITY=SAFE
+```
+
+Alternativamente, você pode usar diretamente CMake para habilitar o alvo `shader_preview` conforme documentado na versão em inglês do README.
+
+
 Execução manual (equivalente):
 
 ```bash

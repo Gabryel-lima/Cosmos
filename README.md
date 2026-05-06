@@ -68,6 +68,40 @@ make
 make run
 ```
 
+### Shader preview binary (optional)
+
+If you want a small standalone binary to preview the filament shaders without running the full simulation, enable and build the `shader_preview` target. It is disabled by default to keep the main build small.
+
+```bash
+# Configure and enable preview binary (recommended QUALITY=SAFE for weak hardware)
+cmake -S . -B build -DBUILD_SHADER_PREVIEW=ON -DQUALITY=SAFE
+# Build only the preview target
+cmake --build build --target shader_preview -j
+# Run the preview (example)
+./build/shader_preview --width 1280 --height 720 --seed 42 --complexity 2 --quality SAFE
+```
+
+Controls in the preview app:
+- `R`: reload shaders
+- `1` / `2` / `3`: switch `SAFE` / `MEDIUM` / `HIGH` quality
+- ImGui panel: adjust `seed` and `complexity`, regenerate with the `Regenerate` button
+
+Makefile shortcut
+-----------------
+
+If you prefer a simpler workflow using the repository `Makefile`, there's a shortcut that configures, builds and runs the preview binary in one step:
+
+```bash
+make preview          # configure, build shader_preview and run it
+make preview-build    # only configure + build shader_preview
+make preview-run      # run the already-built shader_preview
+# Example with quality preset
+make preview QUALITY=SAFE
+```
+
+Use the `preview-build` target when you only want to compile the preview binary (CI or iterative testing), and `preview` to build+run quickly.
+
+
 Manual run (equivalent):
 
 ```bash

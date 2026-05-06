@@ -107,6 +107,29 @@ add_executable(dots_prototype src/prototypes/DOTSPrototype.cpp)
 target_include_directories(dots_prototype PRIVATE src)
 target_link_libraries(dots_prototype PRIVATE Threads::Threads)
 
+option(BUILD_SHADER_PREVIEW "Build shader preview binary" OFF)
+if(BUILD_SHADER_PREVIEW)
+    add_executable(shader_preview src/shader_preview_main.cpp)
+    target_include_directories(shader_preview PRIVATE src ${GLFW3_INCLUDE_DIRS})
+    target_link_libraries(shader_preview PRIVATE
+        OpenGL::GL
+        glad
+        imgui
+        Threads::Threads
+        ${GLFW3_LIBRARIES}
+        glm::glm
+        dl)
+    # Link renderer and small deps into preview binary
+    target_sources(shader_preview PRIVATE
+        src/render/FilamentRenderer.cpp
+        src/core/Camera.cpp
+        src/physics/ParticlePool.cpp
+    )
+    # Default preview quality: SAFE (compact shaders + lower load)
+    target_compile_definitions(shader_preview PRIVATE QUALITY_SAFE=1)
+    message(STATUS "Building shader_preview (preview binary enabled)")
+endif()
+
 # ── Dispatcher AVX em runtime ────────────────────────────────────────────────
 # Verifica se o compilador consegue emitir AVX2 (só capacidade do compilador,
 # não da CPU do host).  O binário resultante carrega AMBAS as implementações;
