@@ -43,33 +43,87 @@ setup: $(GLAD_SRC) $(IMGUI_H)
 # Baixa um carregador C GLAD2 pré-gerado do gerador web oficial.
 # Ignora silenciosamente se o arquivo já existir.
 $(GLAD_SRC):
-	@echo "[setup] Downloading GLAD (OpenGL 4.3 Core)..."
+	@echo "[setup] Obtaining GLAD (OpenGL 4.3 Core)..."
 	@mkdir -p $(LIBS)/glad
-	@if [ -n "$(CURL)" ]; then \
-	    curl -fsSL \
-	        "https://gen.glad.sh/generate?lang=c&spec=gl&profile=core&api=gl=4.3&merge=True&extensions=" \
-	        -o /tmp/glad_gen.zip 2>/dev/null; \
-	elif [ -n "$(WGET)" ]; then \
-	    wget -q \
-	        "https://gen.glad.sh/generate?lang=c&spec=gl&profile=core&api=gl=4.3&merge=True&extensions=" \
-	        -O /tmp/glad_gen.zip 2>/dev/null; \
-	fi
-	@if [ -f /tmp/glad_gen.zip ] && unzip -t /tmp/glad_gen.zip >/dev/null 2>&1; then \
-	    unzip -qo /tmp/glad_gen.zip -d $(LIBS)/glad; \
-	    rm -f /tmp/glad_gen.zip; \
-	    echo "[setup] GLAD downloaded."; \
+	@TMPZIP=/tmp/glad_gen.zip; \
+	TMPHDR=/tmp/glad_gen.headers; \
+	TMPBODY=/tmp/glad_gen.body; \
+	TRIED=0; \
+	for ENDPOINT in \
+		"https://gen.glad.sh/generate" \
+		"https://glad.dav1d.de/generate"; do \
+		if [ -n "$(CURL)" ]; then \
+			TRIED=1; \
+			echo "[setup] Trying $${ENDPOINT} ..."; \
+			rm -f "$${TMPZIP}" "$${TMPHDR}" "$${TMPBODY}"; \
+			curl -fsS -D "$${TMPHDR}" -o "$${TMPBODY}" -X POST "$${ENDPOINT}" \
+				-H "Content-Type: application/x-www-form-urlencoded" \
+				--data "generator=c&api=gl%3D4.3&profile=gl%3Dcore&options=MERGE" \
+				2>/dev/null || true; \
+			LOCATION=$$(sed -n 's/^location: //p' "$${TMPHDR}" | tr -d '\r'); \
+			if [ -n "$${LOCATION}" ]; then \
+				BASE="$${ENDPOINT%/generate}$${LOCATION%/}"; \
+				mkdir -p $(LIBS)/glad/include/glad $(LIBS)/glad/src; \
+				curl -fsSL "$${BASE}/include/glad/gl.h" -o $(LIBS)/glad/include/glad/gl.h 2>/dev/null && \
+				curl -fsSL "$${BASE}/src/gl.c" -o $(LIBS)/glad/src/gl.c 2>/dev/null && { \
+					rm -f "$${TMPZIP}" "$${TMPHDR}" "$${TMPBODY}"; \
+					echo "[setup] GLAD downloaded from $${ENDPOINT}."; \
+					exit 0; \
+				}; \
+			fi; \
+			if [ -f "$${TMPBODY}" ] && unzip -t "$${TMPBODY}" >/dev/null 2>&1; then \
+				mv "$${TMPBODY}" "$${TMPZIP}"; \
+				unzip -qo "$${TMPZIP}" -d $(LIBS)/glad; \
+				rm -f "$${TMPZIP}" "$${TMPHDR}"; \
+				echo "[setup] GLAD downloaded from $${ENDPOINT}."; \
+				exit 0; \
+			fi; \
+		elif [ -n "$(WGET)" ]; then \
+			TRIED=1; \
+			echo "[setup] Trying $${ENDPOINT} with wget..."; \
+			rm -f "$${TMPZIP}" "$${TMPBODY}"; \
+			wget -q --server-response --max-redirect=0 --method=POST \
+				--body-data="generator=c&api=gl%3D4.3&profile=gl%3Dcore&options=MERGE" \
+				-O "$${TMPBODY}" "$${ENDPOINT}" 2>"$${TMPHDR}" || true; \
+			LOCATION=$$(sed -n 's/^  Location: //p' "$${TMPHDR}" | tr -d '\r' | tail -n 1); \
+			if [ -n "$${LOCATION}" ]; then \
+				BASE="$${ENDPOINT%/generate}$${LOCATION%/}"; \
+				mkdir -p $(LIBS)/glad/include/glad $(LIBS)/glad/src; \
+				wget -q -O $(LIBS)/glad/include/glad/gl.h "$${BASE}/include/glad/gl.h" 2>/dev/null && \
+				wget -q -O $(LIBS)/glad/src/gl.c "$${BASE}/src/gl.c" 2>/dev/null && { \
+					rm -f "$${TMPZIP}" "$${TMPHDR}" "$${TMPBODY}"; \
+					echo "[setup] GLAD downloaded from $${ENDPOINT}."; \
+					exit 0; \
+				}; \
+			fi; \
+			if [ -f "$${TMPBODY}" ] && unzip -t "$${TMPBODY}" >/dev/null 2>&1; then \
+				mv "$${TMPBODY}" "$${TMPZIP}"; \
+				unzip -qo "$${TMPZIP}" -d $(LIBS)/glad; \
+				rm -f "$${TMPZIP}" "$${TMPHDR}"; \
+				echo "[setup] GLAD downloaded from $${ENDPOINT}."; \
+				exit 0; \
+			fi; \
+		fi; \
+	done; \
+	if command -v glad >/dev/null 2>&1; then \
+		echo "[setup] Generating GLAD using local 'glad' tool..."; \
+		glad --api gl:core=4.3 --out-path $(LIBS)/glad --merge c >/dev/null 2>&1 && { echo "[setup] GLAD generated locally."; exit 0; } || true; \
+	fi; \
+	if [ "$${TRIED}" = "1" ]; then \
+		echo ""; \
+		echo "[error] Automatic GLAD download failed from known endpoints."; \
+		echo "        Options to resolve:"; \
+		echo "          1) Install the 'glad' generator and let Makefile generate it:"; \
+		echo "               pip3 install glad2 --break-system-packages"; \
+		echo "               make setup"; \
+		echo "          2) Generate on the web (open https://gen.glad.sh/) and copy files:"; \
+		echo "               Put include/glad/gl.h into $(LIBS)/glad/include/glad/"; \
+		echo "               Put src/gl.c into $(LIBS)/glad/src/"; \
+		echo ""; \
+		exit 1; \
 	else \
-	    rm -f /tmp/glad_gen.zip; \
-	    echo ""; \
-	    echo "[error] Automatic GLAD download failed."; \
-	    echo "        Manual option A — install glad2 via pip and generate:"; \
-	    echo "          pip3 install glad2 --break-system-packages"; \
-	    echo "          glad --api gl:core=4.3 --out-path $(LIBS)/glad --merge c"; \
-	    echo "        Manual option B — copy pre-generated files into:"; \
-	    echo "          $(LIBS)/glad/include/glad/gl.h"; \
-	    echo "          $(LIBS)/glad/src/gl.c"; \
-	    echo ""; \
-	    exit 1; \
+		echo "[error] No HTTP downloader (curl/wget) found. Install curl or wget, or install 'glad' via pip."; \
+		exit 1; \
 	fi
 
 # Dear ImGui (branch docking) via git ────────────────────────────────────────
