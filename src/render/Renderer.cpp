@@ -359,6 +359,48 @@ bool Renderer::loadComputeShader(GlShader& prog, const std::string& comp_path) {
 
 Renderer::Renderer() = default;
 
+RendererDiagnostics Renderer::collectDiagnostics() const {
+    RendererDiagnostics diagnostics;
+    diagnostics.framebuffer_width = width_;
+    diagnostics.framebuffer_height = height_;
+    diagnostics.bloom_width = bloom_width_;
+    diagnostics.bloom_height = bloom_height_;
+    diagnostics.density_tex_nx = density_tex_nx_;
+    diagnostics.density_tex_ny = density_tex_ny_;
+    diagnostics.density_tex_nz = density_tex_nz_;
+    diagnostics.ionization_tex_nx = ionization_tex_nx_;
+    diagnostics.ionization_tex_ny = ionization_tex_ny_;
+    diagnostics.ionization_tex_nz = ionization_tex_nz_;
+    diagnostics.emissivity_tex_nx = emissivity_tex_nx_;
+    diagnostics.emissivity_tex_ny = emissivity_tex_ny_;
+    diagnostics.emissivity_tex_nz = emissivity_tex_nz_;
+    diagnostics.inflation_tex_width = inflation_tex_width_;
+    diagnostics.inflation_tex_height = inflation_tex_height_;
+    diagnostics.last_gpu_ms = last_gpu_ms_;
+    diagnostics.last_particle_draw_count = last_particle_draw_count_;
+    diagnostics.last_halo_draw_count = last_halo_draw_count_;
+    diagnostics.last_volume_grid_nx = last_volume_grid_nx_;
+    diagnostics.last_volume_grid_ny = last_volume_grid_ny_;
+    diagnostics.last_volume_grid_nz = last_volume_grid_nz_;
+    diagnostics.particle_shader_id = particle_shader_.id;
+    diagnostics.volume_shader_id = volume_shader_.id;
+    diagnostics.inflation_shader_id = inflation_shader_.id;
+    diagnostics.tonemap_shader_id = tonemap_shader_.id;
+    diagnostics.bloom_threshold_shader_id = bloom_threshold_shader_.id;
+    diagnostics.bloom_blur_shader_id = bloom_blur_shader_.id;
+    diagnostics.hdr_color_tex_id = hdr_color_tex_.id;
+    diagnostics.hdr_depth_tex_id = hdr_depth_tex_.id;
+    diagnostics.bloom_tex0_id = bloom_tex_[0].id;
+    diagnostics.bloom_tex1_id = bloom_tex_[1].id;
+    diagnostics.density_tex_id = density_3d_tex_.id;
+    diagnostics.ionization_tex_id = ionization_3d_tex_.id;
+    diagnostics.emissivity_tex_id = emissivity_3d_tex_.id;
+    diagnostics.inflation_tex_id = inflation_2d_tex_.id;
+    diagnostics.particle_pos_ssbo_id = particle_pos_ssbo_.id;
+    diagnostics.particle_col_ssbo_id = particle_col_ssbo_.id;
+    return diagnostics;
+}
+
 void Renderer::setVec3Uniform(GLuint program, const char* name, const glm::vec3& value) const {
     glUniform3f(glGetUniformLocation(program, name), value.x, value.y, value.z);
 }
@@ -528,6 +570,9 @@ void Renderer::reloadShaders() {
 // ── Configuração dos FBOs ───────────────────────────────────────────────────────────
 
 void Renderer::setupFBOs() {
+    bloom_width_ = std::max(width_ / 2, 1);
+    bloom_height_ = std::max(height_ / 2, 1);
+
     // FBO HDR (FP16)
     glBindFramebuffer(GL_FRAMEBUFFER, hdr_fbo_.id);
 
@@ -555,7 +600,7 @@ void Renderer::setupFBOs() {
     for (int i = 0; i < 2; ++i) {
         glBindFramebuffer(GL_FRAMEBUFFER, bloom_fbo_[i].id);
         glBindTexture(GL_TEXTURE_2D, bloom_tex_[i].id);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width_/2, height_/2, 0,
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, bloom_width_, bloom_height_, 0,
                      GL_RGBA, GL_FLOAT, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -568,6 +613,9 @@ void Renderer::setupFBOs() {
 
     // Textura de densidade 3D
     glBindTexture(GL_TEXTURE_3D, density_3d_tex_.id);
+    density_tex_nx_ = 64;
+    density_tex_ny_ = 64;
+    density_tex_nz_ = 64;
     glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F, 64, 64, 64, 0,
                  GL_RED, GL_FLOAT, nullptr);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -577,6 +625,9 @@ void Renderer::setupFBOs() {
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
     glBindTexture(GL_TEXTURE_3D, ionization_3d_tex_.id);
+    ionization_tex_nx_ = 64;
+    ionization_tex_ny_ = 64;
+    ionization_tex_nz_ = 64;
     glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F, 64, 64, 64, 0,
                  GL_RED, GL_FLOAT, nullptr);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -586,6 +637,9 @@ void Renderer::setupFBOs() {
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
     glBindTexture(GL_TEXTURE_3D, emissivity_3d_tex_.id);
+    emissivity_tex_nx_ = 64;
+    emissivity_tex_ny_ = 64;
+    emissivity_tex_nz_ = 64;
     glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F, 64, 64, 64, 0,
                  GL_RED, GL_FLOAT, nullptr);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -596,6 +650,8 @@ void Renderer::setupFBOs() {
 
     // Textura 2D de inflação
     glBindTexture(GL_TEXTURE_2D, inflation_2d_tex_.id);
+    inflation_tex_width_ = 256;
+    inflation_tex_height_ = 256;
     glTexImage2D(GL_TEXTURE_2D, 0, GL_R16F, 256, 256, 0, GL_RED, GL_FLOAT, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -637,6 +693,8 @@ void Renderer::resize(int w, int h) {
 
 void Renderer::beginFrame() {
     cmb_flash_alpha_ = 0.0f; // Resetar flash a cada quadro
+    last_particle_draw_count_ = 0;
+    last_halo_draw_count_ = 0;
     // Iniciar temporizador GPU
     glBeginQuery(GL_TIME_ELAPSED, timer_query_[timer_idx_]);
 
@@ -843,6 +901,7 @@ void Renderer::renderParticles(const Universe& universe) {
 
     if (pos_data.empty()) return;
     size_t draw_count = pos_data.size() / 4;
+    last_particle_draw_count_ = draw_count;
 
     // Enviar SSBOs
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, particle_pos_ssbo_.id);
@@ -918,12 +977,21 @@ void Renderer::renderVolumeField(const Universe& universe) {
     // Enviar campo para textura 3D (redimensionar se necessário)
     glBindTexture(GL_TEXTURE_3D, density_3d_tex_.id);
     if (field.NX > 0) {
+        density_tex_nx_ = field.NX;
+        density_tex_ny_ = field.NY;
+        density_tex_nz_ = field.NZ;
+        last_volume_grid_nx_ = field.NX;
+        last_volume_grid_ny_ = field.NY;
+        last_volume_grid_nz_ = field.NZ;
         glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F,
                      field.NX, field.NY, field.NZ, 0,
                      GL_RED, GL_FLOAT, field.data.data());
     }
     glBindTexture(GL_TEXTURE_3D, ionization_3d_tex_.id);
     if (ionization && ionization->NX > 0) {
+        ionization_tex_nx_ = ionization->NX;
+        ionization_tex_ny_ = ionization->NY;
+        ionization_tex_nz_ = ionization->NZ;
         glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F,
                      ionization->NX, ionization->NY, ionization->NZ, 0,
                      GL_RED, GL_FLOAT, ionization->data.data());
@@ -935,6 +1003,9 @@ void Renderer::renderVolumeField(const Universe& universe) {
     }
     glBindTexture(GL_TEXTURE_3D, emissivity_3d_tex_.id);
     if (emissivity && emissivity->NX > 0) {
+        emissivity_tex_nx_ = emissivity->NX;
+        emissivity_tex_ny_ = emissivity->NY;
+        emissivity_tex_nz_ = emissivity->NZ;
         glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F,
                      emissivity->NX, emissivity->NY, emissivity->NZ, 0,
                      GL_RED, GL_FLOAT, emissivity->data.data());
@@ -1007,8 +1078,11 @@ void Renderer::renderCMBFlash(float t) {
 // ── Halos de galáxias (esferas em wireframe) ───────────────────────────────────────
 void Renderer::renderGalaxyHalos(const HaloInfo* halos, int count) {
     if (!halos_enabled_ || halo_visibility_ <= 0.01f || halos == nullptr || count <= 0 || !particle_shader_.id) {
+        last_halo_draw_count_ = 0;
         return;
     }
+
+    last_halo_draw_count_ = count;
 
     std::vector<float> pos_data;
     std::vector<float> col_data;

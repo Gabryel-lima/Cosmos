@@ -59,6 +59,7 @@ set(SOURCES
     src/core/SimulationRandom.cpp
     src/core/CosmicClock.cpp
     src/core/RegimeManager.cpp
+    src/core/Telemetry.cpp
     src/core/Universe.cpp
     src/core/Camera.cpp
     src/physics/Friedmann.cpp

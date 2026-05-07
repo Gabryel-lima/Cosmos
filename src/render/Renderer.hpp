@@ -71,6 +71,46 @@ struct HaloInfo {
     int    member_count;
 };
 
+struct RendererDiagnostics {
+    int framebuffer_width = 0;
+    int framebuffer_height = 0;
+    int bloom_width = 0;
+    int bloom_height = 0;
+    int density_tex_nx = 0;
+    int density_tex_ny = 0;
+    int density_tex_nz = 0;
+    int ionization_tex_nx = 0;
+    int ionization_tex_ny = 0;
+    int ionization_tex_nz = 0;
+    int emissivity_tex_nx = 0;
+    int emissivity_tex_ny = 0;
+    int emissivity_tex_nz = 0;
+    int inflation_tex_width = 0;
+    int inflation_tex_height = 0;
+    float last_gpu_ms = 0.0f;
+    std::size_t last_particle_draw_count = 0;
+    int last_halo_draw_count = 0;
+    int last_volume_grid_nx = 0;
+    int last_volume_grid_ny = 0;
+    int last_volume_grid_nz = 0;
+    GLuint particle_shader_id = 0;
+    GLuint volume_shader_id = 0;
+    GLuint inflation_shader_id = 0;
+    GLuint tonemap_shader_id = 0;
+    GLuint bloom_threshold_shader_id = 0;
+    GLuint bloom_blur_shader_id = 0;
+    GLuint hdr_color_tex_id = 0;
+    GLuint hdr_depth_tex_id = 0;
+    GLuint bloom_tex0_id = 0;
+    GLuint bloom_tex1_id = 0;
+    GLuint density_tex_id = 0;
+    GLuint ionization_tex_id = 0;
+    GLuint emissivity_tex_id = 0;
+    GLuint inflation_tex_id = 0;
+    GLuint particle_pos_ssbo_id = 0;
+    GLuint particle_col_ssbo_id = 0;
+};
+
 // ── Renderizador principal ────────────────────────────────────────────────────
 class Renderer {
 public:
@@ -124,6 +164,7 @@ public:
 
     // Temporizador GPU
     float getLastFrameGpuMs() const { return last_gpu_ms_; }
+    RendererDiagnostics collectDiagnostics() const;
 
 private:
     bool loadShaderProgram(GlShader& prog,
@@ -139,8 +180,26 @@ private:
     void syncVisualTuning(const Universe& universe);
 
     int width_ = 1280, height_ = 720;
+    int bloom_width_ = 640;
+    int bloom_height_ = 360;
     float last_gpu_ms_ = 0.0f;
     float cmb_flash_alpha_ = 0.0f; // Armazena a intensidade do flash CMB para o passe de pós-processamento
+    std::size_t last_particle_draw_count_ = 0;
+    int last_halo_draw_count_ = 0;
+    int last_volume_grid_nx_ = 0;
+    int last_volume_grid_ny_ = 0;
+    int last_volume_grid_nz_ = 0;
+    int density_tex_nx_ = 64;
+    int density_tex_ny_ = 64;
+    int density_tex_nz_ = 64;
+    int ionization_tex_nx_ = 64;
+    int ionization_tex_ny_ = 64;
+    int ionization_tex_nz_ = 64;
+    int emissivity_tex_nx_ = 64;
+    int emissivity_tex_ny_ = 64;
+    int emissivity_tex_nz_ = 64;
+    int inflation_tex_width_ = 256;
+    int inflation_tex_height_ = 256;
 
     // Dados da câmera
     glm::mat4   view_mat_      = glm::mat4(1.0f);

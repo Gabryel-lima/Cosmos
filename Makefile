@@ -16,6 +16,7 @@ PROJECT := cosmos
 BUILD   := build
 LIBS    := libs
 QUALITY ?= MEDIUM
+LOG     ?= 0
 JOBS    ?= $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
 
 GLAD_SRC := $(LIBS)/glad/src/gl.c
@@ -25,9 +26,13 @@ IMGUI_H  := $(LIBS)/imgui/imgui.h
 CURL := $(shell command -v curl 2>/dev/null)
 WGET := $(shell command -v wget 2>/dev/null)
 
-.PHONY: all setup build run clean distclean help
+.PHONY: all setup build run clean distclean help LOG
 
 .PHONY: preview preview-build preview-run
+
+ifeq ($(filter LOG,$(MAKECMDGOALS)),LOG)
+LOG := 1
+endif
 
 # ── Alvo padrão ──────────────────────────────────────────────────────────────
 all: 
@@ -140,8 +145,11 @@ build: setup
 	@cmake --build $(BUILD) --parallel $(JOBS)
 
 # ── execução ─────────────────────────────────────────────────────────────────
-run:
-	./$(BUILD)/$(PROJECT)
+run: build
+	COSMOS_LOG=$(LOG) ./$(BUILD)/$(PROJECT) $(if $(filter 1 true yes on,$(LOG)),--log,)
+
+LOG:
+	@:
 
 # Build and run the shader preview binary (small GL app to inspect shaders)
 preview: preview-build
@@ -179,9 +187,11 @@ help:
 	@echo ""
 	@echo "Options (set on command line):"
 	@echo "  QUALITY=SAFE|LOW|MEDIUM|HIGH|ULTRA  Simulation quality  (default: MEDIUM)"
+	@echo "  LOG=1                          Enable telemetry file in logs/"
 	@echo "  JOBS=N                         Parallel build jobs  (default: nproc)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make QUALITY=SAFE"
+	@echo "  make run LOG"
 	@echo "  make run QUALITY=ULTRA JOBS=8"
 	@echo ""

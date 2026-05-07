@@ -27,8 +27,6 @@ public:
     void applyRadiativeFeedback(Universe& universe, double dt);
 
 private:
-    void leapfrogKick(Universe& universe, double dt);
-    void leapfrogDrift(Universe& universe, double dt);
     void applyCosmicExpansion(Universe& universe, double a_prev, double a_new);
     void checkStarFormation(Universe& universe, double temp_K);
     void updateStellarEvolution(Universe& universe, double cosmic_dt);
@@ -38,10 +36,10 @@ private:
     int regimeIndex() const;
     void applyPhasePalette(Universe& state) const;
 
-    NBodySolver nbody_;
+    NBody nbody_;
     StructurePhase phase_ = StructurePhase::MATURE;
     double prev_scale_factor_ = 0.0;
-    int    star_check_frame_  = 0;    // contador para limitar O(N²) de formação estelar
+    size_t star_scan_cursor_ = 0;
 
     // Dados de grupo FoF (halos de galáxias)
     struct Halo {

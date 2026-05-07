@@ -12,6 +12,7 @@
 #include "core/CosmicClock.hpp"
 #include "core/RegimeManager.hpp"
 #include "core/SimulationRandom.hpp"
+#include "core/Telemetry.hpp"
 #include "core/Universe.hpp"
 #include "core/Camera.hpp"
 #include "render/Renderer.hpp"
@@ -45,6 +46,14 @@ static bool g_fullscreen    = false;
 static bool g_show_hud      = true;
 static bool g_reload_shaders = false;
 static std::string g_imgui_ini_path = "imgui.ini";
+static std::filesystem::path g_project_root_path;
+
+struct TelemetryConfig {
+    bool enabled = false;
+    std::filesystem::path output_path;
+};
+
+static TelemetryConfig g_telemetry_config;
 
 struct VideoExportConfig {
     bool enabled = false;
@@ -74,6 +83,24 @@ static bool parseDoubleArg(const char* value, double& out) {
     char* end = nullptr;
     out = std::strtod(value, &end);
     return end && *end == '\0' && std::isfinite(out);
+}
+
+static bool isTruthyEnvValue(const char* value) {
+    if (!value || !*value) {
+        return false;
+    }
+    return std::strcmp(value, "0") != 0 &&
+           std::strcmp(value, "false") != 0 &&
+           std::strcmp(value, "FALSE") != 0 &&
+           std::strcmp(value, "off") != 0 &&
+           std::strcmp(value, "OFF") != 0 &&
+           std::strcmp(value, "no") != 0 &&
+           std::strcmp(value, "NO") != 0;
+}
+
+static double elapsedMs(const std::chrono::steady_clock::time_point& start,
+                        const std::chrono::steady_clock::time_point& end) {
+    return std::chrono::duration<double, std::milli>(end - start).count();
 }
 
 static PanoramicAutoFrameSettings makePanoramicPreset(const std::string& preset_name) {
@@ -284,6 +311,8 @@ struct AppState {
     Camera         camera;
     Renderer       renderer;
     RegimeOverlay  overlay;
+    TelemetrySession telemetry;
+    std::uint64_t frame_index = 0;
     int            deferred_jump_regime = -1;
     bool           running  = true;
 };
@@ -296,10 +325,18 @@ static void recenterCameraToScene(AppState& app, int regime_index) {
 static void jumpToRegimeAndFrame(AppState& app, int regime_index) {
     app.mgr.jumpToRegime(regime_index, app.clock, app.universe);
     recenterCameraToScene(app, regime_index);
+    app.universe.active_particles = static_cast<int>(app.universe.particles.activeCount());
+    if (app.telemetry.enabled()) {
+        app.telemetry.noteOperatorEvent("jump_applied regime=" + std::to_string(regime_index));
+        app.telemetry.noteCheckpoint("regime_jump", app.universe, app.renderer.collectDiagnostics());
+    }
 }
 
 static void requestDeferredRegimeJump(AppState& app, int regime_index) {
     app.deferred_jump_regime = CosmicClock::clampRegimeIndex(regime_index);
+    if (app.telemetry.enabled()) {
+        app.telemetry.noteOperatorEvent("jump_requested regime=" + std::to_string(app.deferred_jump_regime));
+    }
 }
 
 static void toggleNearestTracking(AppState& app) {
@@ -338,8 +375,14 @@ static void toggleNearestTracking(AppState& app) {
     if (best_id != std::numeric_limits<uint32_t>::max()) {
         app.camera.trackParticle(best_id);
         std::printf("[Camera] Tracking particle %u\n", best_id);
+        if (app.telemetry.enabled()) {
+            app.telemetry.noteOperatorEvent("tracking particle=" + std::to_string(best_id));
+        }
     } else {
         std::printf("[Camera] No trackable particles found\n");
+        if (app.telemetry.enabled()) {
+            app.telemetry.noteOperatorEvent("tracking_failed no_trackable_particle");
+        }
     }
 }
 
@@ -351,7 +394,13 @@ static void on_framebuffer_resize(GLFWwindow* /*w*/, int width, int height) {
     if (width == 0 || height == 0) return;
     g_width  = width;
     g_height = height;
-    if (g_app) g_app->renderer.resize(width, height);
+    if (g_app) {
+        g_app->renderer.resize(width, height);
+        if (g_app->telemetry.enabled()) {
+            g_app->telemetry.noteOperatorEvent("resize width=" + std::to_string(width) +
+                                               " height=" + std::to_string(height));
+        }
+    }
 }
 
 static void on_key(GLFWwindow* /*w*/, int key, int /*sc*/, int action, int mods) {
@@ -364,29 +413,49 @@ static void on_key(GLFWwindow* /*w*/, int key, int /*sc*/, int action, int mods)
             if (g_app->camera.tracked_id != std::numeric_limits<uint32_t>::max()) {
                 g_app->camera.releaseTracking();
                 std::printf("[Camera] Tracking released\n");
+                if (g_app->telemetry.enabled()) {
+                    g_app->telemetry.noteOperatorEvent("tracking_released key=ESC");
+                }
             } else {
                 g_app->running = false;
+                if (g_app->telemetry.enabled()) {
+                    g_app->telemetry.noteOperatorEvent("quit_requested key=ESC");
+                }
             }
             break;
 
         case GLFW_KEY_Q:
             if (mods & GLFW_MOD_CONTROL) {
                 g_app->running = false;
+                if (g_app->telemetry.enabled()) {
+                    g_app->telemetry.noteOperatorEvent("quit_requested key=CTRL+Q");
+                }
             }
             break;
 
         case GLFW_KEY_SPACE:
             if (g_app->clock.isPaused()) g_app->clock.play();
             else                         g_app->clock.pause();
+            if (g_app->telemetry.enabled()) {
+                g_app->telemetry.noteOperatorEvent(std::string("clock_") +
+                                                   (g_app->clock.isPaused() ? "paused" : "running"));
+            }
             break;
 
         case GLFW_KEY_H:
             g_show_hud = !g_show_hud;
             g_app->overlay.visible = g_show_hud;
+            if (g_app->telemetry.enabled()) {
+                g_app->telemetry.noteOperatorEvent(std::string("hud visible=") + (g_show_hud ? "yes" : "no"));
+            }
             break;
 
         case GLFW_KEY_R:
-            g_reload_shaders = true; break;
+            g_reload_shaders = true;
+            if (g_app->telemetry.enabled()) {
+                g_app->telemetry.noteOperatorEvent("shader_reload_requested");
+            }
+            break;
 
         case GLFW_KEY_F: {
             // Alternar tela cheia
@@ -401,6 +470,10 @@ static void on_key(GLFWwindow* /*w*/, int key, int /*sc*/, int action, int mods)
                 glfwSetWindowMonitor(g_app->window, nullptr,
                                      100, 100, 1280, 720, 0);
                 g_fullscreen = false;
+            }
+            if (g_app->telemetry.enabled()) {
+                g_app->telemetry.noteOperatorEvent(std::string("fullscreen enabled=") +
+                                                   (g_fullscreen ? "yes" : "no"));
             }
             break;
         }
@@ -418,6 +491,10 @@ static void on_key(GLFWwindow* /*w*/, int key, int /*sc*/, int action, int mods)
         case GLFW_KEY_C:
             recenterCameraToScene(*g_app, g_app->mgr.getCurrentRegimeIndex());
             std::printf("[Camera] Re-centered on scene for regime %d\n", g_app->mgr.getCurrentRegimeIndex());
+            if (g_app->telemetry.enabled()) {
+                g_app->telemetry.noteOperatorEvent("camera_recenter regime=" +
+                                                   std::to_string(g_app->mgr.getCurrentRegimeIndex()));
+            }
             break;
 
         case GLFW_KEY_T:
@@ -428,6 +505,9 @@ static void on_key(GLFWwindow* /*w*/, int key, int /*sc*/, int action, int mods)
         // Ciclar modo da câmera via Tab
         if (key == GLFW_KEY_TAB && (mods & GLFW_MOD_SHIFT) == 0) {
             g_app->camera.updateMode();
+            if (g_app->telemetry.enabled()) {
+                g_app->telemetry.noteOperatorEvent("camera_mode_cycle");
+            }
         }
     }
 }
@@ -440,6 +520,9 @@ static void on_char(GLFWwindow* /*w*/, unsigned int codepoint) {
     case '.':
     case '>':
         g_app->clock.stepSingleFrame();
+        if (g_app->telemetry.enabled()) {
+            g_app->telemetry.noteOperatorEvent("clock_single_frame_step");
+        }
         break;
 
     case ',':
@@ -448,6 +531,9 @@ static void on_char(GLFWwindow* /*w*/, unsigned int codepoint) {
     case '{': {
         double scale = g_app->clock.getTimeScale();
         g_app->clock.setTimeScale(scale * 2.0);
+        if (g_app->telemetry.enabled()) {
+            g_app->telemetry.noteOperatorEvent("time_scale value=" + std::to_string(g_app->clock.getTimeScale()));
+        }
         break;
     }
 
@@ -457,6 +543,9 @@ static void on_char(GLFWwindow* /*w*/, unsigned int codepoint) {
     case '}': {
         double scale = g_app->clock.getTimeScale();
         g_app->clock.setTimeScale(scale * 0.5);
+        if (g_app->telemetry.enabled()) {
+            g_app->telemetry.noteOperatorEvent("time_scale value=" + std::to_string(g_app->clock.getTimeScale()));
+        }
         break;
     }
 
@@ -498,6 +587,11 @@ static void on_cursor_pos(GLFWwindow* /*w*/, double xpos, double ypos) {
 // ── Inicialização ───────────────────────────────────────────────────────────────────
 
 static bool parseArgs(int argc, char** argv) {
+    g_telemetry_config.enabled = isTruthyEnvValue(std::getenv("COSMOS_LOG"));
+    if (const char* env_output = std::getenv("COSMOS_LOG_OUTPUT")) {
+        g_telemetry_config.output_path = env_output;
+    }
+
     PanoramicSettingsOverrides panoramic_overrides;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -530,6 +624,13 @@ static bool parseArgs(int argc, char** argv) {
         if (arg == "--video-fps" && i + 1 < argc) {
             g_video_export.enabled = true;
             g_video_export.output_fps = std::max(1, std::atoi(argv[++i]));
+        }
+        if (arg == "--log") {
+            g_telemetry_config.enabled = true;
+        }
+        if (arg == "--log-output" && i + 1 < argc) {
+            g_telemetry_config.enabled = true;
+            g_telemetry_config.output_path = argv[++i];
         }
         if ((arg == "--video-panorama-speed" || arg == "--video-autocam-speed") && i + 1 < argc) {
             double value = 0.0;
@@ -633,6 +734,22 @@ static std::filesystem::path resolveLayoutIniPath(const std::filesystem::path& e
     return executable_dir / "imgui.ini";
 }
 
+static std::filesystem::path resolveProjectRoot(const std::filesystem::path& executable_dir) {
+    std::error_code ec;
+    for (std::filesystem::path probe = executable_dir; !probe.empty(); ) {
+        if (std::filesystem::is_regular_file(probe / "CMakeLists.txt", ec)) {
+            return probe;
+        }
+        ec.clear();
+        const std::filesystem::path parent = probe.parent_path();
+        if (parent.empty() || parent == probe) {
+            break;
+        }
+        probe = parent;
+    }
+    return executable_dir;
+}
+
 static void configureRuntimePaths(const char* argv0) {
     std::error_code ec;
     const std::filesystem::path executable_path = resolveExecutablePath(argv0);
@@ -650,8 +767,10 @@ static void configureRuntimePaths(const char* argv0) {
             ec.clear();
         }
 
+        g_project_root_path = resolveProjectRoot(executable_dir);
         g_imgui_ini_path = resolveLayoutIniPath(executable_dir).string();
         std::printf("[main] Runtime directory: %s\n", executable_dir.string().c_str());
+        std::printf("[main] Project root: %s\n", g_project_root_path.string().c_str());
         std::printf("[main] ImGui layout file: %s\n", g_imgui_ini_path.c_str());
     }
 }
@@ -740,12 +859,31 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    if (g_telemetry_config.enabled) {
+        app.telemetry.start(g_project_root_path,
+                            g_telemetry_config.output_path,
+                            RegimeConfig::BUILD_QUALITY_NAME,
+                            simrng::globalSeed(),
+                            g_width,
+                            g_height,
+                            g_video_export.enabled,
+                            g_video_export.panoramic_camera,
+                            reinterpret_cast<const char*>(glGetString(GL_VERSION)),
+                            reinterpret_cast<const char*>(glGetString(GL_RENDERER)),
+                            reinterpret_cast<const char*>(glGetString(GL_VENDOR)),
+                            app.renderer.collectDiagnostics());
+    }
+
     // Inicializar simulação
     app.clock.initializeToDefaultState();
     app.mgr.jumpToRegime(app.clock.getCurrentRegimeIndex(), app.clock, app.universe);
+    app.universe.active_particles = static_cast<int>(app.universe.particles.activeCount());
 
     // Enquadrar a cena inicial a partir do conteúdo real do regime.
     recenterCameraToScene(app, app.mgr.getCurrentRegimeIndex());
+    if (app.telemetry.enabled()) {
+        app.telemetry.noteCheckpoint("startup", app.universe, app.renderer.collectDiagnostics());
+    }
 
     std::printf("[main] Build quality=%s | structure particles=%d | plasma grid=%d^3 | Barnes-Hut theta=%.2f\n",
                 RegimeConfig::BUILD_QUALITY_NAME,
@@ -781,6 +919,8 @@ int main(int argc, char** argv) {
     constexpr int kMaxSimStepsPerFrame = 3;
 
     while (!glfwWindowShouldClose(app.window) && app.running) {
+        const auto frame_start = Clock::now();
+        TelemetryFrameTimings telemetry_timings;
         float real_dt = 0.0f;
         if (g_video_export.enabled) {
             real_dt = 1.0f / static_cast<float>(g_video_export.capture_fps);
@@ -798,21 +938,31 @@ int main(int argc, char** argv) {
             fps_acc = 0.0f; fps_frames = 0;
         }
 
+        auto section_start = Clock::now();
         glfwPollEvents();
+        telemetry_timings.input_ms += elapsedMs(section_start, Clock::now());
 
         if (app.deferred_jump_regime >= 0) {
+            section_start = Clock::now();
             jumpToRegimeAndFrame(app, app.deferred_jump_regime);
             app.deferred_jump_regime = -1;
             sim_accumulator = 0.0;
+            telemetry_timings.deferred_jump_ms += elapsedMs(section_start, Clock::now());
         }
 
         // Recarregar shaders sob demanda
         if (g_reload_shaders) {
+            section_start = Clock::now();
             app.renderer.reloadShaders();
             g_reload_shaders = false;
+            telemetry_timings.input_ms += elapsedMs(section_start, Clock::now());
+            if (app.telemetry.enabled()) {
+                app.telemetry.noteShaderReload(app.renderer.collectDiagnostics());
+            }
         }
 
         // Entrada de teclado da câmera
+        section_start = Clock::now();
         InputState in{};
         in.w = glfwGetKey(app.window, GLFW_KEY_W) == GLFW_PRESS;
         in.a = glfwGetKey(app.window, GLFW_KEY_A) == GLFW_PRESS;
@@ -839,8 +989,12 @@ int main(int argc, char** argv) {
                 app.camera.updateTracking({pp.x[tid], pp.y[tid], pp.z[tid]});
             } else {
                 app.camera.releaseTracking();  // partícula desapareceu
+                if (app.telemetry.enabled()) {
+                    app.telemetry.noteOperatorEvent("tracking_released particle_missing");
+                }
             }
         }
+        telemetry_timings.input_ms += elapsedMs(section_start, Clock::now());
 
         const int max_sim_steps_per_frame = g_video_export.enabled
             ? std::max(kMaxSimStepsPerFrame,
@@ -854,10 +1008,13 @@ int main(int argc, char** argv) {
                                        kFixedSimDt * static_cast<double>(max_sim_steps_per_frame));
         }
 
+        section_start = Clock::now();
         int sim_steps = 0;
         while (sim_accumulator >= kFixedSimDt && sim_steps < max_sim_steps_per_frame) {
             // Avançar simulação em passo fixo para evitar que FPS baixo altere a dinâmica.
+            auto step_start = Clock::now();
             app.clock.step(kFixedSimDt);
+            telemetry_timings.clock_step_ms += elapsedMs(step_start, Clock::now());
 
             // Sincronizar universo com o relógio
             app.universe.scale_factor    = app.clock.getScaleFactor();
@@ -867,9 +1024,16 @@ int main(int argc, char** argv) {
 
             // Tick de física do regime
             int previous_regime = app.mgr.getCurrentRegimeIndex();
+            step_start = Clock::now();
             app.mgr.tick(app.clock, app.universe, kFixedSimDt);
+            telemetry_timings.manager_tick_ms += elapsedMs(step_start, Clock::now());
             int current_regime = app.mgr.getCurrentRegimeIndex();
             app.universe.regime_index = current_regime;
+            app.universe.active_particles = static_cast<int>(app.universe.particles.activeCount());
+
+            if (current_regime != previous_regime && app.telemetry.enabled()) {
+                app.telemetry.noteRegimeChange(previous_regime, current_regime, app.universe);
+            }
 
             if (current_regime != previous_regime &&
                 app.camera.tracked_id == std::numeric_limits<uint32_t>::max()) {
@@ -879,15 +1043,20 @@ int main(int argc, char** argv) {
             IRegime* regime = app.mgr.getCurrentRegime();
             if (regime) {
                 double cosmic_dt = app.clock.getLastStepCosmicDt();
+                step_start = Clock::now();
                 regime->update(cosmic_dt,
                                app.clock.getScaleFactor(),
                                app.clock.getTemperatureKeV(),
                                app.universe);
+                telemetry_timings.regime_update_ms += elapsedMs(step_start, Clock::now());
             }
+
+            app.universe.active_particles = static_cast<int>(app.universe.particles.activeCount());
 
             sim_accumulator -= kFixedSimDt;
             ++sim_steps;
         }
+        telemetry_timings.sim_total_ms += elapsedMs(section_start, Clock::now());
 
         if (!g_video_export.enabled && sim_steps == max_sim_steps_per_frame) {
             sim_accumulator = 0.0;
@@ -897,6 +1066,7 @@ int main(int argc, char** argv) {
 
         if (app.camera.tracked_id == std::numeric_limits<uint32_t>::max() &&
             app.camera.isAutoFrameEnabled()) {
+            section_start = Clock::now();
             SceneFrame scene_frame = Camera::estimateSceneFrame(app.universe);
             if (panoramic_video_camera) {
                 app.camera.updatePanoramicAutoFrame(app.mgr.getCurrentRegimeIndex(),
@@ -911,22 +1081,28 @@ int main(int argc, char** argv) {
                                            scene_frame.radius,
                                            real_dt);
             }
+            telemetry_timings.auto_frame_ms += elapsedMs(section_start, Clock::now());
         }
 
         // ── Renderização ─────────────────────────────────────────────────────────────
+        section_start = Clock::now();
         glm::mat4 view = app.camera.getViewMatrix();
         glm::mat4 proj = app.camera.getProjectionMatrix(
             static_cast<float>(g_width) / static_cast<float>(g_height));
         app.renderer.setViewProjection(view, proj, app.camera.position);
+        telemetry_timings.render_setup_ms += elapsedMs(section_start, Clock::now());
 
+        section_start = Clock::now();
         app.renderer.beginFrame();
         app.mgr.render(app.renderer, app.universe);
         app.renderer.endFrame();
+        telemetry_timings.render_ms += elapsedMs(section_start, Clock::now());
 
         // Atualizar leitura do tempo de GPU
         app.universe.gpu_time_ms = app.renderer.getLastFrameGpuMs();
 
         // ── ImGui ──────────────────────────────────────────────────────────────
+        section_start = Clock::now();
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
@@ -943,12 +1119,31 @@ int main(int argc, char** argv) {
         glReadBuffer(GL_BACK);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        telemetry_timings.imgui_ms += elapsedMs(section_start, Clock::now());
 
+        section_start = Clock::now();
         if (!video_exporter.captureFrame()) {
             app.running = false;
+            if (app.telemetry.enabled()) {
+                app.telemetry.noteOperatorEvent("video_capture_failed");
+            }
         }
+        telemetry_timings.video_capture_ms += elapsedMs(section_start, Clock::now());
 
+        section_start = Clock::now();
         glfwSwapBuffers(app.window);
+        telemetry_timings.swap_buffers_ms += elapsedMs(section_start, Clock::now());
+
+        telemetry_timings.frame_ms = elapsedMs(frame_start, Clock::now());
+        if (app.telemetry.enabled()) {
+            app.telemetry.recordFrame(app.frame_index,
+                                      sim_steps,
+                                      real_dt,
+                                      app.universe,
+                                      app.renderer.collectDiagnostics(),
+                                      telemetry_timings);
+        }
+        ++app.frame_index;
     }
 
     // ── Limpeza ────────────────────────────────────────────────────────────────────
@@ -956,6 +1151,9 @@ int main(int argc, char** argv) {
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
     const bool video_ok = video_exporter.finish();
+    if (app.telemetry.enabled()) {
+        app.telemetry.finish(video_ok ? 0 : 1, app.universe, app.renderer.collectDiagnostics());
+    }
     app.renderer.shutdown();
     glfwDestroyWindow(app.window);
     glfwTerminate();

@@ -16,6 +16,8 @@
 #include <glm/vec3.hpp>
 
 namespace {
+constexpr int kMaxSpatialCellsPerAxis = 96;
+
 float stellarGlowFromMass(double m_ratio) {
     double clamped_mass = std::clamp(m_ratio, 0.1, 40.0);
     return static_cast<float>(1.2 + std::log10(1.0 + std::pow(clamped_mass, 2.2)) * 1.8);
@@ -127,6 +129,92 @@ void diffusePeriodicField(GridData& field, int passes, float center_weight, floa
         field.data.swap(scratch);
     }
 }
+
+struct SpatialHashGrid {
+    int cells_per_axis = 1;
+    double box_size = 1.0;
+    double cell_size = 1.0;
+    double inv_cell_size = 1.0;
+    std::vector<uint32_t> sorted_indices;
+    std::vector<uint32_t> cell_offsets;
+
+    void build(const ParticlePool& particles, double box_size_in, double target_cell_size) {
+        box_size = std::max(box_size_in, 1e-6);
+        const double min_cell = box_size / static_cast<double>(kMaxSpatialCellsPerAxis);
+        const double safe_target = std::max(target_cell_size, min_cell);
+        cells_per_axis = std::max(1, std::min(kMaxSpatialCellsPerAxis,
+                                              static_cast<int>(std::ceil(box_size / safe_target))));
+        cell_size = box_size / static_cast<double>(cells_per_axis);
+        inv_cell_size = 1.0 / cell_size;
+
+        const size_t cell_count = static_cast<size_t>(cells_per_axis) *
+                                  static_cast<size_t>(cells_per_axis) *
+                                  static_cast<size_t>(cells_per_axis);
+        cell_offsets.assign(cell_count + 1, 0u);
+
+        size_t active_count = 0;
+        for (size_t i = 0; i < particles.x.size(); ++i) {
+            if (!(particles.flags[i] & PF_ACTIVE)) continue;
+            ++cell_offsets[cellIndexForPosition(particles.x[i], particles.y[i], particles.z[i]) + 1];
+            ++active_count;
+        }
+
+        for (size_t i = 1; i < cell_offsets.size(); ++i) {
+            cell_offsets[i] += cell_offsets[i - 1];
+        }
+
+        sorted_indices.resize(active_count);
+        std::vector<uint32_t> write_offsets(cell_offsets.begin(), cell_offsets.end() - 1);
+        for (size_t i = 0; i < particles.x.size(); ++i) {
+            if (!(particles.flags[i] & PF_ACTIVE)) continue;
+            const size_t cell = cellIndexForPosition(particles.x[i], particles.y[i], particles.z[i]);
+            sorted_indices[write_offsets[cell]++] = static_cast<uint32_t>(i);
+        }
+    }
+
+    template<typename Func>
+    void forEachNearby(const glm::dvec3& pos, double radius, Func&& func) const {
+        const int cell_radius = std::max(0, static_cast<int>(std::ceil(radius * inv_cell_size)));
+        const int cx = coordinateFor(pos.x);
+        const int cy = coordinateFor(pos.y);
+        const int cz = coordinateFor(pos.z);
+
+        for (int dz = -cell_radius; dz <= cell_radius; ++dz)
+        for (int dy = -cell_radius; dy <= cell_radius; ++dy)
+        for (int dx = -cell_radius; dx <= cell_radius; ++dx) {
+            const int ix = wrapCoordinate(cx + dx);
+            const int iy = wrapCoordinate(cy + dy);
+            const int iz = wrapCoordinate(cz + dz);
+            const size_t cell = flatten(ix, iy, iz);
+            for (uint32_t offset = cell_offsets[cell]; offset < cell_offsets[cell + 1]; ++offset) {
+                func(static_cast<size_t>(sorted_indices[offset]));
+            }
+        }
+    }
+
+private:
+    int coordinateFor(double value) const {
+        const double wrapped = wrapPosition(value, box_size) + box_size * 0.5;
+        int coord = static_cast<int>(std::floor(wrapped * inv_cell_size));
+        if (coord >= cells_per_axis) coord = cells_per_axis - 1;
+        if (coord < 0) coord = 0;
+        return coord;
+    }
+
+    int wrapCoordinate(int value) const {
+        int wrapped = value % cells_per_axis;
+        if (wrapped < 0) wrapped += cells_per_axis;
+        return wrapped;
+    }
+
+    size_t flatten(int x, int y, int z) const {
+        return static_cast<size_t>(x + cells_per_axis * (y + cells_per_axis * z));
+    }
+
+    size_t cellIndexForPosition(double x, double y, double z) const {
+        return flatten(coordinateFor(x), coordinateFor(y), coordinateFor(z));
+    }
+};
 }
 
 std::string RegimeStructure::getName() const {
@@ -247,11 +335,12 @@ void RegimeStructure::onEnter(Universe& state) {
     prev_scale_factor_ = state.scale_factor;
     halos_.clear();
     last_fof_time_ = state.cosmic_time;
-    star_check_frame_ = 0;
+    star_scan_cursor_ = 0;
 
     // Aplica configurações padrão de N-body do perfil de qualidade
     nbody_.theta     = state.quality.barnes_hut_theta;
     nbody_.softening = 0.25f;
+    nbody_.acceleration_cap = 0.15;
     applyPhasePalette(state);
 }
 
@@ -577,41 +666,6 @@ void RegimeStructure::rebuildDensityField(Universe& universe, double cosmic_time
     }
 }
 
-// ── Integrador Leapfrog (Kick-Drift-Kick) ───────────────────────────────────
-
-void RegimeStructure::leapfrogKick(Universe& universe, double dt) {
-    // v_{n+1/2} = v_n + (F_n/m) * dt/2
-    ParticlePool& p = universe.particles;
-    size_t n = p.x.size();
-
-    std::vector<double> ax, ay, az;
-    nbody_.computeForces(p, ax, ay, az);
-
-    for (size_t i = 0; i < n; ++i) {
-        if (!(p.flags[i] & PF_ACTIVE)) continue;
-        double amag = std::sqrt(ax[i] * ax[i] + ay[i] * ay[i] + az[i] * az[i]);
-        if (amag > 0.15) {
-            double scale = 0.15 / amag;
-            ax[i] *= scale;
-            ay[i] *= scale;
-            az[i] *= scale;
-        }
-        p.vx[i] += ax[i] * dt * 0.5;
-        p.vy[i] += ay[i] * dt * 0.5;
-        p.vz[i] += az[i] * dt * 0.5;
-    }
-}
-
-void RegimeStructure::leapfrogDrift(Universe& universe, double dt) {
-    ParticlePool& p = universe.particles;
-    for (size_t i = 0; i < p.x.size(); ++i) {
-        if (!(p.flags[i] & PF_ACTIVE)) continue;
-        p.x[i] += p.vx[i] * dt;
-        p.y[i] += p.vy[i] * dt;
-        p.z[i] += p.vz[i] * dt;
-    }
-}
-
 void RegimeStructure::applyCosmicExpansion(Universe& universe, double a_prev, double a_new) {
     if (a_prev <= 0.0) return;
     double ratio = a_new / a_prev;
@@ -630,17 +684,31 @@ void RegimeStructure::checkStarFormation(Universe& universe, double /*temp_K*/) 
     if (phase_ == StructurePhase::DARK_AGES) return;
 
     ParticlePool& p = universe.particles;
-    size_t n = p.x.size();
+    const size_t n = p.x.size();
+    if (n == 0) return;
 
     // Raio de busca: ~2% do lado da caixa (≈1 Mpc em unidades de sim)
     const double search_radius = (phase_ == StructurePhase::REIONIZATION) ? 0.8 : 1.0;
     const double r2_thresh  = search_radius * search_radius;
     const int min_neigh = (phase_ == StructurePhase::REIONIZATION) ? 8 : 6;
+    const size_t target_checks_per_frame = std::max<size_t>(256, n / static_cast<size_t>((phase_ == StructurePhase::REIONIZATION) ? 32 : 20));
 
-    for (size_t i = 0; i < n; ++i) {
+    static SpatialHashGrid neighbor_grid;
+    neighbor_grid.build(p, RegimeConfig::STRUCT_BOX_SIZE_MPC, search_radius);
+
+    if (star_scan_cursor_ >= n) star_scan_cursor_ = 0;
+    size_t visited = 0;
+    size_t processed = 0;
+
+    while (visited < n && processed < target_checks_per_frame) {
+        const size_t i = star_scan_cursor_;
+        star_scan_cursor_ = (star_scan_cursor_ + 1) % n;
+        ++visited;
+
         if (!(p.flags[i] & PF_ACTIVE)) continue;
         if (p.type[i] != ParticleType::GAS) continue;
         if (p.flags[i] & PF_COLLAPSING) continue;
+        ++processed;
 
         const float local_ionization = sampleGridWrapped(universe.ionization_field,
                                                          p.x[i], p.y[i], p.z[i],
@@ -654,13 +722,17 @@ void RegimeStructure::checkStarFormation(Universe& universe, double /*temp_K*/) 
 
         int neighbors = 0;
         const int required_neighbors = min_neigh + ((phase_ == StructurePhase::REIONIZATION && local_ionization > 0.65f) ? 2 : 0);
-        for (size_t j = 0; j < n; ++j) {
-            if (i == j || !(p.flags[j] & PF_ACTIVE)) continue;
-            double dx = p.x[j]-p.x[i], dy = p.y[j]-p.y[i], dz = p.z[j]-p.z[i];
+        const glm::dvec3 center(p.x[i], p.y[i], p.z[i]);
+        neighbor_grid.forEachNearby(center, search_radius, [&](size_t j) {
+            if (neighbors >= required_neighbors) return;
+            if (i == j || !(p.flags[j] & PF_ACTIVE)) return;
+            const double dx = p.x[j] - p.x[i];
+            const double dy = p.y[j] - p.y[i];
+            const double dz = p.z[j] - p.z[i];
             if (dx*dx + dy*dy + dz*dz < r2_thresh) {
-                if (++neighbors >= required_neighbors) break;  // encontrou o suficiente
+                ++neighbors;
             }
-        }
+        });
         if (neighbors < required_neighbors) continue;
 
         // Acima do limiar de densidade: criar protoestrela
@@ -775,6 +847,10 @@ void RegimeStructure::runFriendsOfFriends(Universe& universe) {
     // Separação média entre partículas (unidades de sim)
     double n_bar = static_cast<double>(n);
     double link2 = std::pow(b * std::pow(n_bar, -1.0/3.0), 2.0);
+    const double link_distance = std::sqrt(link2);
+
+    static SpatialHashGrid neighbor_grid;
+    neighbor_grid.build(p, RegimeConfig::STRUCT_BOX_SIZE_MPC, std::max(0.75, link_distance * 4.0));
 
     std::vector<int> group(n, -1);
     int group_id = 0;
@@ -786,15 +862,16 @@ void RegimeStructure::runFriendsOfFriends(Universe& universe) {
         std::vector<size_t> stack = {i};
         while (!stack.empty()) {
             size_t cur = stack.back(); stack.pop_back();
-            for (size_t j = 0; j < n; ++j) {
-                if (group[j] >= 0 || !(p.flags[j] & PF_ACTIVE)) continue;
+            const glm::dvec3 center(p.x[cur], p.y[cur], p.z[cur]);
+            neighbor_grid.forEachNearby(center, link_distance, [&](size_t j) {
+                if (group[j] >= 0 || !(p.flags[j] & PF_ACTIVE)) return;
                 double dx = p.x[j]-p.x[cur], dy = p.y[j]-p.y[cur], dz = p.z[j]-p.z[cur];
                 double r2 = dx*dx+dy*dy+dz*dz;
                 if (r2 < link2) {
                     group[j] = group_id;
                     stack.push_back(j);
                 }
-            }
+            });
         }
         ++group_id;
     }
@@ -891,27 +968,9 @@ void RegimeStructure::update(double cosmic_dt, double scale_factor, double temp_
         double a_step_prev = interpolatePositive(a_prev_frame, a_new, alpha0);
         double a_step_new = interpolatePositive(a_prev_frame, a_new, alpha1);
 
-        // Integração Leapfrog KDK
-        leapfrogKick(universe, sub_visual_dt);
-        leapfrogDrift(universe, sub_visual_dt);
-
-        std::vector<double> ax, ay, az;
-        nbody_.computeForces(universe.particles, ax, ay, az);
-        // Segundo kick
-        ParticlePool& p = universe.particles;
-        for (size_t i = 0; i < p.x.size(); ++i) {
-            if (!(p.flags[i] & PF_ACTIVE)) continue;
-            double amag = std::sqrt(ax[i] * ax[i] + ay[i] * ay[i] + az[i] * az[i]);
-            if (amag > 0.15) {
-                double scale = 0.15 / amag;
-                ax[i] *= scale;
-                ay[i] *= scale;
-                az[i] *= scale;
-            }
-            p.vx[i] += ax[i] * sub_visual_dt * 0.5;
-            p.vy[i] += ay[i] * sub_visual_dt * 0.5;
-            p.vz[i] += az[i] * sub_visual_dt * 0.5;
-        }
+        // Integração Leapfrog KDK via dispatcher NBody para reaproveitar
+        // paralelismo e o caminho AVX2/FMA quando o pool estiver denso.
+        nbody_.step(universe.particles, static_cast<float>(sub_visual_dt));
 
         applyCosmicExpansion(universe, a_step_prev, a_step_new);
 
@@ -926,9 +985,8 @@ void RegimeStructure::update(double cosmic_dt, double scale_factor, double temp_
 
     prev_scale_factor_ = a_new;
 
-    // Formação estelar a cada 60 frames (O(N²) por isso limitado)
-    int star_check_interval = (phase_ == StructurePhase::REIONIZATION) ? 32 : 20;
-    if (phase_ != StructurePhase::DARK_AGES && ++star_check_frame_ % star_check_interval == 0) {
+    // Formação estelar em orçamento fixo por frame para evitar picos O(N²).
+    if (phase_ != StructurePhase::DARK_AGES) {
         checkStarFormation(universe, T_K);
     }
 

@@ -3,6 +3,7 @@
 // via target attribute para manter a inicialização da TU segura.
 // NUNCA inclua este arquivo em outro .cpp.
 #include <immintrin.h>
+#include <cmath>
 #include <vector>
 
 #include "NBody.hpp"
@@ -15,15 +16,43 @@
 
 static NBodySolver g_solver_avx;
 
+namespace {
+
+void applyAccelerationCap(const ParticlePool& pool,
+                         std::vector<double>& ax,
+                         std::vector<double>& ay,
+                         std::vector<double>& az,
+                         double acceleration_cap)
+{
+    if (acceleration_cap <= 0.0) return;
+
+    for (size_t i = 0; i < pool.x.size(); ++i) {
+        const double amag = std::sqrt(ax[i] * ax[i] + ay[i] * ay[i] + az[i] * az[i]);
+        if (amag <= acceleration_cap || amag == 0.0) continue;
+
+        const double scale = acceleration_cap / amag;
+        ax[i] *= scale;
+        ay[i] *= scale;
+        az[i] *= scale;
+    }
+}
+
+} // namespace
+
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((target("avx2,fma")))
 #endif
-void nbody_step_avx2(ParticlePool& pool, float dt) {
+void nbody_step_avx2(ParticlePool& pool, float dt,
+                     float theta, float softening,
+                     double acceleration_cap) {
     const size_t n = pool.x.size();
     if (n == 0) return;
 
     std::vector<double> ax, ay, az;
+    g_solver_avx.theta = theta;
+    g_solver_avx.softening = softening;
     g_solver_avx.computeForces(pool, ax, ay, az);
+    applyAccelerationCap(pool, ax, ay, az, acceleration_cap);
 
     const double half_dt = dt * 0.5;
     const size_t n4 = n & ~size_t(3);   // múltiplo de 4 (AVX2 processa 4 doubles)
@@ -83,6 +112,7 @@ void nbody_step_avx2(ParticlePool& pool, float dt) {
 
     // ── 2º kick: recalcular forças e aplicar ─────────────────────────────
     g_solver_avx.computeForces(pool, ax, ay, az);
+    applyAccelerationCap(pool, ax, ay, az, acceleration_cap);
 
     i = 0;
     for (; i < n4; i += 4) {

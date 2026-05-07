@@ -3,6 +3,7 @@
 // Constrói uma octárvore a cada quadro, depois acumula forças.
 
 #include "ParticlePool.hpp"
+#include <deque>
 #include <vector>
 #include <memory>
 
@@ -46,8 +47,9 @@ private:
                               double& ax, double& ay, double& az) const;
 
     // Node pool to avoid per-frame heap allocations. root_ points into node_pool.
+    // std::deque keeps element addresses stable as the tree grows.
     OctreeNode* root_ = nullptr;
-    std::vector<OctreeNode> node_pool;
+    std::deque<OctreeNode> node_pool;
     // Allocate a new node from the pool and return pointer.
     OctreeNode* allocateNode(double cx, double cy, double cz, double half);
 };
@@ -55,5 +57,9 @@ private:
 // Fachada pública (dispatcher AVX/SSE2)
 class NBody {
 public:
+    float theta = 0.5f;
+    float softening = 1e-3f;
+    double acceleration_cap = -1.0;
+
     void step(ParticlePool& pool, float dt);
 };
