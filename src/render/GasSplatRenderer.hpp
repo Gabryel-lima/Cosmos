@@ -59,6 +59,7 @@ private:
     GLuint vbo_smth_  = 0;   // float smoothing_length
     GLuint vbo_temp_  = 0;   // float temperature_kev
     GLuint vbo_ion_   = 0;   // int   ionized
+    GLuint profile_tex_ = 0;
     GLuint prog_ = 0;
 
     // Uniforms cached
@@ -66,6 +67,11 @@ private:
     GLint uloc_proj_       = -1;
     GLint uloc_sigma_px_   = -1;
     GLint uloc_screen_size_= -1;
+    GLint uloc_profile_tex_= -1;
+    GLint uloc_alpha_scale_= -1;
+    int   profile_tex_width_ = 1;
+    int   profile_tex_height_ = 1;
+    bool  profile_tex_loaded_ = false;
 
     // Pré-alocados em Init — zero alloc em Render (Regra 0.5)
     std::vector<float> pos_buf_;   // x,y,z intercalados — max_splats * 3

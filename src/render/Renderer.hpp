@@ -4,6 +4,7 @@
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
+#include <filesystem>
 #include <string>
 #include <vector>
 #include "ICosmicRenderer.hpp"
@@ -175,8 +176,13 @@ private:
     void setupParticleBuffers();
     void setupQuadBuffers();
     void setupFBOs();
+    void setupLookupTextures();
     void applyPostProcess();
     void setVec3Uniform(GLuint program, const char* name, const glm::vec3& value) const;
+    bool loadPgmTexture2D(GlTexture& texture,
+                          const std::filesystem::path& relative_path,
+                          int& out_width,
+                          int& out_height);
     void syncVisualTuning(const Universe& universe);
 
     int width_ = 1280, height_ = 720;
@@ -254,8 +260,12 @@ private:
     GlTexture density_3d_tex_;
     GlTexture ionization_3d_tex_;
     GlTexture emissivity_3d_tex_;
+    GlTexture volume_macro_lookup_tex_;
     // Textura 2D do campo de inflação
     GlTexture inflation_2d_tex_;
+    int volume_macro_lookup_width_ = 1;
+    int volume_macro_lookup_height_ = 1;
+    bool volume_macro_lookup_loaded_ = false;
 
     // Consultas do temporizador GPU
     GLuint timer_query_[2] = {0, 0};

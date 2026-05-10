@@ -8,7 +8,10 @@
 namespace dots_prototype {
 
 void run_prototype(int argc, char** argv) {
-    std::size_t N = 2000;
+    std::size_t N = 2000; /* @todo: Tálvez devesse alinhar com 
+                             RegimeConfig::STRUCT_GRID_SIZE^3 para 
+                             teste mais realista, mas isso é O(N^2) 
+                             então vamos começar pequeno. */
     int steps = 5;
     if (argc > 1) {
         try { N = static_cast<std::size_t>(std::stoul(argv[1])); } catch(...) {}

@@ -8,6 +8,9 @@ flat in int  v_ionized;
 
 out vec4 frag_color;
 
+uniform sampler2D u_profile_tex;
+uniform float     u_alpha_scale;
+
 // Mapear temperatura para cor — gás neutro vs ionizado
 vec3 TemperatureToColor(float temp_kev, int ionized) {
     if (ionized == 1) {
@@ -22,13 +25,7 @@ vec3 TemperatureToColor(float temp_kev, int ionized) {
 }
 
 void main() {
-    // gl_PointCoord: [0,1]×[0,1], centrado em (0.5, 0.5)
-    vec2  d      = gl_PointCoord - vec2(0.5);
-    float dist2  = dot(d, d);
-    // Variância normalizada para coord de ponto sprite: (0.2)^2 = 0.04
-    float sigma2 = 0.04;
-
-    float alpha = exp(-dist2 / (2.0 * sigma2));
+    float alpha = texture(u_profile_tex, gl_PointCoord).r * u_alpha_scale;
 
     // Descarte antecipado — não desperdiçar fillrate
     if (alpha < 0.01) discard;

@@ -9,11 +9,14 @@ out vec4 frag_color;
 uniform sampler3D u_density_tex;
 uniform sampler3D u_ionization_tex;
 uniform sampler3D u_emissivity_tex;
+uniform sampler2D u_macro_lookup_tex;
 uniform int       u_regime;
 uniform float     u_density_scale;
 uniform float     u_opacity_scale;
 uniform float     u_opacity;
 uniform float     u_edge_boost;
+uniform float     u_macro_lookup_strength;
+uniform float     u_macro_lookup_scale;
 uniform vec3      u_cam_world_pos;
 uniform float     u_box_size;
 uniform vec3      u_color_cold;
@@ -94,6 +97,14 @@ float foldedNebula(vec3 p, float tile_scale) {
     return accum;
 }
 
+float sampleMacroLookup(vec3 pos_vol) {
+    vec2 uv0 = fract(pos_vol.xz * u_macro_lookup_scale + vec2(pos_vol.y * 0.31, pos_vol.x * 0.17));
+    vec2 uv1 = fract(pos_vol.yx * (u_macro_lookup_scale * 0.61) + vec2(0.13, 0.47));
+    float layer0 = texture(u_macro_lookup_tex, uv0).r;
+    float layer1 = texture(u_macro_lookup_tex, uv1).r;
+    return mix(layer0, layer1, 0.35);
+}
+
 vec4 transferFunction(float density, float ionization, float emissivity, float edge, vec3 pos_vol) {
     float t = clamp(density * u_density_scale, 0.0, 1.0);
     float xion = clamp(ionization, 0.0, 1.0);
@@ -102,6 +113,15 @@ vec4 transferFunction(float density, float ionization, float emissivity, float e
     float wispy_noise = fbm(pos_vol.zyx * 17.0 + vec3(4.0, 9.0, 2.0));
     float folded = foldedNebula(pos_vol + vec3(0.07, 0.19, 0.13), mix(3.0, 5.4, float(u_regime >= 7)));
     float filaments = ridgeNoise(clamp(fbm(pos_vol * 10.0 + vec3(folded, macro_noise, wispy_noise)), 0.0, 1.0));
+    float baked_lookup = sampleMacroLookup(pos_vol);
+    float baked_bias = (baked_lookup - 0.5) * u_macro_lookup_strength;
+    macro_noise = clamp(macro_noise + baked_bias * 0.55, 0.0, 1.0);
+    wispy_noise = clamp(wispy_noise + baked_bias * 0.35, 0.0, 1.0);
+    folded = clamp(folded + baked_lookup * 0.25 * u_macro_lookup_strength, 0.0, 1.6);
+    filaments = clamp(mix(filaments,
+                          filaments * mix(0.72, 1.34, baked_lookup),
+                          u_macro_lookup_strength),
+                      0.0, 1.0);
     float dust = clamp(0.34 + macro_noise * 0.72 + wispy_noise * 0.28 + folded * 0.34 + filaments * 0.18, 0.0, 1.7);
     float dense_core = smoothstep(0.16, 0.92, t + source * 0.25);
     float void_mask = 1.0 - smoothstep(0.03, 0.24, t + macro_noise * 0.08 - folded * 0.05);

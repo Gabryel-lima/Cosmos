@@ -8,9 +8,14 @@
 #include <cstdio>
 #include <cmath>
 #include <algorithm>
+#include <cctype>
+#include <filesystem>
+#include <limits>
 #include <glm/gtc/type_ptr.hpp>
 
 namespace {
+
+namespace fs = std::filesystem;
 
 enum class ParticleShaderTag : int {
     Default = 0,
@@ -48,6 +53,131 @@ struct RegimeVisualProfile {
     float inflation_gradient_boost = 1.0f;
     float inflation_interference = 0.0f;
 };
+
+struct GrayImage2D {
+    int width = 0;
+    int height = 0;
+    std::vector<unsigned char> pixels;
+};
+
+fs::path resolveRendererAssetPath(const fs::path& relative_path) {
+    std::error_code ec;
+    fs::path probe = fs::current_path(ec);
+    if (ec) {
+        return relative_path;
+    }
+
+    const fs::path direct = probe / relative_path;
+    if (fs::exists(direct, ec)) {
+        return direct;
+    }
+
+    for (; !probe.empty(); ) {
+        if (fs::is_regular_file(probe / "CMakeLists.txt", ec)) {
+            const fs::path candidate = probe / relative_path;
+            if (fs::exists(candidate, ec)) {
+                return candidate;
+            }
+            break;
+        }
+        const fs::path parent = probe.parent_path();
+        if (parent == probe) {
+            break;
+        }
+        probe = parent;
+    }
+
+    return relative_path;
+}
+
+bool readNextPgmToken(std::istream& input, std::string& token) {
+    token.clear();
+    char ch = '\0';
+    while (input.get(ch)) {
+        if (std::isspace(static_cast<unsigned char>(ch))) {
+            continue;
+        }
+        if (ch == '#') {
+            input.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+            continue;
+        }
+        token.push_back(ch);
+        break;
+    }
+    if (token.empty()) {
+        return false;
+    }
+    while (input.get(ch)) {
+        if (std::isspace(static_cast<unsigned char>(ch))) {
+            break;
+        }
+        if (ch == '#') {
+            input.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+            break;
+        }
+        token.push_back(ch);
+    }
+    return true;
+}
+
+bool loadPgmImage(const fs::path& path, GrayImage2D& image) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input) {
+        return false;
+    }
+
+    std::string magic;
+    std::string token;
+    if (!readNextPgmToken(input, magic) || (magic != "P2" && magic != "P5")) {
+        return false;
+    }
+    if (!readNextPgmToken(input, token)) {
+        return false;
+    }
+    const int width = std::stoi(token);
+    if (!readNextPgmToken(input, token)) {
+        return false;
+    }
+    const int height = std::stoi(token);
+    if (!readNextPgmToken(input, token)) {
+        return false;
+    }
+    const int max_value = std::stoi(token);
+    if (width <= 0 || height <= 0 || max_value <= 0 || max_value > 255) {
+        return false;
+    }
+
+    image.width = width;
+    image.height = height;
+    image.pixels.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
+
+    if (magic == "P2") {
+        for (unsigned char& pixel : image.pixels) {
+            if (!readNextPgmToken(input, token)) {
+                return false;
+            }
+            const int value = std::clamp(std::stoi(token), 0, max_value);
+            pixel = static_cast<unsigned char>((value * 255 + max_value / 2) / max_value);
+        }
+        return true;
+    }
+
+    input >> std::ws;
+    std::vector<unsigned char> raw(image.pixels.size());
+    input.read(reinterpret_cast<char*>(raw.data()), static_cast<std::streamsize>(raw.size()));
+    if (input.gcount() != static_cast<std::streamsize>(raw.size())) {
+        return false;
+    }
+    if (max_value == 255) {
+        image.pixels = std::move(raw);
+        return true;
+    }
+
+    for (std::size_t i = 0; i < raw.size(); ++i) {
+        image.pixels[i] = static_cast<unsigned char>((static_cast<int>(raw[i]) * 255 + max_value / 2) / max_value);
+    }
+    return true;
+}
 
 float mixScalar(float a, float b, float t) {
     return a + (b - a) * t;
@@ -442,6 +572,7 @@ bool Renderer::init(int width, int height) {
     glGenTextures(1, &density_3d_tex_.id);
     glGenTextures(1, &ionization_3d_tex_.id);
     glGenTextures(1, &emissivity_3d_tex_.id);
+    glGenTextures(1, &volume_macro_lookup_tex_.id);
     glGenTextures(1, &inflation_2d_tex_.id);
 
     // Carregar shaders
@@ -451,6 +582,7 @@ bool Renderer::init(int width, int height) {
     setupParticleBuffers();
     setupQuadBuffers();
     setupFBOs();
+    setupLookupTextures();
 
     // Consultas do temporizador GPU
     glGenQueries(2, timer_query_);
@@ -525,6 +657,7 @@ void Renderer::shutdown() {
     deleteTexture(density_3d_tex_);
     deleteTexture(ionization_3d_tex_);
     deleteTexture(emissivity_3d_tex_);
+    deleteTexture(volume_macro_lookup_tex_);
     deleteTexture(inflation_2d_tex_);
 
     deleteProgram(particle_shader_);
@@ -564,6 +697,7 @@ void Renderer::reloadShaders() {
         "../src/shaders/quad.vert", "../src/shaders/bloom_threshold.frag");
     loadShaderProgram(bloom_blur_shader_,
         "../src/shaders/quad.vert", "../src/shaders/bloom_blur.frag");
+    setupLookupTextures();
     std::printf("[Renderer] Shaders reloaded.\n");
 }
 
@@ -655,6 +789,57 @@ void Renderer::setupFBOs() {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_R16F, 256, 256, 0, GL_RED, GL_FLOAT, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+}
+
+bool Renderer::loadPgmTexture2D(GlTexture& texture,
+                                const std::filesystem::path& relative_path,
+                                int& out_width,
+                                int& out_height) {
+    GrayImage2D image;
+    const fs::path resolved_path = resolveRendererAssetPath(relative_path);
+    if (!loadPgmImage(resolved_path, image)) {
+        return false;
+    }
+
+    glBindTexture(GL_TEXTURE_2D, texture.id);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, image.width, image.height, 0,
+                 GL_RED, GL_UNSIGNED_BYTE, image.pixels.data());
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glGenerateMipmap(GL_TEXTURE_2D);
+
+    out_width = image.width;
+    out_height = image.height;
+    return true;
+}
+
+void Renderer::setupLookupTextures() {
+    glBindTexture(GL_TEXTURE_2D, volume_macro_lookup_tex_.id);
+    volume_macro_lookup_loaded_ = loadPgmTexture2D(
+        volume_macro_lookup_tex_,
+        "assets/textures/structure/volume_macro_lookup.pgm",
+        volume_macro_lookup_width_,
+        volume_macro_lookup_height_);
+
+    if (!volume_macro_lookup_loaded_) {
+        const unsigned char neutral_gray = 128;
+        volume_macro_lookup_width_ = 1;
+        volume_macro_lookup_height_ = 1;
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, 1, 1, 0,
+                     GL_RED, GL_UNSIGNED_BYTE, &neutral_gray);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        std::fprintf(stderr,
+                     "[Renderer] Optional baked lookup not found: assets/textures/structure/volume_macro_lookup.pgm\n");
+    }
 }
 
 void Renderer::setupParticleBuffers() {
@@ -1020,11 +1205,16 @@ void Renderer::renderVolumeField(const Universe& universe) {
     glUniform1i(glGetUniformLocation(volume_shader_.id, "u_density_tex"), 0);
     glUniform1i(glGetUniformLocation(volume_shader_.id, "u_ionization_tex"), 1);
     glUniform1i(glGetUniformLocation(volume_shader_.id, "u_emissivity_tex"), 2);
+    glUniform1i(glGetUniformLocation(volume_shader_.id, "u_macro_lookup_tex"), 3);
     glUniform1i(glGetUniformLocation(volume_shader_.id, "u_regime"), universe.regime_index);
     glUniform1f(glGetUniformLocation(volume_shader_.id, "u_density_scale"), profile.volume_density_scale);
     glUniform1f(glGetUniformLocation(volume_shader_.id, "u_opacity_scale"), profile.volume_opacity_scale * volume_opacity_multiplier_);
     glUniform1f(glGetUniformLocation(volume_shader_.id, "u_opacity"), render_opacity_);
     glUniform1f(glGetUniformLocation(volume_shader_.id, "u_edge_boost"), profile.volume_edge_boost);
+    glUniform1f(glGetUniformLocation(volume_shader_.id, "u_macro_lookup_strength"),
+                volume_macro_lookup_loaded_ ? 0.85f : 0.0f);
+    glUniform1f(glGetUniformLocation(volume_shader_.id, "u_macro_lookup_scale"),
+                (universe.regime_index >= 7) ? 4.0f : 3.0f);
     glUniform3f(glGetUniformLocation(volume_shader_.id, "u_cam_world_pos"), 
                 static_cast<float>(cam_world_pos_.x), 
                 static_cast<float>(cam_world_pos_.y), 
@@ -1045,6 +1235,8 @@ void Renderer::renderVolumeField(const Universe& universe) {
     glBindTexture(GL_TEXTURE_3D, ionization_3d_tex_.id);
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_3D, emissivity_3d_tex_.id);
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, volume_macro_lookup_tex_.id);
 
     glBindVertexArray(quad_vao_.id);
     glDisable(GL_DEPTH_TEST);
@@ -1060,6 +1252,9 @@ void Renderer::renderVolumeField(const Universe& universe) {
     glBindTexture(GL_TEXTURE_3D, 0);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_3D, 0);
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
     glUseProgram(0);
 }
 

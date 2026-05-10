@@ -25,12 +25,14 @@ _deps/
 
 # ── IDE / editor ───────────────────────────────────────────────────────────
 .vscode/
+.blender-vscode/
 .idea/
 *.code-workspace
 *.sublime-project
 *.sublime-workspace
 .clangd/
 .cache/
+.venv-blender-tools/
 
 # ── Vim / Emacs swap / backup files ───────────────────────────────────────
 *.swp
@@ -52,3 +54,7 @@ Desktop.ini
 # ── Logs / temporaries ─────────────────────────────────────────────────────
 *.log
 /tmp/
+
+# ── Python tooling ─────────────────────────────────────────────────────────
+__pycache__/
+*.pyc

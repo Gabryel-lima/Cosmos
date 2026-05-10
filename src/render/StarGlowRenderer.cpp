@@ -1,5 +1,6 @@
 // src/render/StarGlowRenderer.cpp
 #include "StarGlowRenderer.hpp"
+#include "AssetTextureUtils.hpp"
 #include "../core/Camera.hpp"
 #include <fstream>
 #include <sstream>
@@ -56,6 +57,28 @@ bool StarGlowRenderer::Init(QualityTier quality) {
     uloc_proj_      = glGetUniformLocation(prog_, "u_proj");
     uloc_base_size_ = glGetUniformLocation(prog_, "u_base_size");
     uloc_screen_    = glGetUniformLocation(prog_, "u_screen_size");
+    uloc_profile_tex_ = glGetUniformLocation(prog_, "u_profile_tex");
+
+    glGenTextures(1, &profile_tex_);
+    profile_tex_loaded_ = cosmos::render::LoadPgmTexture2D(
+        profile_tex_,
+        "assets/textures/reionization/star_glow_profile.pgm",
+        profile_tex_width_,
+        profile_tex_height_,
+        true,
+        GL_CLAMP_TO_EDGE);
+    if (!profile_tex_loaded_) {
+        const unsigned char neutral_white = 255;
+        glBindTexture(GL_TEXTURE_2D, profile_tex_);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, 1, 1, 0,
+                     GL_RED, GL_UNSIGNED_BYTE, &neutral_white);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
 
     const int max_stars = config_.max_stars;
     glGenVertexArrays(1, &vao_); glBindVertexArray(vao_);
@@ -154,10 +177,15 @@ void StarGlowRenderer::Render(const ParticlePool& particles,
     if (uloc_screen_ >= 0)    glUniform2f(uloc_screen_,
                                            static_cast<float>(screen_w_),
                                            static_cast<float>(screen_h_));
+    if (uloc_profile_tex_ >= 0) glUniform1i(uloc_profile_tex_, 0);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, profile_tex_);
 
     glBindVertexArray(vao_);
     glDrawArrays(GL_POINTS, 0, star_count_);
     glBindVertexArray(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
     glUseProgram(0);
 }
 
@@ -167,6 +195,7 @@ void StarGlowRenderer::Shutdown() {
     if (vbo_lum_)  { glDeleteBuffers(1, &vbo_lum_);    vbo_lum_ = 0; }
     if (vbo_sta_)  { glDeleteBuffers(1, &vbo_sta_);    vbo_sta_ = 0; }
     if (vbo_temp_) { glDeleteBuffers(1, &vbo_temp_);   vbo_temp_ = 0; }
+    if (profile_tex_) { glDeleteTextures(1, &profile_tex_); profile_tex_ = 0; }
     if (prog_)     { glDeleteProgram(prog_);             prog_ = 0; }
     initialized_ = false;
 }

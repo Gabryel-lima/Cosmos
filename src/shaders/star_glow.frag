@@ -8,6 +8,8 @@ flat in  int   v_star_state;
 
 out vec4 frag_color;
 
+uniform sampler2D u_profile_tex;
+
 // Temperatura estelar → cor via aproximação de corpo negro
 vec3 StarColor(float temp_k) {
     // Mapeamento simplificado: azul (>10000K) → branco (6000K) → amarelo (5000K) → laranja/vermelho (<4000K)
@@ -22,13 +24,10 @@ vec3 StarColor(float temp_k) {
 }
 
 void main() {
-    vec2  d     = gl_PointCoord - vec2(0.5);
-    float dist2 = dot(d, d);
-
-    // Perfil duplo: núcleo intenso + halo suave
-    float core  = exp(-dist2 / 0.005);           // núcleo apertado
-    float halo  = exp(-dist2 / 0.08) * 0.3;      // halo difuso
-    float total = clamp(core + halo, 0.0, 1.0);
+    vec2 texel = vec2(1.0) / vec2(textureSize(u_profile_tex, 0));
+    float total = texture(u_profile_tex, gl_PointCoord).r;
+    float core = texture(u_profile_tex,
+                         clamp(gl_PointCoord * 0.55 + vec2(0.225), texel, vec2(1.0) - texel)).r;
 
     if (total < 0.005) discard;
 

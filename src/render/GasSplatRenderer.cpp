@@ -1,5 +1,6 @@
 // src/render/GasSplatRenderer.cpp — Implementação do renderizador de Gaussian splat de gás.
 #include "GasSplatRenderer.hpp"
+#include "AssetTextureUtils.hpp"
 #include "../core/Camera.hpp"
 #include <fstream>
 #include <sstream>
@@ -77,6 +78,29 @@ bool GasSplatRenderer::Init(QualityTier quality) {
     uloc_proj_        = glGetUniformLocation(prog_, "u_proj");
     uloc_sigma_px_    = glGetUniformLocation(prog_, "u_sigma_px");
     uloc_screen_size_ = glGetUniformLocation(prog_, "u_screen_size");
+    uloc_profile_tex_ = glGetUniformLocation(prog_, "u_profile_tex");
+    uloc_alpha_scale_ = glGetUniformLocation(prog_, "u_alpha_scale");
+
+    glGenTextures(1, &profile_tex_);
+    profile_tex_loaded_ = cosmos::render::LoadPgmTexture2D(
+        profile_tex_,
+        "assets/textures/dark_ages/gas_splat_profile.pgm",
+        profile_tex_width_,
+        profile_tex_height_,
+        true,
+        GL_CLAMP_TO_EDGE);
+    if (!profile_tex_loaded_) {
+        const unsigned char neutral_white = 255;
+        glBindTexture(GL_TEXTURE_2D, profile_tex_);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, 1, 1, 0,
+                     GL_RED, GL_UNSIGNED_BYTE, &neutral_white);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
 
     // VAO + VBOs pré-alocados (Regra 0.5 — zero alloc em Render)
     glGenVertexArrays(1, &vao_);
@@ -250,10 +274,19 @@ void GasSplatRenderer::Render(const ParticlePool& particles,
         glUniform2f(uloc_screen_size_,
                     static_cast<float>(screen_w_),
                     static_cast<float>(screen_h_));
+    if (uloc_profile_tex_ >= 0)
+        glUniform1i(uloc_profile_tex_, 0);
+    if (uloc_alpha_scale_ >= 0)
+        glUniform1f(uloc_alpha_scale_, config_.alpha_scale);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, profile_tex_);
 
     glBindVertexArray(vao_);
     glDrawArrays(GL_POINTS, 0, gas_count_);
     glBindVertexArray(0);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
 
     glUseProgram(0);
     // state_guard sai de escopo → estado restaurado automaticamente
@@ -266,6 +299,7 @@ void GasSplatRenderer::Shutdown() {
     if (vbo_smth_) { glDeleteBuffers(1, &vbo_smth_);      vbo_smth_ = 0; }
     if (vbo_temp_) { glDeleteBuffers(1, &vbo_temp_);      vbo_temp_ = 0; }
     if (vbo_ion_)  { glDeleteBuffers(1, &vbo_ion_);       vbo_ion_ = 0; }
+    if (profile_tex_) { glDeleteTextures(1, &profile_tex_); profile_tex_ = 0; }
     if (prog_)     { glDeleteProgram(prog_);               prog_ = 0; }
     initialized_ = false;
 }

@@ -47,12 +47,17 @@ private:
     GLuint vbo_lum_  = 0;  // float luminosity
     GLuint vbo_sta_  = 0;  // int   star_state
     GLuint vbo_temp_ = 0;  // float temp_particle
+    GLuint profile_tex_ = 0;
     GLuint prog_     = 0;
 
     GLint uloc_view_      = -1;
     GLint uloc_proj_      = -1;
     GLint uloc_base_size_ = -1;
     GLint uloc_screen_    = -1;
+    GLint uloc_profile_tex_ = -1;
+    int   profile_tex_width_ = 1;
+    int   profile_tex_height_ = 1;
+    bool  profile_tex_loaded_ = false;
 
     std::vector<float> pos_buf_;
     std::vector<float> lum_buf_;

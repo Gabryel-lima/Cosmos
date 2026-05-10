@@ -58,7 +58,7 @@ sudo apt install build-essential cmake ffmpeg libglfw3-dev libglm-dev libgl-dev 
 ## Build
 
 ```bash
-# 1. Download libs/glad and libs/imgui (safe to re-run — skips if present)
+# 1. Download libs/glad and libs/imgui and verify a usable bpy runtime for Blender tooling
 make setup
 
 # 2. Compile
@@ -252,6 +252,14 @@ Manual run (equivalent):
 ./build/cosmos
 ```
 
+## Blender Workflow
+
+If you want to use Blender as an offline asset tool for this renderer, see [docs/blender-workflow.md](docs/blender-workflow.md).
+
+The repository also includes workspace recommendations and Blender VS Code settings in [.vscode/extensions.json](.vscode/extensions.json) and [.vscode/settings.json](.vscode/settings.json).
+
+`make setup` now also verifies `bpy` for Blender automation. It prefers a working host `python3`, then a detected Blender executable such as `/snap/bin/blender` or a Steam install, and only falls back to a local `.venv-blender-tools/` when needed. You can override detection with `BLENDER_BIN=/absolute/path/to/blender make setup`.
+
 ## Run Examples
 
 ```bash
@@ -304,7 +312,7 @@ Contributions are welcome — fork the repo, create a topic branch, and submit a
 - how to reproduce or test it locally
 - screenshots or GIFs for visual changes
 
-Run `make setup` and `make` before opening a PR to ensure external libs are present and the project builds locally.
+Run `make setup` and `make` before opening a PR to ensure external libs are present, Blender tooling is wired, and the project builds locally.
 
 ## Credits & Acknowledgements
 

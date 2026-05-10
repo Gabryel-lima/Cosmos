@@ -55,7 +55,7 @@ sudo apt install build-essential cmake ffmpeg libglfw3-dev libglm-dev libgl-dev 
 ## Compilação
 
 ```bash
-# 1. Baixe libs/glad e libs/imgui (seguro repetir; ignora se já existirem)
+# 1. Baixe libs/glad e libs/imgui e verifique um runtime bpy utilizável para as ferramentas Blender
 make setup
 
 # 2. Compile
@@ -230,6 +230,14 @@ Execução manual (equivalente):
 ./build/cosmos
 ```
 
+## Workflow com Blender
+
+Se você quiser usar o Blender como ferramenta offline de autoria de assets para este renderizador, veja [docs/blender-workflow.pt-BR.md](docs/blender-workflow.pt-BR.md).
+
+O repositório também inclui recomendação de extensão e configurações de workspace do Blender em [.vscode/extensions.json](.vscode/extensions.json) e [.vscode/settings.json](.vscode/settings.json).
+
+`make setup` agora também verifica `bpy` para automação Blender. Ele prefere um `python3` do host que já importe `bpy`, depois um executável Blender detectado como `/snap/bin/blender` ou uma instalação da Steam, e só então cai para um `.venv-blender-tools/` local se isso for necessário. Você pode sobrescrever a detecção com `BLENDER_BIN=/caminho/absoluto/para/blender make setup`.
+
 ## Exemplos de execução
 
 ```bash
@@ -282,7 +290,7 @@ Contribuições são bem-vindas — faça um fork do repositório, crie um branc
 - como reproduzir ou testar localmente
 - capturas de tela ou GIFs para mudanças visuais
 
-Execute `make setup` e `make` antes de abrir um PR para garantir que libs externas estejam presentes e o projeto compile localmente.
+Execute `make setup` e `make` antes de abrir um PR para garantir que libs externas estejam presentes, o tooling do Blender esteja pronto e o projeto compile localmente.
 
 ## Créditos e Agradecimentos
 
