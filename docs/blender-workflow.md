@@ -36,7 +36,7 @@ The repository includes workspace settings in `.vscode/settings.json` that:
 
 The workspace also recommends the VS Code extension via `.vscode/extensions.json`, but you still need to install it in the editor before the `Blender:*` commands are available.
 
-`make setup` also verifies that a usable `bpy` runtime exists for automation. The target first accepts a host `python3` that already imports `bpy`, then tries a detected Blender executable, and only creates a local `.venv-blender-tools/` if neither is available. If autodetection picks the wrong Blender install, run `BLENDER_BIN=/absolute/path/to/blender make setup`.
+`make setup` also verifies that a usable `bpy` runtime exists for automation. The target first accepts a host `python3` that already imports `bpy`, then tries a detected Blender executable, and finally downloads a portable Blender bundle into `.blender-tools/blender/` if neither is available. If autodetection picks the wrong Blender install, run `BLENDER_BIN=/absolute/path/to/blender make setup`, or override the archive source with `BLENDER_DOWNLOAD_URL`.
 
 Recommended extension:
 
@@ -212,7 +212,7 @@ To regenerate the lookup:
 3. Run `Blender: Run Script`.
 4. Go back to the running app and press `R` to reload shaders and the baked lookup.
 
-For headless validation outside the VS Code extension, `make setup` is enough to validate a usable `bpy` source. On machines where a pip wheel is unavailable, the project falls back to the `bpy` bundled with the detected Blender binary.
+For headless validation outside the VS Code extension, `make setup` is enough to validate a usable `bpy` source. On machines where Blender is not already installed, the project downloads a portable Blender bundle and uses the `bpy` that ships with it.
 
 ## Integration checklist for runtime shaders
 

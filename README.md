@@ -258,7 +258,7 @@ If you want to use Blender as an offline asset tool for this renderer, see [docs
 
 The repository also includes workspace recommendations and Blender VS Code settings in [.vscode/extensions.json](.vscode/extensions.json) and [.vscode/settings.json](.vscode/settings.json).
 
-`make setup` now also verifies `bpy` for Blender automation. It prefers a working host `python3`, then a detected Blender executable such as `/snap/bin/blender` or a Steam install, and only falls back to a local `.venv-blender-tools/` when needed. You can override detection with `BLENDER_BIN=/absolute/path/to/blender make setup`.
+`make setup` now also verifies `bpy` for Blender automation. It prefers a working host `python3`, then a detected Blender executable such as `/snap/bin/blender` or a Steam install, and finally downloads a portable Blender bundle into `.blender-tools/blender/` when no usable runtime is already available. You can override detection with `BLENDER_BIN=/absolute/path/to/blender make setup`, or point `BLENDER_DOWNLOAD_URL` at a different Blender archive.
 
 ## Run Examples
 

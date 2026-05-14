@@ -19,8 +19,11 @@ QUALITY ?= MEDIUM
 LOG     ?= 0
 JOBS    ?= $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
 PYTHON3 := $(shell command -v python3 2>/dev/null)
-BLENDER_TOOLS_VENV := .venv-blender-tools
-BLENDER_TOOLS_PYTHON := $(BLENDER_TOOLS_VENV)/bin/python
+BLENDER_RUNTIME_DIR := .blender-tools/blender
+BLENDER_RUNTIME_BIN := $(BLENDER_RUNTIME_DIR)/blender
+BLENDER_VERSION ?= 4.2.7
+BLENDER_MAJOR_MINOR ?= 4.2
+BLENDER_DOWNLOAD_URL ?= https://download.blender.org/release/Blender$(BLENDER_MAJOR_MINOR)/blender-$(BLENDER_VERSION)-linux-x64.tar.xz
 BLENDER_BIN ?= $(shell \
 	if command -v blender >/dev/null 2>&1; then command -v blender; \
 	elif [ -x "$$HOME/snap/steam/common/.local/share/Steam/steamapps/common/Blender/blender" ]; then echo "$$HOME/snap/steam/common/.local/share/Steam/steamapps/common/Blender/blender"; \
@@ -63,21 +66,29 @@ setup-bpy:
 		echo "[setup] Host python already provides bpy."; \
 	elif [ -n "$(BLENDER_BIN)" ] && "$(BLENDER_BIN)" -b --factory-startup --python-expr "import bpy" >/dev/null 2>&1; then \
 		echo "[setup] Using Blender bundled bpy from $(BLENDER_BIN)."; \
+	elif [ -x "$(BLENDER_RUNTIME_BIN)" ] && "$(BLENDER_RUNTIME_BIN)" -b --factory-startup --python-expr "import bpy" >/dev/null 2>&1; then \
+		echo "[setup] Using portable Blender runtime from $(BLENDER_RUNTIME_BIN)."; \
 	else \
-		if [ ! -x "$(BLENDER_TOOLS_PYTHON)" ]; then \
-			echo "[setup] Creating local Blender tools venv at $(BLENDER_TOOLS_VENV)..."; \
-			"$(PYTHON3)" -m venv "$(BLENDER_TOOLS_VENV)"; \
-		fi; \
-		if "$(BLENDER_TOOLS_PYTHON)" -c "import bpy" >/dev/null 2>&1; then \
-			echo "[setup] Local Blender tools venv already provides bpy."; \
+		echo "[setup] Downloading portable Blender $(BLENDER_VERSION) from $(BLENDER_DOWNLOAD_URL)..."; \
+		mkdir -p "$(BLENDER_RUNTIME_DIR)"; \
+		TMP_ARCHIVE=$$(mktemp /tmp/blender-runtime.XXXXXX.tar.xz); \
+		trap 'rm -f "$$TMP_ARCHIVE"' EXIT INT TERM; \
+		if [ -n "$(CURL)" ]; then \
+			"$(CURL)" -fL "$(BLENDER_DOWNLOAD_URL)" -o "$$TMP_ARCHIVE"; \
+		elif [ -n "$(WGET)" ]; then \
+			"$(WGET)" -O "$$TMP_ARCHIVE" "$(BLENDER_DOWNLOAD_URL)"; \
 		else \
-			echo "[setup] Installing bpy into $(BLENDER_TOOLS_VENV)..."; \
-			"$(BLENDER_TOOLS_PYTHON)" -m pip install --upgrade pip >/dev/null && \
-			"$(BLENDER_TOOLS_PYTHON)" -m pip install bpy || { \
-				echo "[error] Unable to install bpy with pip and no usable Blender executable was detected."; \
-				echo "        Set BLENDER_BIN=/absolute/path/to/blender or install a Python-compatible bpy wheel."; \
-				exit 1; \
-			}; \
+			echo "[error] No HTTP downloader (curl/wget) found. Install curl or wget, or provide BLENDER_BIN."; \
+			exit 1; \
+		fi; \
+		rm -rf "$(BLENDER_RUNTIME_DIR)"; \
+		mkdir -p "$(BLENDER_RUNTIME_DIR)"; \
+		tar -xJf "$$TMP_ARCHIVE" -C "$(BLENDER_RUNTIME_DIR)" --strip-components=1; \
+		if "$(BLENDER_RUNTIME_BIN)" -b --factory-startup --python-expr "import bpy" >/dev/null 2>&1; then \
+			echo "[setup] Portable Blender runtime ready at $(BLENDER_RUNTIME_BIN)."; \
+		else \
+			echo "[error] Downloaded Blender runtime does not provide bpy at $(BLENDER_RUNTIME_BIN)."; \
+			exit 1; \
 		fi; \
 	fi
 
@@ -212,7 +223,7 @@ clean:
 	@echo "Build artefacts removed.  Run 'make' to rebuild."
 
 distclean: clean
-	@rm -rf $(LIBS)/glad $(LIBS)/imgui
+	@rm -rf $(LIBS)/glad $(LIBS)/imgui $(BLENDER_RUNTIME_DIR) .venv-blender-tools
 	@echo "Dependencies removed.  Run 'make setup' to re-download."
 
 # ── ajuda ────────────────────────────────────────────────────────────────────
@@ -232,6 +243,8 @@ help:
 	@echo "  QUALITY=SAFE|LOW|MEDIUM|HIGH|ULTRA  Simulation quality  (default: MEDIUM)"
 	@echo "  LOG=1                          Enable telemetry file in logs/"
 	@echo "  BLENDER_BIN=/path/to/blender   Override Blender executable used to verify bundled bpy"
+	@echo "  BLENDER_VERSION=X.Y.Z          Portable Blender version to download when needed"
+	@echo "  BLENDER_DOWNLOAD_URL=URL       Override the official Blender archive URL"
 	@echo "  JOBS=N                         Parallel build jobs  (default: nproc)"
 	@echo ""
 	@echo "Examples:"

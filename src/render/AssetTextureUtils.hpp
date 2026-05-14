@@ -122,7 +122,8 @@ inline bool LoadPgmImage(const fs::path& path, GrayImage2D& image) {
         return true;
     }
 
-    input >> std::ws;
+    // ReadNextPgmToken already consumed the header delimiter after max_value.
+    // Reading another delimiter here would consume the first raster byte.
     std::vector<unsigned char> raw(image.pixels.size());
     input.read(reinterpret_cast<char*>(raw.data()), static_cast<std::streamsize>(raw.size()));
     if (input.gcount() != static_cast<std::streamsize>(raw.size())) {

@@ -36,7 +36,7 @@ O repositorio inclui configuracoes de workspace em `.vscode/settings.json` que:
 
 O workspace tambem recomenda automaticamente a extensao do VS Code em `.vscode/extensions.json`, mas voce ainda precisa instala-la no editor para usar os comandos `Blender:*`.
 
-`make setup` tambem verifica se existe um runtime `bpy` utilizavel para automacao. O alvo primeiro aceita um `python3` do host que ja importe `bpy`, depois tenta um executavel Blender detectado, e so cria um `.venv-blender-tools/` local se nenhum dos dois estiver disponivel. Se a autodeteccao pegar a instalacao errada, rode `BLENDER_BIN=/caminho/absoluto/para/blender make setup`.
+`make setup` tambem verifica se existe um runtime `bpy` utilizavel para automacao. O alvo primeiro aceita um `python3` do host que ja importe `bpy`, depois tenta um executavel Blender detectado e, por fim, baixa um pacote portatil do Blender para `.blender-tools/blender/` se nenhum deles estiver disponivel. Se a autodeteccao pegar a instalacao errada, rode `BLENDER_BIN=/caminho/absoluto/para/blender make setup` ou sobrescreva a origem do arquivo com `BLENDER_DOWNLOAD_URL`.
 
 Extensao recomendada:
 
@@ -212,7 +212,7 @@ Para regenerar o lookup:
 3. Rode `Blender: Run Script`.
 4. Volte para o app em execucao e aperte `R` para recarregar shaders e o lookup baked.
 
-Para validacao headless fora da extensao do VS Code, `make setup` ja basta para verificar uma fonte utilizavel de `bpy`. Em maquinas onde nao existir wheel compatível no pip, o projeto cai para o `bpy` empacotado no executavel Blender detectado.
+Para validacao headless fora da extensao do VS Code, `make setup` ja basta para verificar uma fonte utilizavel de `bpy`. Em maquinas onde o Blender nao estiver instalado, o projeto baixa um pacote portatil e usa o `bpy` que vem junto dele.
 
 ## Checklist de integracao com shaders de runtime
 

@@ -236,7 +236,7 @@ Se você quiser usar o Blender como ferramenta offline de autoria de assets para
 
 O repositório também inclui recomendação de extensão e configurações de workspace do Blender em [.vscode/extensions.json](.vscode/extensions.json) e [.vscode/settings.json](.vscode/settings.json).
 
-`make setup` agora também verifica `bpy` para automação Blender. Ele prefere um `python3` do host que já importe `bpy`, depois um executável Blender detectado como `/snap/bin/blender` ou uma instalação da Steam, e só então cai para um `.venv-blender-tools/` local se isso for necessário. Você pode sobrescrever a detecção com `BLENDER_BIN=/caminho/absoluto/para/blender make setup`.
+`make setup` agora também verifica `bpy` para automação Blender. Ele prefere um `python3` do host que já importe `bpy`, depois um executável Blender detectado como `/snap/bin/blender` ou uma instalação da Steam, e por fim baixa um pacote portátil do Blender para `.blender-tools/blender/` quando nenhum runtime utilizável já estiver disponível. Você pode sobrescrever a detecção com `BLENDER_BIN=/caminho/absoluto/para/blender make setup` ou apontar `BLENDER_DOWNLOAD_URL` para outro arquivo do Blender.
 
 ## Exemplos de execução
 
