@@ -21,6 +21,8 @@ controles simples para exploração e diagnósticos reproduzíveis.
 - Os regimes macro tardios agora usam um visual mais volumétrico: neblina de gás neutro, frentes de ionização, campos de emissividade e condensação gradual em fontes luminosas.
 - Os presets de qualidade foram rebalanceados para esse novo render macro, e um nível `SAFE` foi adicionado para CPUs fracas e GPUs integradas.
 - O modo `SAFE` agora também usa uma configuração mais barata do shader de volume, aliviando máquinas fracas tanto no custo de partículas quanto no raymarch volumétrico.
+- Idades Escuras, Reionização e Estrutura madura agora usam lookups baked próprios por fase, então o volume tardio diferencia melhor neblina neutra, ionização patchy e filamentos quentes com poeira.
+- Estrelas e buracos negros tardios agora recebem um sombreamento de sprite mais rico, enquanto o gás passa a dominar visualmente as duas primeiras fases tardias em vez de depender de splats simples.
 - Caminho de CPU seguro em tempo de execução: base portátil SSE2 com despacho AVX2 para loops críticos quando disponível.
 - Loop de atualização da simulação com passo fixo e proteção contra sobrecarga para dinâmica estável em FPS baixo.
 - Fluxo de câmera aprimorado: enquadramento automático da cena, recentralização rápida e rastreamento da partícula mais próxima.
@@ -99,6 +101,8 @@ make QUALITY=ULTRA    # detalhe máximo — exige CPU e GPU mais fortes
 O preset `SAFE` derruba agressivamente as contagens de partículas pesadas em CPU nos estágios N-body, mas preserva uma resolução 3D mínima para o gás macro continuar legível.
 
 Nos builds atuais, `SAFE` também reduz o custo do passe volumétrico tardio ao cortar passos de raymarch e simplificar o ruído do shader, então ele é a melhor primeira opção em hardware fraco.
+
+Os presets `LOW`, `MEDIUM`, `HIGH` e `ULTRA` agora também escalam diretamente o shader de gás tardio: mais passos de raymarch, mais breakup e mais detalhe de acreção/caústica conforme a qualidade sobe, enquanto `SAFE` mantém o caminho volumétrico ativo com uma configuração mais barata em vez de desligá-lo.
 
 ### Build com otimização nativa (opcional)
 

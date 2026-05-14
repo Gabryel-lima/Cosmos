@@ -4,6 +4,7 @@
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
+#include <array>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -260,12 +261,14 @@ private:
     GlTexture density_3d_tex_;
     GlTexture ionization_3d_tex_;
     GlTexture emissivity_3d_tex_;
-    GlTexture volume_macro_lookup_tex_;
+    GlTexture volume_macro_lookup_dark_ages_tex_;
+    GlTexture volume_macro_lookup_reionization_tex_;
+    GlTexture volume_macro_lookup_structure_tex_;
     // Textura 2D do campo de inflação
     GlTexture inflation_2d_tex_;
-    int volume_macro_lookup_width_ = 1;
-    int volume_macro_lookup_height_ = 1;
-    bool volume_macro_lookup_loaded_ = false;
+    std::array<int, 3> volume_macro_lookup_width_ = {1, 1, 1};
+    std::array<int, 3> volume_macro_lookup_height_ = {1, 1, 1};
+    std::array<bool, 3> volume_macro_lookup_loaded_ = {false, false, false};
 
     // Consultas do temporizador GPU
     GLuint timer_query_[2] = {0, 0};

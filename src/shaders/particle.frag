@@ -131,14 +131,18 @@ void main() {
         float corona = exp(-2.6 * d * d) + 0.24 * exp(-18.0 * (d - 0.46) * (d - 0.46));
         float diffraction = sparkleMask(center) * (0.55 + 0.45 * angularPulse(center, 4.0, 0.0)) * u_sparkle_gain;
         float hot_core = exp(-(18.0 + 6.0 * u_core_boost) * d * d);
+        float ring = exp(-26.0 * (d - 0.34) * (d - 0.34));
+        float scintillation = angularPulse(center, 8.0, d * 14.0) * exp(-9.0 * d * d) * u_sparkle_gain;
         vec3 star_color = mix(color, vec3(1.0, 0.98, 0.92), 0.22);
         vec3 corona_color = mix(star_color, vec3(0.78, 0.88, 1.00), smoothstep(0.0, 1.0, 1.0 - d) * 0.20);
         vec3 star_rgb = corona_color * corona * 1.12 * size_comp
-                      + mix(vec3(1.00, 0.96, 0.88), star_color, 0.65) * hot_core * 0.95
-                      + vec3(1.0, 0.95, 0.82) * diffraction * 2.1
-                      + rim_light * 0.7;
+                       + mix(vec3(1.00, 0.96, 0.88), star_color, 0.65) * hot_core * 0.95
+                       + mix(star_color, vec3(0.84, 0.92, 1.00), 0.26) * ring * (0.12 + 0.16 * u_core_boost)
+                       + vec3(1.0, 0.95, 0.82) * diffraction * 2.1
+                       + mix(vec3(1.0, 0.92, 0.80), vec3(0.80, 0.90, 1.0), scintillation) * scintillation * 0.6
+                       + rim_light * 0.7;
         frag_color = vec4(star_rgb * u_opacity,
-                          min(corona * 0.92 + hot_core * 0.22 + diffraction, 1.0) * u_opacity);
+                          min(corona * 0.92 + hot_core * 0.22 + diffraction + scintillation * 0.16, 1.0) * u_opacity);
         return;
     }
 
@@ -147,10 +151,16 @@ void main() {
         float core_shadow = 1.0 - smoothstep(0.0, 0.18, d);
         float shear = angularPulse(center * vec2(1.4, 0.8), 2.0, d * 6.0);
         float lens_ring = exp(-30.0 * (d - 0.52) * (d - 0.52));
+        float inner_ring = smoothstep(0.16, 0.22, d) - smoothstep(0.32, 0.38, d);
+        float jet = pow(max(0.0, 1.0 - abs(center.x) * 4.0), 5.0) * exp(-5.0 * center.y * center.y) * smoothstep(0.06, 0.42, abs(center.y));
+        float jet_mask = step(6.5, float(u_regime));
         vec3 accretion = mix(color, vec3(1.0, 0.82, 0.56), 0.45) * ring * (1.15 + 0.55 * u_core_boost) * mix(0.84, 1.18, shear);
+        vec3 hot_inner = mix(vec3(1.0, 0.90, 0.72), vec3(0.86, 0.72, 1.0), shear * 0.45) * inner_ring * (0.55 + 0.35 * u_core_boost);
         vec3 lens = vec3(0.03, 0.04, 0.07) * (1.0 - core_shadow) + vec3(0.30, 0.34, 0.44) * lens_ring * 0.12;
-        frag_color = vec4((accretion * size_comp + lens + rim_light * 0.35) * u_opacity,
-                          min(ring * 0.88 + lens_ring * 0.12 + (1.0 - core_shadow) * 0.2, 0.95) * u_opacity);
+        vec3 jet_color = mix(vec3(0.70, 0.82, 1.00), vec3(1.00, 0.86, 0.56), shear * 0.35);
+        vec3 jet_rgb = jet_color * jet * (0.12 + 0.16 * u_streak_gain) * jet_mask;
+        frag_color = vec4((accretion * size_comp + hot_inner + lens + jet_rgb + rim_light * 0.35) * u_opacity,
+                          min(ring * 0.88 + inner_ring * 0.30 + lens_ring * 0.12 + jet * 0.10 + (1.0 - core_shadow) * 0.2, 0.97) * u_opacity);
         return;
     }
 

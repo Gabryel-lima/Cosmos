@@ -12,6 +12,7 @@
 #include <vector>
 #include <numeric>
 #include <random>
+#include <cstdio>
 
 #include <glm/vec3.hpp>
 
@@ -839,6 +840,9 @@ void RegimeStructure::updateStellarEvolution(Universe& universe, double cosmic_d
 void RegimeStructure::runFriendsOfFriends(Universe& universe) {
     const ParticlePool& p = universe.particles;
     size_t n = p.x.size();
+    std::printf("[DBG] FoF ENTER n=%zu active=%zu cosmic_t=%.3e\n",
+                n, universe.particles.activeCount(), universe.cosmic_time);
+    std::fflush(stdout);
     if (n == 0) return;
 
     halos_.clear();
@@ -940,6 +944,8 @@ void RegimeStructure::runFriendsOfFriends(Universe& universe) {
             halos_.push_back(h);
         }
     }
+    std::printf("[DBG] FoF EXIT halos=%zu\n", halos_.size());
+    std::fflush(stdout);
 }
 
 // ── Atualização principal ─────────────────────────────────────────────────────
@@ -958,7 +964,15 @@ void RegimeStructure::update(double cosmic_dt, double scale_factor, double temp_
     double stellar_dt_scale = (phase_ == StructurePhase::REIONIZATION) ? 2.0e8 : 5.0e8;
     double total_stellar_dt = cosmic_dt <= 0.0 ? 0.0
                                                 : progress_dt * (stellar_dt_scale * phys::yr_to_s);
-    int substeps = computeSubsteps(total_visual_dt, 0.005, 6);
+    #if defined(QUALITY_SAFE)
+    constexpr int kStructureMaxSubsteps = 2;
+    constexpr double kFoFIntervalSeconds = 5e14;
+    #else
+    constexpr int kStructureMaxSubsteps = 6;
+    constexpr double kFoFIntervalSeconds = 1e14;
+    #endif
+
+    int substeps = computeSubsteps(total_visual_dt, 0.005, kStructureMaxSubsteps);
     double sub_visual_dt = total_visual_dt / static_cast<double>(substeps);
     double sub_stellar_dt = total_stellar_dt / static_cast<double>(substeps);
 
@@ -970,7 +984,11 @@ void RegimeStructure::update(double cosmic_dt, double scale_factor, double temp_
 
         // Integração Leapfrog KDK via dispatcher NBody para reaproveitar
         // paralelismo e o caminho AVX2/FMA quando o pool estiver denso.
+        std::printf("[DBG] nbody.step ENTER sub=%d/%d\n", step, substeps);
+        std::fflush(stdout);
         nbody_.step(universe.particles, static_cast<float>(sub_visual_dt));
+        std::printf("[DBG] nbody.step EXIT\n");
+        std::fflush(stdout);
 
         applyCosmicExpansion(universe, a_step_prev, a_step_new);
 
@@ -990,13 +1008,17 @@ void RegimeStructure::update(double cosmic_dt, double scale_factor, double temp_
         checkStarFormation(universe, T_K);
     }
 
-    // Executa FoF a cada 1e14 segundos (tempo cósmico)
-    if (universe.cosmic_time - last_fof_time_ > 1e14) {
+    // No SAFE mode, executa FoF com menor frequência para reduzir custo por frame.
+    if (universe.cosmic_time - last_fof_time_ > kFoFIntervalSeconds) {
         runFriendsOfFriends(universe);
         last_fof_time_ = universe.cosmic_time;
     }
 
+    std::printf("[DBG] rebuildDensityField ENTER N=%d\n", RegimeConfig::STRUCT_GRID_SIZE);
+    std::fflush(stdout);
     rebuildDensityField(universe, universe.cosmic_time);
+    std::printf("[DBG] rebuildDensityField EXIT\n");
+    std::fflush(stdout);
 
     universe.scale_factor    = scale_factor;
     universe.temperature_keV = temp_keV;

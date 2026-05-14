@@ -24,6 +24,8 @@ set of user controls for fast exploration and reproducible diagnostics.
 - Late macro regimes now use a richer volume-driven look: neutral gas fog, ionization fronts, emissivity fields, and gradual condensation into luminous sources.
 - Quality presets were rebalanced around the new macro renderer, and a new `SAFE` tier targets weak CPUs / integrated GPUs.
 - `SAFE` now also swaps in a cheaper volume-shader configuration, so weak machines get relief from both particle counts and volumetric raymarch cost.
+- Dark Ages, Reionization, and mature Structure now each use their own baked macro lookup texture, so the late gas volume reads differently across neutral fog, patchy ionization, and dusty warm filaments.
+- Late stars and black holes now get richer sprite shading with stronger corona/accretion detail while the gas volume dominates the early late-time phases instead of simple particle splats.
 - Runtime-safe CPU path: portable SSE2 baseline plus AVX2 dispatch for hot loops when available.
 - Fixed-step simulation update loop with overload protection for stable dynamics under low FPS.
 - Improved camera workflow: scene auto-framing, quick recenter, and nearest-particle tracking.
@@ -121,6 +123,8 @@ make QUALITY=ULTRA    # maximum detail — demands a capable CPU and GPU
 `SAFE` reduces CPU-heavy particle counts aggressively in the late N-body stages while keeping a minimal 3D field resolution so the smoke-like macro gas remains readable.
 
 In current builds, `SAFE` also lowers the cost of the late volumetric pass itself by trimming raymarch steps and shader noise complexity, which makes it the recommended first option on weak hardware.
+
+`LOW`, `MEDIUM`, `HIGH`, and `ULTRA` also scale the late gas shader itself now: more raymarch steps, more breakup detail, and stronger late-stage caustic/accretion detail as you move up the stack, while `SAFE` keeps the full late-time volume path enabled with cheaper settings instead of disabling it.
 
 ### Native-speed build (optional)
 

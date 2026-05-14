@@ -54,6 +54,15 @@ struct RegimeVisualProfile {
     float inflation_interference = 0.0f;
 };
 
+struct VolumeQualityProfile {
+    int max_steps = 128;
+    float step_size = 0.0075f;
+    int fbm_octaves = 3;
+    float quality_band = 1.5f;
+    float edge_sample_scale = 2.5f;
+    float density_threshold = 0.004f;
+};
+
 struct GrayImage2D {
     int width = 0;
     int height = 0;
@@ -88,6 +97,100 @@ fs::path resolveRendererAssetPath(const fs::path& relative_path) {
     }
 
     return relative_path;
+}
+
+VolumeQualityProfile volumeQualityProfileFor(QualityTier quality) {
+    switch (quality) {
+        case QualityTier::SAFE:
+            return VolumeQualityProfile{
+                .max_steps = 72,
+                .step_size = 0.0105f,
+                .fbm_octaves = 2,
+                .quality_band = 0.8f,
+                .edge_sample_scale = 3.6f,
+                .density_threshold = 0.006f,
+            };
+        case QualityTier::HIGH:
+            return VolumeQualityProfile{
+                .max_steps = 192,
+                .step_size = 0.0055f,
+                .fbm_octaves = 4,
+                .quality_band = 2.4f,
+                .edge_sample_scale = 2.0f,
+                .density_threshold = 0.002f,
+            };
+        case QualityTier::MEDIUM:
+        default:
+            return VolumeQualityProfile{};
+    }
+}
+
+int volumeUploadDownsampleFactorFor(QualityTier quality, const GridData& grid) {
+    if (quality != QualityTier::SAFE) {
+        return 1;
+    }
+    if (grid.NX < 24 || grid.NY < 24 || grid.NZ < 24) {
+        return 1;
+    }
+    return 2;
+}
+
+struct VolumeUploadView {
+    int nx = 0;
+    int ny = 0;
+    int nz = 0;
+    const float* data = nullptr;
+};
+
+VolumeUploadView buildVolumeUploadView(const GridData& grid, int downsample_factor) {
+    if (grid.NX <= 0 || grid.NY <= 0 || grid.NZ <= 0 || grid.data.empty()) {
+        return {};
+    }
+    if (downsample_factor <= 1) {
+        return VolumeUploadView{grid.NX, grid.NY, grid.NZ, grid.data.data()};
+    }
+
+    static thread_local std::vector<float> scratch;
+    const int upload_nx = std::max(1, (grid.NX + downsample_factor - 1) / downsample_factor);
+    const int upload_ny = std::max(1, (grid.NY + downsample_factor - 1) / downsample_factor);
+    const int upload_nz = std::max(1, (grid.NZ + downsample_factor - 1) / downsample_factor);
+    scratch.assign(static_cast<std::size_t>(upload_nx * upload_ny * upload_nz), 0.0f);
+
+    for (int z = 0; z < upload_nz; ++z) {
+        const int src_z0 = z * downsample_factor;
+        const int src_z1 = std::min(src_z0 + downsample_factor, grid.NZ);
+        for (int y = 0; y < upload_ny; ++y) {
+            const int src_y0 = y * downsample_factor;
+            const int src_y1 = std::min(src_y0 + downsample_factor, grid.NY);
+            for (int x = 0; x < upload_nx; ++x) {
+                const int src_x0 = x * downsample_factor;
+                const int src_x1 = std::min(src_x0 + downsample_factor, grid.NX);
+                float sum = 0.0f;
+                int count = 0;
+                for (int src_z = src_z0; src_z < src_z1; ++src_z) {
+                    for (int src_y = src_y0; src_y < src_y1; ++src_y) {
+                        for (int src_x = src_x0; src_x < src_x1; ++src_x) {
+                            sum += grid.at(src_x, src_y, src_z);
+                            ++count;
+                        }
+                    }
+                }
+                scratch[static_cast<std::size_t>(x + upload_nx * (y + upload_ny * z))] =
+                    (count > 0) ? (sum / static_cast<float>(count)) : 0.0f;
+            }
+        }
+    }
+
+    return VolumeUploadView{upload_nx, upload_ny, upload_nz, scratch.data()};
+}
+
+VolumeUploadView buildZeroVolumeUploadView(int nx, int ny, int nz) {
+    static thread_local std::vector<float> zeros;
+    if (nx <= 0 || ny <= 0 || nz <= 0) {
+        return {};
+    }
+    zeros.assign(static_cast<std::size_t>(nx * ny * nz), 0.0f);
+    return VolumeUploadView{nx, ny, nz, zeros.data()};
 }
 
 bool readNextPgmToken(std::istream& input, std::string& token) {
@@ -241,6 +344,27 @@ float particleShaderTagValue(ParticleShaderTag tag) {
     return static_cast<float>(static_cast<int>(tag));
 }
 
+constexpr int volumeLookupSlotForRegime(int regime_index) {
+    if (regime_index >= 8) return 2;
+    if (regime_index >= 7) return 1;
+    return 0;
+}
+
+const char* volumeLookupPathForSlot(int slot) {
+    switch (slot) {
+        case 0: return "assets/textures/dark_ages/volume_macro_lookup.pgm";
+        case 1: return "assets/textures/reionization/volume_macro_lookup.pgm";
+        case 2: return "assets/textures/structure/volume_macro_lookup.pgm";
+        default: return "assets/textures/structure/volume_macro_lookup.pgm";
+    }
+}
+
+float volumeLookupStrengthForRegime(int regime_index) {
+    if (regime_index <= 6) return 1.10f;
+    if (regime_index == 7) return 1.00f;
+    return 0.82f;
+}
+
 RegimeVisualProfile visualProfileForRegime(int regime_index) {
     RegimeVisualProfile profile;
     switch (std::clamp(regime_index, 0, 8)) {
@@ -333,13 +457,13 @@ RegimeVisualProfile visualProfileForRegime(int regime_index) {
             profile.particle_core_boost = 0.92f;
             profile.particle_sparkle = 0.02f;
             profile.particle_streak = 0.00f;
-            profile.volume_cold = glm::vec3(0.012f, 0.010f, 0.009f);
-            profile.volume_warm = glm::vec3(0.18f, 0.11f, 0.06f);
-            profile.volume_hot = glm::vec3(0.52f, 0.32f, 0.15f);
-            profile.volume_core = glm::vec3(0.90f, 0.72f, 0.48f);
-            profile.volume_density_scale = 12.8f;
-            profile.volume_opacity_scale = 1.14f;
-            profile.volume_edge_boost = 2.2f;
+            profile.volume_cold = glm::vec3(0.010f, 0.012f, 0.016f);
+            profile.volume_warm = glm::vec3(0.14f, 0.12f, 0.10f);
+            profile.volume_hot = glm::vec3(0.40f, 0.28f, 0.18f);
+            profile.volume_core = glm::vec3(0.82f, 0.70f, 0.54f);
+            profile.volume_density_scale = 15.4f;
+            profile.volume_opacity_scale = 1.36f;
+            profile.volume_edge_boost = 2.8f;
             profile.exposure = 0.88f;
             profile.saturation = 0.88f;
             profile.contrast = 1.18f;
@@ -354,13 +478,13 @@ RegimeVisualProfile visualProfileForRegime(int regime_index) {
             profile.particle_core_boost = 1.02f;
             profile.particle_sparkle = 0.06f;
             profile.particle_streak = 0.03f;
-            profile.volume_cold = glm::vec3(0.013f, 0.011f, 0.010f);
-            profile.volume_warm = glm::vec3(0.22f, 0.14f, 0.08f);
-            profile.volume_hot = glm::vec3(0.62f, 0.40f, 0.20f);
-            profile.volume_core = glm::vec3(0.98f, 0.88f, 0.74f);
-            profile.volume_density_scale = 10.0f;
-            profile.volume_opacity_scale = 1.06f;
-            profile.volume_edge_boost = 3.0f;
+            profile.volume_cold = glm::vec3(0.012f, 0.013f, 0.018f);
+            profile.volume_warm = glm::vec3(0.20f, 0.15f, 0.11f);
+            profile.volume_hot = glm::vec3(0.58f, 0.44f, 0.24f);
+            profile.volume_core = glm::vec3(0.96f, 0.90f, 0.80f);
+            profile.volume_density_scale = 11.4f;
+            profile.volume_opacity_scale = 1.12f;
+            profile.volume_edge_boost = 3.4f;
             profile.exposure = 0.92f;
             profile.saturation = 0.94f;
             profile.contrast = 1.12f;
@@ -376,13 +500,13 @@ RegimeVisualProfile visualProfileForRegime(int regime_index) {
             profile.particle_core_boost = 1.18f;
             profile.particle_sparkle = 0.10f;
             profile.particle_streak = 0.03f;
-            profile.volume_cold = glm::vec3(0.014f, 0.012f, 0.012f);
-            profile.volume_warm = glm::vec3(0.24f, 0.15f, 0.10f);
-            profile.volume_hot = glm::vec3(0.70f, 0.46f, 0.22f);
-            profile.volume_core = glm::vec3(1.0f, 0.92f, 0.80f);
-            profile.volume_density_scale = 10.5f;
-            profile.volume_opacity_scale = 0.98f;
-            profile.volume_edge_boost = 2.2f;
+            profile.volume_cold = glm::vec3(0.013f, 0.014f, 0.016f);
+            profile.volume_warm = glm::vec3(0.22f, 0.16f, 0.12f);
+            profile.volume_hot = glm::vec3(0.78f, 0.50f, 0.24f);
+            profile.volume_core = glm::vec3(1.0f, 0.94f, 0.82f);
+            profile.volume_density_scale = 11.2f;
+            profile.volume_opacity_scale = 1.04f;
+            profile.volume_edge_boost = 2.8f;
             profile.exposure = 0.98f;
             profile.saturation = 1.00f;
             profile.contrast = 1.10f;
@@ -421,19 +545,44 @@ static std::string readFile(const std::string& path) {
 GLuint Renderer::compileShader(GLenum type, const std::string& path) {
     std::string src = readFile(path);
     if (src.empty()) return 0;
-    #if defined(QUALITY_SAFE)
-        if (path.find("volume.frag") != std::string::npos) {
-            constexpr const char* safe_volume_preamble =
-                "#define COSMOS_VOLUME_MAX_STEPS 128\n"
-                "#define COSMOS_VOLUME_STEP_SIZE 0.0075\n"
-                "#define COSMOS_VOLUME_FBM_OCTAVES 2\n"
-                "#define COSMOS_VOLUME_ALPHA_COMPENSATION 1.35\n";
-            const std::size_t version_end = src.find('\n');
-            if (src.rfind("#version", 0) == 0 && version_end != std::string::npos) {
-                src.insert(version_end + 1, safe_volume_preamble);
-            }
+    if (path.find("volume.frag") != std::string::npos) {
+        constexpr const char* quality_volume_preamble =
+        #if defined(QUALITY_SAFE)
+            "#define COSMOS_VOLUME_MAX_STEPS 96\n"
+            "#define COSMOS_VOLUME_STEP_SIZE 0.0100\n"
+            "#define COSMOS_VOLUME_FBM_OCTAVES 2\n"
+            "#define COSMOS_VOLUME_ALPHA_COMPENSATION 1.55\n"
+            "#define COSMOS_VOLUME_QUALITY_BAND 0\n";
+        #elif defined(QUALITY_LOW)
+            "#define COSMOS_VOLUME_MAX_STEPS 144\n"
+            "#define COSMOS_VOLUME_STEP_SIZE 0.0080\n"
+            "#define COSMOS_VOLUME_FBM_OCTAVES 3\n"
+            "#define COSMOS_VOLUME_ALPHA_COMPENSATION 1.38\n"
+            "#define COSMOS_VOLUME_QUALITY_BAND 1\n";
+        #elif defined(QUALITY_HIGH)
+            "#define COSMOS_VOLUME_MAX_STEPS 288\n"
+            "#define COSMOS_VOLUME_STEP_SIZE 0.0045\n"
+            "#define COSMOS_VOLUME_FBM_OCTAVES 5\n"
+            "#define COSMOS_VOLUME_ALPHA_COMPENSATION 1.00\n"
+            "#define COSMOS_VOLUME_QUALITY_BAND 3\n";
+        #elif defined(QUALITY_ULTRA)
+            "#define COSMOS_VOLUME_MAX_STEPS 384\n"
+            "#define COSMOS_VOLUME_STEP_SIZE 0.0035\n"
+            "#define COSMOS_VOLUME_FBM_OCTAVES 6\n"
+            "#define COSMOS_VOLUME_ALPHA_COMPENSATION 0.96\n"
+            "#define COSMOS_VOLUME_QUALITY_BAND 4\n";
+        #else
+            "#define COSMOS_VOLUME_MAX_STEPS 224\n"
+            "#define COSMOS_VOLUME_STEP_SIZE 0.0055\n"
+            "#define COSMOS_VOLUME_FBM_OCTAVES 4\n"
+            "#define COSMOS_VOLUME_ALPHA_COMPENSATION 1.08\n"
+            "#define COSMOS_VOLUME_QUALITY_BAND 2\n";
+        #endif
+        const std::size_t version_end = src.find('\n');
+        if (src.rfind("#version", 0) == 0 && version_end != std::string::npos) {
+            src.insert(version_end + 1, quality_volume_preamble);
         }
-    #endif
+    }
     const char* csrc = src.c_str();
     GLuint sh = glCreateShader(type);
     glShaderSource(sh, 1, &csrc, nullptr);
@@ -573,7 +722,9 @@ bool Renderer::init(int width, int height) {
     glGenTextures(1, &density_3d_tex_.id);
     glGenTextures(1, &ionization_3d_tex_.id);
     glGenTextures(1, &emissivity_3d_tex_.id);
-    glGenTextures(1, &volume_macro_lookup_tex_.id);
+    glGenTextures(1, &volume_macro_lookup_dark_ages_tex_.id);
+    glGenTextures(1, &volume_macro_lookup_reionization_tex_.id);
+    glGenTextures(1, &volume_macro_lookup_structure_tex_.id);
     glGenTextures(1, &inflation_2d_tex_.id);
 
     // Carregar shaders
@@ -658,7 +809,9 @@ void Renderer::shutdown() {
     deleteTexture(density_3d_tex_);
     deleteTexture(ionization_3d_tex_);
     deleteTexture(emissivity_3d_tex_);
-    deleteTexture(volume_macro_lookup_tex_);
+    deleteTexture(volume_macro_lookup_dark_ages_tex_);
+    deleteTexture(volume_macro_lookup_reionization_tex_);
+    deleteTexture(volume_macro_lookup_structure_tex_);
     deleteTexture(inflation_2d_tex_);
 
     deleteProgram(particle_shader_);
@@ -807,11 +960,15 @@ bool Renderer::loadPgmTexture2D(GlTexture& texture,
     glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, image.width, image.height, 0,
                  GL_RED, GL_UNSIGNED_BYTE, image.pixels.data());
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    const bool use_mipmaps = image.width > 32 || image.height > 32;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                    use_mipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glGenerateMipmap(GL_TEXTURE_2D);
+    if (use_mipmaps) {
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
 
     out_width = image.width;
     out_height = image.height;
@@ -819,28 +976,35 @@ bool Renderer::loadPgmTexture2D(GlTexture& texture,
 }
 
 void Renderer::setupLookupTextures() {
-    glBindTexture(GL_TEXTURE_2D, volume_macro_lookup_tex_.id);
-    volume_macro_lookup_loaded_ = loadPgmTexture2D(
-        volume_macro_lookup_tex_,
-        "assets/textures/structure/volume_macro_lookup.pgm",
-        volume_macro_lookup_width_,
-        volume_macro_lookup_height_);
+    auto loadLookup = [&](GlTexture& texture, int slot) {
+        glBindTexture(GL_TEXTURE_2D, texture.id);
+        volume_macro_lookup_loaded_[slot] = loadPgmTexture2D(
+            texture,
+            volumeLookupPathForSlot(slot),
+            volume_macro_lookup_width_[slot],
+            volume_macro_lookup_height_[slot]);
 
-    if (!volume_macro_lookup_loaded_) {
-        const unsigned char neutral_gray = 128;
-        volume_macro_lookup_width_ = 1;
-        volume_macro_lookup_height_ = 1;
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, 1, 1, 0,
-                     GL_RED, GL_UNSIGNED_BYTE, &neutral_gray);
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        std::fprintf(stderr,
-                     "[Renderer] Optional baked lookup not found: assets/textures/structure/volume_macro_lookup.pgm\n");
-    }
+        if (!volume_macro_lookup_loaded_[slot]) {
+            const unsigned char neutral_gray = 128;
+            volume_macro_lookup_width_[slot] = 1;
+            volume_macro_lookup_height_[slot] = 1;
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, 1, 1, 0,
+                         GL_RED, GL_UNSIGNED_BYTE, &neutral_gray);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            std::fprintf(stderr,
+                         "[Renderer] Optional baked lookup not found: %s\n",
+                         volumeLookupPathForSlot(slot));
+        }
+    };
+
+    loadLookup(volume_macro_lookup_dark_ages_tex_, 0);
+    loadLookup(volume_macro_lookup_reionization_tex_, 1);
+    loadLookup(volume_macro_lookup_structure_tex_, 2);
 }
 
 void Renderer::setupParticleBuffers() {
@@ -878,6 +1042,16 @@ void Renderer::resize(int w, int h) {
 // ── Ciclo de vida do quadro ──────────────────────────────────────────────────────
 
 void Renderer::beginFrame() {
+    const QualityTier requested_quality = GetCurrentQuality();
+    if (requested_quality != current_quality_) {
+        current_quality_ = requested_quality;
+        gas_splat_renderer_.OnQualityChanged(current_quality_);
+        star_glow_renderer_.OnQualityChanged(current_quality_);
+        stromgren_renderer_.OnQualityChanged(current_quality_);
+        star_fx_renderer_.OnQualityChanged(current_quality_);
+        filament_renderer_.OnQualityChanged(current_quality_);
+    }
+
     cmb_flash_alpha_ = 0.0f; // Resetar flash a cada quadro
     last_particle_draw_count_ = 0;
     last_halo_draw_count_ = 0;
@@ -1014,6 +1188,9 @@ void Renderer::renderParticles(const Universe& universe) {
                 if (universe.regime_index == 6) particle_sz *= 0.76f;
                 else if (universe.regime_index == 7) particle_sz *= 0.84f;
                 else particle_sz *= 0.90f;
+                if (current_quality_ != QualityTier::SAFE) {
+                    particle_sz *= (universe.regime_index <= 7) ? 0.58f : 0.74f;
+                }
             } else if (p.type[i] == ParticleType::DARK_MATTER) {
                 particle_sz *= 0.84f;
             } else if (p.type[i] == ParticleType::STAR) {
@@ -1039,17 +1216,23 @@ void Renderer::renderParticles(const Universe& universe) {
         if (universe.regime_index >= 6) {
             if (p.type[i] == ParticleType::GAS) {
                 if (universe.regime_index == 6) {
-                    color_r *= 0.60f;
-                    color_g *= 0.50f;
-                    color_b *= 0.38f;
+                    color_r *= 0.48f;
+                    color_g *= 0.42f;
+                    color_b *= 0.34f;
                 } else if (universe.regime_index == 7) {
-                    color_r *= 0.74f;
-                    color_g *= 0.66f;
-                    color_b *= 0.58f;
+                    color_r *= 0.58f;
+                    color_g *= 0.54f;
+                    color_b *= 0.50f;
                 } else {
-                    color_r *= 0.86f;
-                    color_g *= 0.80f;
-                    color_b *= 0.74f;
+                    color_r *= 0.70f;
+                    color_g *= 0.66f;
+                    color_b *= 0.62f;
+                }
+                if (current_quality_ != QualityTier::SAFE) {
+                    const float gas_gain = (universe.regime_index <= 7) ? 0.36f : 0.52f;
+                    color_r *= gas_gain;
+                    color_g *= gas_gain;
+                    color_b *= gas_gain;
                 }
             } else if (p.type[i] == ParticleType::DARK_MATTER) {
                 color_r *= 0.54f;
@@ -1142,10 +1325,13 @@ void Renderer::renderParticles(const Universe& universe) {
 void Renderer::renderVolumeField(const Universe& universe) {
     const GridData& field = universe.density_field;
     if (field.data.empty() || !volume_shader_.id) return;
+    static int dbg_vol_count = 0;
+    const bool dbg_vol = (dbg_vol_count++ < 5);
+    if (dbg_vol)
+        { std::printf("[DBG] renderVolumeField ENTER regime=%d NX=%d ds=%zu\n",
+                      universe.regime_index, field.NX, field.data.size());
+          std::fflush(stdout); }
     syncVisualTuning(universe);
-    #if defined(QUALITY_SAFE)
-        if (universe.regime_index >= 5) return;
-    #endif
     const RegimeVisualProfile profile = visualProfileForRegime(universe.regime_index);
     const GridData* ionization = (universe.ionization_field.data.size() == field.data.size())
         ? &universe.ionization_field
@@ -1153,6 +1339,8 @@ void Renderer::renderVolumeField(const Universe& universe) {
     const GridData* emissivity = (universe.emissivity_field.data.size() == field.data.size())
         ? &universe.emissivity_field
         : nullptr;
+    const int upload_downsample = volumeUploadDownsampleFactorFor(current_quality_, field);
+    const VolumeUploadView density_upload = buildVolumeUploadView(field, upload_downsample);
 
     // Determine the box size based on the current cosmic regime.
     // Regime 1 and 2 operate on small boxes. Regime 3 uses a 5.0 unit box. Regime 4 uses 50.0 units.
@@ -1161,46 +1349,71 @@ void Renderer::renderVolumeField(const Universe& universe) {
     else if (universe.regime_index <= 2) box_size = 1.0f;
 
     // Enviar campo para textura 3D (redimensionar se necessário)
+    if (dbg_vol)
+        { std::printf("[DBG] glTexImage3D density ENTER %dx%dx%d\n",
+                      density_upload.nx, density_upload.ny, density_upload.nz);
+          std::fflush(stdout); }
     glBindTexture(GL_TEXTURE_3D, density_3d_tex_.id);
-    if (field.NX > 0) {
-        density_tex_nx_ = field.NX;
-        density_tex_ny_ = field.NY;
-        density_tex_nz_ = field.NZ;
+    if (density_upload.nx > 0) {
+        density_tex_nx_ = density_upload.nx;
+        density_tex_ny_ = density_upload.ny;
+        density_tex_nz_ = density_upload.nz;
         last_volume_grid_nx_ = field.NX;
         last_volume_grid_ny_ = field.NY;
         last_volume_grid_nz_ = field.NZ;
         glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F,
-                     field.NX, field.NY, field.NZ, 0,
-                     GL_RED, GL_FLOAT, field.data.data());
+                     density_upload.nx, density_upload.ny, density_upload.nz, 0,
+                     GL_RED, GL_FLOAT, density_upload.data);
     }
+    if (dbg_vol) { std::printf("[DBG] glTexImage3D density EXIT\n"); std::fflush(stdout); }
     glBindTexture(GL_TEXTURE_3D, ionization_3d_tex_.id);
     if (ionization && ionization->NX > 0) {
-        ionization_tex_nx_ = ionization->NX;
-        ionization_tex_ny_ = ionization->NY;
-        ionization_tex_nz_ = ionization->NZ;
+        const VolumeUploadView ionization_upload = buildVolumeUploadView(*ionization, upload_downsample);
+        ionization_tex_nx_ = ionization_upload.nx;
+        ionization_tex_ny_ = ionization_upload.ny;
+        ionization_tex_nz_ = ionization_upload.nz;
         glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F,
-                     ionization->NX, ionization->NY, ionization->NZ, 0,
-                     GL_RED, GL_FLOAT, ionization->data.data());
-    } else if (field.NX > 0) {
-        std::vector<float> zeros(field.data.size(), 0.0f);
+                     ionization_upload.nx, ionization_upload.ny, ionization_upload.nz, 0,
+                     GL_RED, GL_FLOAT, ionization_upload.data);
+    } else if (density_upload.nx > 0) {
+        const VolumeUploadView zeros = buildZeroVolumeUploadView(
+            density_upload.nx, density_upload.ny, density_upload.nz);
+        ionization_tex_nx_ = zeros.nx;
+        ionization_tex_ny_ = zeros.ny;
+        ionization_tex_nz_ = zeros.nz;
         glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F,
-                     field.NX, field.NY, field.NZ, 0,
-                     GL_RED, GL_FLOAT, zeros.data());
+                     zeros.nx, zeros.ny, zeros.nz, 0,
+                     GL_RED, GL_FLOAT, zeros.data);
     }
     glBindTexture(GL_TEXTURE_3D, emissivity_3d_tex_.id);
     if (emissivity && emissivity->NX > 0) {
-        emissivity_tex_nx_ = emissivity->NX;
-        emissivity_tex_ny_ = emissivity->NY;
-        emissivity_tex_nz_ = emissivity->NZ;
+        const VolumeUploadView emissivity_upload = buildVolumeUploadView(*emissivity, upload_downsample);
+        emissivity_tex_nx_ = emissivity_upload.nx;
+        emissivity_tex_ny_ = emissivity_upload.ny;
+        emissivity_tex_nz_ = emissivity_upload.nz;
         glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F,
-                     emissivity->NX, emissivity->NY, emissivity->NZ, 0,
-                     GL_RED, GL_FLOAT, emissivity->data.data());
-    } else if (field.NX > 0) {
-        std::vector<float> zeros(field.data.size(), 0.0f);
+                     emissivity_upload.nx, emissivity_upload.ny, emissivity_upload.nz, 0,
+                     GL_RED, GL_FLOAT, emissivity_upload.data);
+    } else if (density_upload.nx > 0) {
+        const VolumeUploadView zeros = buildZeroVolumeUploadView(
+            density_upload.nx, density_upload.ny, density_upload.nz);
+        emissivity_tex_nx_ = zeros.nx;
+        emissivity_tex_ny_ = zeros.ny;
+        emissivity_tex_nz_ = zeros.nz;
         glTexImage3D(GL_TEXTURE_3D, 0, GL_R16F,
-                     field.NX, field.NY, field.NZ, 0,
-                     GL_RED, GL_FLOAT, zeros.data());
+                     zeros.nx, zeros.ny, zeros.nz, 0,
+                     GL_RED, GL_FLOAT, zeros.data);
     }
+
+    const int lookup_slot = volumeLookupSlotForRegime(universe.regime_index);
+    const GlTexture* lookup_texture = &volume_macro_lookup_structure_tex_;
+    switch (lookup_slot) {
+        case 0: lookup_texture = &volume_macro_lookup_dark_ages_tex_; break;
+        case 1: lookup_texture = &volume_macro_lookup_reionization_tex_; break;
+        case 2: default: lookup_texture = &volume_macro_lookup_structure_tex_; break;
+    }
+
+    const VolumeQualityProfile volume_quality = volumeQualityProfileFor(current_quality_);
 
     glUseProgram(volume_shader_.id);
     glUniform1i(glGetUniformLocation(volume_shader_.id, "u_density_tex"), 0);
@@ -1208,14 +1421,20 @@ void Renderer::renderVolumeField(const Universe& universe) {
     glUniform1i(glGetUniformLocation(volume_shader_.id, "u_emissivity_tex"), 2);
     glUniform1i(glGetUniformLocation(volume_shader_.id, "u_macro_lookup_tex"), 3);
     glUniform1i(glGetUniformLocation(volume_shader_.id, "u_regime"), universe.regime_index);
+    glUniform1i(glGetUniformLocation(volume_shader_.id, "u_max_steps"), volume_quality.max_steps);
+    glUniform1f(glGetUniformLocation(volume_shader_.id, "u_step_size"), volume_quality.step_size);
+    glUniform1i(glGetUniformLocation(volume_shader_.id, "u_fbm_octaves"), volume_quality.fbm_octaves);
+    glUniform1f(glGetUniformLocation(volume_shader_.id, "u_quality_band"), volume_quality.quality_band);
+    glUniform1f(glGetUniformLocation(volume_shader_.id, "u_edge_sample_scale"), volume_quality.edge_sample_scale);
+    glUniform1f(glGetUniformLocation(volume_shader_.id, "u_density_threshold"), volume_quality.density_threshold);
     glUniform1f(glGetUniformLocation(volume_shader_.id, "u_density_scale"), profile.volume_density_scale);
     glUniform1f(glGetUniformLocation(volume_shader_.id, "u_opacity_scale"), profile.volume_opacity_scale * volume_opacity_multiplier_);
     glUniform1f(glGetUniformLocation(volume_shader_.id, "u_opacity"), render_opacity_);
     glUniform1f(glGetUniformLocation(volume_shader_.id, "u_edge_boost"), profile.volume_edge_boost);
     glUniform1f(glGetUniformLocation(volume_shader_.id, "u_macro_lookup_strength"),
-                volume_macro_lookup_loaded_ ? 0.85f : 0.0f);
+                volume_macro_lookup_loaded_[lookup_slot] ? volumeLookupStrengthForRegime(universe.regime_index) : 0.0f);
     glUniform1f(glGetUniformLocation(volume_shader_.id, "u_macro_lookup_scale"),
-                (universe.regime_index >= 7) ? 4.0f : 3.0f);
+                (universe.regime_index >= 8) ? 4.6f : (universe.regime_index >= 7 ? 4.0f : 2.6f));
     glUniform3f(glGetUniformLocation(volume_shader_.id, "u_cam_world_pos"), 
                 static_cast<float>(cam_world_pos_.x), 
                 static_cast<float>(cam_world_pos_.y), 
@@ -1237,13 +1456,15 @@ void Renderer::renderVolumeField(const Universe& universe) {
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_3D, emissivity_3d_tex_.id);
     glActiveTexture(GL_TEXTURE3);
-    glBindTexture(GL_TEXTURE_2D, volume_macro_lookup_tex_.id);
+    glBindTexture(GL_TEXTURE_2D, lookup_texture->id);
 
     glBindVertexArray(quad_vao_.id);
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    if (dbg_vol) { std::printf("[DBG] glDrawArrays volume ENTER\n"); std::fflush(stdout); }
     glDrawArrays(GL_TRIANGLES, 0, 6);
+    if (dbg_vol) { std::printf("[DBG] glDrawArrays volume EXIT\n"); std::fflush(stdout); }
     glBlendFunc(GL_SRC_ALPHA, GL_ONE);
     glEnable(GL_DEPTH_TEST);
     glBindVertexArray(0);
@@ -1407,6 +1628,7 @@ void Renderer::applyPostProcess() {
 
 void Renderer::renderGasSplat(const Universe& universe, const Camera& cam) {
     if (!universe.visual.show_gas_splat) return;
+    if (current_quality_ != QualityTier::SAFE && universe.regime_index <= REGIME_REIONIZATION) return;
     gas_splat_renderer_.Render(universe.particles, universe.regime_index, cam,
                                static_cast<float>(universe.cosmic_time));
 }

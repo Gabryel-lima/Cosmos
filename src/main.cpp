@@ -17,6 +17,7 @@
 #include "core/Camera.hpp"
 #include "render/Renderer.hpp"
 #include "render/RegimeOverlay.hpp"
+#include "render/ICosmicRenderer.hpp"
 #include "physics/Constants.hpp"
 #include "physics/ParticlePool.hpp"
 
@@ -39,6 +40,10 @@
 #endif
 
 // ── Estado global (apenas na unidade de tradução principal) ──────────────────────────────
+
+// ── Debug helpers ──────────────────────────────────────────────────────────────────────
+#define DBGF(fmt, ...) do { std::printf(fmt, ##__VA_ARGS__); std::fflush(stdout); } while(0)
+static bool dbgVerboseFrame(std::uint64_t f) { return f < 5 || f % 60 == 0; }
 
 static int g_width  = 1280;
 static int g_height = 720;
@@ -1024,9 +1029,16 @@ int main(int argc, char** argv) {
 
             // Tick de física do regime
             int previous_regime = app.mgr.getCurrentRegimeIndex();
+            if (dbgVerboseFrame(app.frame_index))
+                DBGF("[DBG f=%llu] sim_step=%d ENTER mgr.tick regime=%d\n",
+                     (unsigned long long)app.frame_index, sim_steps, previous_regime);
             step_start = Clock::now();
             app.mgr.tick(app.clock, app.universe, kFixedSimDt);
             telemetry_timings.manager_tick_ms += elapsedMs(step_start, Clock::now());
+            if (dbgVerboseFrame(app.frame_index))
+                DBGF("[DBG f=%llu] sim_step=%d EXIT  mgr.tick (%.2f ms)\n",
+                     (unsigned long long)app.frame_index, sim_steps,
+                     elapsedMs(step_start, Clock::now()));
             int current_regime = app.mgr.getCurrentRegimeIndex();
             app.universe.regime_index = current_regime;
             app.universe.active_particles = static_cast<int>(app.universe.particles.activeCount());
@@ -1043,12 +1055,20 @@ int main(int argc, char** argv) {
             IRegime* regime = app.mgr.getCurrentRegime();
             if (regime) {
                 double cosmic_dt = app.clock.getLastStepCosmicDt();
+                if (dbgVerboseFrame(app.frame_index))
+                    DBGF("[DBG f=%llu] sim_step=%d ENTER regime.update regime=%d cdt=%.3e\n",
+                         (unsigned long long)app.frame_index, sim_steps,
+                         app.mgr.getCurrentRegimeIndex(), cosmic_dt);
                 step_start = Clock::now();
                 regime->update(cosmic_dt,
                                app.clock.getScaleFactor(),
                                app.clock.getTemperatureKeV(),
                                app.universe);
-                telemetry_timings.regime_update_ms += elapsedMs(step_start, Clock::now());
+                const double upd_ms = elapsedMs(step_start, Clock::now());
+                telemetry_timings.regime_update_ms += upd_ms;
+                if (dbgVerboseFrame(app.frame_index))
+                    DBGF("[DBG f=%llu] sim_step=%d EXIT  regime.update (%.2f ms)\n",
+                         (unsigned long long)app.frame_index, sim_steps, upd_ms);
             }
 
             app.universe.active_particles = static_cast<int>(app.universe.particles.activeCount());
@@ -1093,9 +1113,19 @@ int main(int argc, char** argv) {
         telemetry_timings.render_setup_ms += elapsedMs(section_start, Clock::now());
 
         section_start = Clock::now();
+        if (dbgVerboseFrame(app.frame_index))
+            DBGF("[DBG f=%llu] ENTER beginFrame\n", (unsigned long long)app.frame_index);
         app.renderer.beginFrame();
+        if (dbgVerboseFrame(app.frame_index))
+            DBGF("[DBG f=%llu] ENTER mgr.render regime=%d\n",
+                 (unsigned long long)app.frame_index, app.mgr.getCurrentRegimeIndex());
         app.mgr.render(app.renderer, app.universe);
+        if (dbgVerboseFrame(app.frame_index))
+            DBGF("[DBG f=%llu] ENTER endFrame\n", (unsigned long long)app.frame_index);
         app.renderer.endFrame();
+        if (dbgVerboseFrame(app.frame_index))
+            DBGF("[DBG f=%llu] EXIT  endFrame (total render=%.2f ms)\n",
+                 (unsigned long long)app.frame_index, elapsedMs(section_start, Clock::now()));
         telemetry_timings.render_ms += elapsedMs(section_start, Clock::now());
 
         // Atualizar leitura do tempo de GPU
@@ -1131,7 +1161,12 @@ int main(int argc, char** argv) {
         telemetry_timings.video_capture_ms += elapsedMs(section_start, Clock::now());
 
         section_start = Clock::now();
+        if (dbgVerboseFrame(app.frame_index))
+            DBGF("[DBG f=%llu] ENTER swapBuffers\n", (unsigned long long)app.frame_index);
         glfwSwapBuffers(app.window);
+        if (dbgVerboseFrame(app.frame_index))
+            DBGF("[DBG f=%llu] EXIT  swapBuffers (%.2f ms)\n",
+                 (unsigned long long)app.frame_index, elapsedMs(section_start, Clock::now()));
         telemetry_timings.swap_buffers_ms += elapsedMs(section_start, Clock::now());
 
         telemetry_timings.frame_ms = elapsedMs(frame_start, Clock::now());
